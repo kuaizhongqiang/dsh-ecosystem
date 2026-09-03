@@ -1,5 +1,15 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(M7+M8 编码完成,本地提交)
+
+- **M7+M8(dsh-launcher 仓,分支 `feat/m7-m8-setup-lock`,commit `5cdc85c`,未推送)**——Phase 7/8 落地:
+  - **M7 setup 一条龙**(`src/setup.ts` 新增):`setup [--manifest] [--offline] [--connection] [--profile-dir|--profile-in --password] [--plugins] [--no-start] [--update-lock]` —— core(缺口/离线)→ pull(插件+skills,lock 优先;离线时信任 `<offline>/plugins` 目录)→ 个人层(可选)→ 连接 → start;GUI「一键部署」按钮(confirm 后走 `POST /api/setup`,202 异步 + SSE 进度)
+  - **M8 版本 lock**(`ecosystem.ts`):`ecosystem-lock.json`(launcher 旁)——首次默认 pull 自动写;**无显式清单时 pull 一律收敛到 lock**(多机一致);显式 `--manifest` 不触碰 lock;`--update-lock` = 确认升级(写新 lock);`check-update` 有更新时提示「pull --update-lock 确认升级」;回传 = profile push/pull(M4 通道,LWW)
+  - 验证:`verify-m7.mjs` **8/8**(离线 core + pull + 个人层 + lock 无头 e2e);`verify-m8.mjs` **8/8**(lock roundtrip/默认收敛/显式不动 lock/确认升级/回传提示);`tsc --noEmit` 与 `npm run build` 零错误
+  - 真机验证点:U 盘离线包新机 `setup --offline …` 全自动;两台机器 lock 收敛;B 机 `profile push` 回传 pack
+- **dsh-launcher M0–M8 全部编码完成**;分支链 main(M0)→ m1 → m2 → m3 → m4 → m5 → m6 → m7-m8(`5cdc85c`),待 M0 PR #11 合并后统一 rebase 推送
+- 下一步:PM1–PM4(dsh-plugins:分层规范/模板重构、dsh-media+dsh-deepseek 合并、dsh-launcher 插件、默认清单 11→7)
+
 ## 2026-09-03(M6 编码完成,本地提交)
 
 - **M6(dsh-launcher 仓,分支 `feat/m6-tray-restart`,commit `b7cdf31`,未推送)**——Phase 6 落地:
