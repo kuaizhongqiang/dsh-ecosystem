@@ -1,5 +1,15 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(M4 编码完成,本地提交)
+
+- **M4(dsh-launcher 仓,分支 `feat/m4-profile-pack`,commit `7de57b1`,未推送)**——Phase 4 落地:
+  - `src/profile.ts`(新增):白名单同步(settings.yaml / profiles/web/cordis.patch.yml / profiles/web/plugins/ / skills/ / stock/watchlist.json / stock/reports/)+ 显式排除(sessions、attachments、storages、llm-deepseek、node_modules、.git、.dsh-module-fallback、stock/daily、.dsh-memory-autostore-state*、kline-cache*)+ **红线 D2**(.credentials.yaml / launch-token.json / connections.json / .anonymous-user-id 永不进同步);`profile push`(镜像 + replace 语义 + profile-pack.json 清单含 sha256)/`profile pull`(按清单恢复,sha 校验不符即中止,红线永不恢复);`profile export/import` 加密容器(魔数 DSHPP1 + scrypt 派生 + AES-256-GCM,口令走 DSH_LAUNCHER_PROFILE_PASSWORD 或 --password——免外部 age 依赖的内置实现)
+  - `src/cli.ts`:`profile push|pull|export|import` 子命令 + usage
+  - 验证:新增 `scripts/verify-m4.mjs`(`npm run verify:m4`)——**13 用例全过**:push 白名单/噪音剔除 4 + pull 恢复 4 + 加密容器 roundtrip/错口令拒绝 4 + exclude 1;`tsc --noEmit` 与 `npm run build` 零错误
+  - 真机验证点:本机 `profile push --dir <U盘pack>` → 新机 `profile pull` / `profile import`(口令三选一之 a 手填凭证 / b 加密包 / c 私有仓仍由用户选)
+- 分支链:…→ feat/m3(M3 `3fa5866`)→ feat/m4(M4 `7de57b1`);M0 PR #11 合并后依次 rebase 推 M1–M4 PR
+- 下一步:M5(connections.json 多连接 + launch-token v1 兼容层 + D8 端口锁/active 标记/原子写)/ 先推 M1–M4 PR
+
 ## 2026-09-03(M3 编码完成,本地提交)
 
 - **M3(dsh-launcher 仓,分支 `feat/m3-runtime-offline`,commit `3fa5866`,未推送)**——Phase 3 落地:
