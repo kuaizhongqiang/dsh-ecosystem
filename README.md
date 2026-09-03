@@ -35,12 +35,16 @@ git submodule update --init --recursive
 | [docs/ECOSYSTEM-PLAN-REVIEW.md](docs/ECOSYSTEM-PLAN-REVIEW.md) | 初轮审查(mimo-v2.5-pro,18 条,已消化) |
 | [docs/ECOSYSTEM-PLAN-REVIEW-DEEP.md](docs/ECOSYSTEM-PLAN-REVIEW-DEEP.md) | 深度审查(代码级 + 实测,10 条,有效 8 条已进 v3) |
 | [docs/WORKLOG.md](docs/WORKLOG.md) | 工作日志 / 交接 |
+| [docs/modules/](docs/modules/README.md) | 各组件生态位说明书(索引 + 6 模块页,含当前锁指针) |
+| [docs/RELEASING.md](docs/RELEASING.md) | 伞仓发布流程(tag 即生态快照:checklist + 步骤 + notes 模板指引) |
 
 工作项跟踪:
 
 - **dsh-ecosystem Issues** — 里程碑 M0–M8 + 插件优化 PM1–PM4:https://github.com/kuaizhongqiang/dsh-ecosystem/issues
 - 编号映射:M0=#3、M1=#5、M2=#6、M3=#7、M4=#8、M5=#9、M6=#10、M7=#11、M8=#12;PM1=#13、PM2=#14、PM3=#15、PM4=#16
 - (原 dsh-launcher / dsh-plugins 里程碑 issue 已关闭并留跳转注释;dsh-launcher#1 经 UI transfer 原档迁入,即本仓 #3)
+
+Issue / PR 模板与发布说明模板在 [`.github/`](.github/):bug / feature / 里程碑任务三套 issue 模板 + PR 模板 + release notes 模板。
 
 ## 指针更新
 
