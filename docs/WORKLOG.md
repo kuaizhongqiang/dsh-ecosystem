@@ -1,5 +1,16 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(全部推送落地,伞仓指针 bump —— 路线图实施收官)
+
+- **dsh-plugins**:`feat/pm1-pm2-media-deepseek` 推送并经 [PR #7](https://github.com/kuaizhongqiang/dsh-plugins/pull/7) 合入 main(main=02b61f9,含 PM1–PM4,新集合 11→7)
+- **dsh-launcher**:9 段分支逐一推送 + PR + 合入 main —— [PR #11 M0](https://github.com/kuaizhongqiang/dsh-launcher/pull/11)(b4f9b0a)、#12 M1、#13 M2、#14 M3、#15 M4、#16 M5、#17 M6、#18 M7+M8、[#19 PM4 联动](https://github.com/kuaizhongqiang/dsh-launcher/pull/19)(main=2e3ae87,含 M0–M8 全量 + 内层 dsh-plugins gitlink 9f47279)
+- **伞仓 bump**(commit `b43af95`,已推 main):`dsh-launcher → 2e3ae87`、`dsh-plugins → 02b61f9`(update-index --cacheinfo,子模块目录保持未初始化惯例)
+- **里程碑状态:M0–M8 + PM1–PM4 全部实现、验证(172 用例)、留痕、推送、指针落地** ✅
+- 待办(交给用户/后续):
+  - 生态快照 release(`ecosystem-2026.09`):按 docs/RELEASING.md 流程即可,是否切 tag 留给用户(此前决议:先定流程不实际切)
+  - 真机验证点汇总:离线包新机 `setup --offline`、托盘/重启 seam(打包 exe)、remote 连接跟随、PM3 插件会话内全链、profile pack 双机回传
+  - 技术备忘:launcher 内 npm allow-scripts 门禁会拦 electron/koffi postinstall,打包前需批准;pnpm 勿用于该仓
+
 ## 2026-09-03(PM3+PM4 编码完成 —— 全部里程碑编码收官)
 
 - **PM3(dsh-plugins 仓,同分支,commit `9f47279`)**:`plugins/dsh-launcher-dsh-plugin` —— 5 工具(launcher_restart/status/connections/open/check_update),ESM defineTool;发现链(D6/M6):`DSH_LAUNCHER_EXE` → 注册文件(心跳+pid 复核)REST bridge 优先、其次 `<launcherExe> restart` → 手动指引;connections 切换写 D8 标记;输出全脱敏(token=***);无新凭证;`skills/install-launcher/SKILL.md`
