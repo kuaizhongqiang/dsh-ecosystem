@@ -1,5 +1,18 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(M3 编码完成,本地提交)
+
+- **M3(dsh-launcher 仓,分支 `feat/m3-runtime-offline`,commit `3fa5866`,未推送)**——Phase 3 落地:
+  - `src/node.ts` 运行时自持段:runtime 根 `%LOCALAPPDATA%\dsh\runtime`(`DSH_LAUNCHER_RUNTIME_DIR` 可覆盖);`ensureRuntimeNode`(node.exe 就绪校验/下载 node-v<ver>-win-x64.zip/系统 tar→PowerShell 解压/提升到 runtime 根;mirror 缺省 nodejs.org,支持本地路径镜像与 `DSH_LAUNCHER_RUNTIME_FAKE` 测试缝);`resolveNodeExe` 优先级 **DSH_LAUNCHER_NODE_EXE > 便携 runtime > 系统 node > 下载**;`childEnvForNode` PATH 注入(仅便携时,不污染系统)
+  - `src/launch.ts`:启动 dsh 改用解析出的 node 可执行 + 注入 env
+  - `src/install.ts`:`runOfflineInstall`——`install --offline <目录>`:offline/dsh(npm/github 布局自动识别)直装、offline/runtime 便携 node 落位、写 launcher.json;不触发网络/git/pnpm
+  - `src/cli.ts`:install 支持 `--offline` + usage
+  - 验证:新增 `scripts/verify-m3.mjs`(`npm run verify:m3`,先 build)——**14 用例全过**:离线 CLI 安装 5(直装/布局/配置/runtime 落位)+ 解析优先级 3 + PATH 注入 2 + 本地镜像 zip 解压提升 4;`tsc --noEmit` 与 `npm run build` 零错误
+  - 真机验证点:无 Node 新机 `install --offline <U盘包>` 直装并启动;有网机器删除系统 node 后 `install`(github 源)走便携 runtime
+- 分支链:…→ feat/m2(M2 `cb58055`)→ feat/m3(M3 `3fa5866`);M0 PR #11 合并后依次 rebase 推 M1/M2/M3 PR
+- 待用户决策项(Phase 3 安装源降依赖):默认 source 仍为 github(git+pnpm 路径),npm 源保持一等支持;是否翻转默认留待 PM4/收敛时确认
+- 下一步:M4(profile pack push/pull + 加密)/ 先推 M1–M3 PR
+
 ## 2026-09-03(M2 编码完成,本地提交)
 
 - **M2(dsh-launcher 仓,分支 `feat/m2-eco-gui`,commit `cb58055`,未推送;基于含 M0/M1 的本地链)**——Phase 2 落地:
