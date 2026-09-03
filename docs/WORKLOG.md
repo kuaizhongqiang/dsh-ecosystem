@@ -1,5 +1,16 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(PM3+PM4 编码完成 —— 全部里程碑编码收官)
+
+- **PM3(dsh-plugins 仓,同分支,commit `9f47279`)**:`plugins/dsh-launcher-dsh-plugin` —— 5 工具(launcher_restart/status/connections/open/check_update),ESM defineTool;发现链(D6/M6):`DSH_LAUNCHER_EXE` → 注册文件(心跳+pid 复核)REST bridge 优先、其次 `<launcherExe> restart` → 手动指引;connections 切换写 D8 标记;输出全脱敏(token=***);无新凭证;`skills/install-launcher/SKILL.md`
+- **PM4(双仓联动)**:
+  - dsh-plugins:skills **11→7**(新增 install-media/install-deepseek/install-launcher,删旧 7 技能;install-skills.ps1 自动发现无需改);README 切新集合
+  - dsh-launcher(分支 `feat/pm4-manifest-flip`,commit `abbc2a4`):默认清单(内嵌 + 根 ecosystem.json)切 **7 包**(dsh-media/dsh-deepseek/dsh-credentials/dsh-github/dsh-stock/dsh-unity/dsh-launcher,逐包 install.ps1 sha256 重算,锁 dsh-plugins `9f47279`);**内层 dsh-plugins 子模块 gitlink bump → 9f47279**(经 local remote fetch 本地分支;推送顺序:dsh-plugins 先推,launcher 后推)
+- 验证:pm3 **13/13**(安装/幂等/卸载/patch/结构/发现链断言)、pm4 **8/8**(7 技能发现/安装落位/一致性);launcher 回归 m1 15 + m2 13 + m7 8 + m8 8 全绿
+- **里程碑编码状态:M0–M8(launcher)+ PM1–PM4(plugins)全部完成**;验证用例合计 **172**
+- 剩余(下轮「最终」):dsh-plugins 推 feat 分支 → launcher 逐分支 rebase/推送 + PR → 伞仓 bump 顶层 dsh-plugins 子模块指针 → 可选生态快照 release
+- 真机验证点:PM3 插件真实 dsh 会话安装后 `launcher_status/restart` 全链(需 launcher M6 版)
+
 ## 2026-09-03(PM1+PM2 编码完成,本地提交)
 
 - **PM1+PM2(dsh-plugins 仓,分支 `feat/pm1-pm2-media-deepseek`,commit `40ebb0e`,未推送)**——Phase §8 前两步落地:
