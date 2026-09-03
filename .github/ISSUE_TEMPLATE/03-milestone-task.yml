@@ -1,0 +1,72 @@
+name: 🎯 里程碑任务(M0–M8 / PM1–PM4)
+description: 从路线图拆出的实施任务;issue 编号沿用伞仓里程碑映射
+title: "[M?] "
+labels: ["milestone"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > **编号纪律**:里程碑 issue 集中在 dsh-ecosystem——M0=#3、M1–M8=#5–#12、
+        > PM1–PM4=#13–#16(见 README)。**新任务先核对能否并入既有里程碑 issue**,
+        > 避免同里程碑重复开卡;确需新开时标题写 `[M3] 子任务:…` 并在此关联主 issue 号。
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: 里程碑
+      description: 属于哪个里程碑?(映射:PM1–PM4 为插件体系优化,见 PLAN §8)
+      options:
+        - M0 — M1 前置修复(clearLaunchToken 原子化 / 日志脱敏)
+        - M1 — ecosystem.json + pull CLI
+        - M2 — GUI「生态」页
+        - M3 — Node 运行时自持 + 离线包
+        - M4 — profile pack(push/pull + 加密)
+        - M5 — 多连接启动项(connections.json)
+        - M6 — 托盘常驻 + 重启 seam
+        - M7 — setup 向导整合
+        - M8 — 版本 lock + 回传
+        - PM1 — 分层规范 + 插件模板重构
+        - PM2 — dsh-media / dsh-deepseek 合并 + 迁移
+        - PM3 — dsh-launcher 插件(5 工具)
+        - PM4 — 默认清单切新集合(skills 11→7)
+    validations:
+      required: true
+  - type: input
+    id: parent
+    attributes:
+      label: 主里程碑 issue
+      description: 若为新开的子任务,填主 issue 号(如 #5);本身就是主卡则写「自身」
+  - type: input
+    id: plan_ref
+    attributes:
+      label: PLAN 出处
+      description: ECOSYSTEM-PLAN.md 的章节 / 决策
+      placeholder: "如 §3 D8 / Phase 5 / 里程碑表 M5"
+      value: 见 ECOSYSTEM-PLAN.md
+  - type: textarea
+    id: scope
+    attributes:
+      label: 任务内容
+      description: 具体做什么(文件落点、接口、文件命名按 PLAN 描述)
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 可检查的完成判据(命令 / 文件 / 行为)
+    validations:
+      required: true
+  - type: input
+    id: deps
+    attributes:
+      label: 依赖
+      description: 依赖哪些里程碑 / 前置任务
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 已核对 README 编号映射与既有 issue,未与主里程碑重复
+          required: true
+        - label: 内容可在 PLAN 中溯源(附章节引用)
+          required: true

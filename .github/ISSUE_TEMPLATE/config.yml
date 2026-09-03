@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 生态路线图 v3(单一事实源)
+    url: https://github.com/kuaizhongqiang/dsh-ecosystem/blob/main/docs/ECOSYSTEM-PLAN.md
+    about: 动手前先看分层 L0–L6、决策 D1–D8、Phase 1–8、里程碑 M0–M8 / PM1–PM4
+  - name: 🗒 工作日志 / 交接
+    url: https://github.com/kuaizhongqiang/dsh-ecosystem/blob/main/docs/WORKLOG.md
+    about: 每次会话的已完成 / 下一步都在这里,先查避免重复建 issue
+  - name: 🤖 代理工作手册
+    url: https://github.com/kuaizhongqiang/dsh-ecosystem/blob/main/.AGENT.md
+    about: 给 AI 代理与本仓协作者的守则(子模块纪律 / 提交规约)

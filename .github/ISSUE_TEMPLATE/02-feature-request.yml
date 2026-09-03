@@ -1,0 +1,57 @@
+name: ✨ 功能 / 改进请求
+description: 对伞仓治理或生态组件(launcher / 插件 / desktop / vscode)的能力请求
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 生态相关的功能改进先在 [ECOSYSTEM-PLAN.md](https://github.com/kuaizhongqiang/dsh-ecosystem/blob/main/docs/ECOSYSTEM-PLAN.md)
+        > 里找对应 Phase / 里程碑;若已在路线图上,直接在对应里程碑 issue 下评论,不必另开。
+  - type: dropdown
+    id: layer
+    attributes:
+      label: 生态位
+      description: 该请求落在哪一层?
+      options:
+        - L0 载体(dsh-launcher)
+        - L2 核心(dsh / deepseek-harness)
+        - L3 插件(dsh-plugins)
+        - L4 周边(dsh-vscode / dsh-desktop)
+        - L5 个人层(%DSH_HOME%)
+        - L6 广域网(dsh-remote)
+        - 伞仓治理(文档 / 模板 / issue 流程)
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 动机 / 问题
+      description: 现在缺什么、为什么要做?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望方案
+      description: 希望以什么形态出现(命令 / GUI / 插件工具 / 文档…)?
+    validations:
+      required: true
+  - type: input
+    id: roadmap
+    attributes:
+      label: 路线图对照
+      description: 对应 Phase / 里程碑 / 决策(如 Phase 5 / M5 / D5);无则写「未上路线图」
+      placeholder: "如 Phase 5 / M5 / D5"
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响面
+      description: 是否触及插件合并(§8 11→7)、共享凭证、多端行为或既有红线?
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 已核对路线图 v3 与既有 issue,确认未重复
+          required: true

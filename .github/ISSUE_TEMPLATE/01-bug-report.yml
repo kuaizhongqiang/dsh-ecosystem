@@ -1,0 +1,68 @@
+name: 🐞 Bug 反馈
+description: 伞仓或生态组件(dsh-launcher / dsh / 插件 / desktop / vscode / remote)的问题报告
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 凭证红线(D2):**切勿粘贴** `.credentials.yaml`、`launch-token.json`、`connections.json` 中的任何
+        > token/密钥内容;日志贴出前先脱敏。这些文件永不进本仓或任何 issue。
+  - type: dropdown
+    id: component
+    attributes:
+      label: 组件
+      description: 问题出在哪个组件?
+      options:
+        - 伞仓(docs / .github / .AGENT.md / README)
+        - dsh-launcher(L0 载体)
+        - dsh(deepseek-harness 构建 / L2 核心)
+        - dsh-plugins 插件(L3)
+        - dsh-vscode / dsh-desktop(L4 周边)
+        - dsh-remote(L6 广域网)
+        - 不确定 / 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 指针
+      description: 组件 release 版本或 commit;伞仓问题给子模块指针(见 docs/modules/)
+      placeholder: "如 launcher v0.6.4 / plugins commit 15ffcfd"
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 应该发生什么?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际现象
+      description: 实际发生了什么?附上错误输出。
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 最小复现路径(环境:Windows 版本、Node 版本等)。
+      placeholder: |
+        1. …
+        2. …
+        3. …
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 现场
+      description: 相关日志路径与内容(%DSH_HOME% 下文件注意脱敏;不要贴 token)。
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 已核对 docs/WORKLOG.md 与既有 issue,确认未重复
+          required: true
+        - label: 已对日志/截图中的密钥与个人信息脱敏
+          required: true
