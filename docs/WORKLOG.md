@@ -1,5 +1,15 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(M2 编码完成,本地提交)
+
+- **M2(dsh-launcher 仓,分支 `feat/m2-eco-gui`,commit `cb58055`,未推送;基于含 M0/M1 的本地链)**——Phase 2 落地:
+  - 后端 `src/server.ts`:`GET /api/ecosystem`(默认清单 label/dsh/锁 commit/11 包 + `ecosystem-state.json` + busy + pluginsDir);`POST /api/ecosystem/pull`(异步 fire-and-forget,body: plugins/core/skills/dryRun;busy 期间 409;进度走既有 SSE `/api/events`);桥接注入 `getEcosystem/pullEcosystem`
+  - 前端 `ui/index.html` + `ui/app.js` + `ui/launcher.css`:**「生态」卡片**——清单元信息行、状态摘要(core/插件 ok 数/上次拉齐时间)、插件勾选网格(带 已装/未装 chip,默认全选)、core/技能开关、「拉齐勾选项」/「仅校验(dry-run)」/刷新 按钮;mock 预览同步补齐
+  - 验证:新增 `scripts/verify-m2.mjs`(`npm run verify:m2`,先 build)——**13 用例全过**:真实拉起 `dist/launcher.cjs ui` 打端点(无状态 6 + 有状态 2 + 异步 pull/busy 回落 2 + UI 资源注入 2);`tsc --noEmit` 与 `npm run build` 零错误
+  - 真机验证点:双击 exe / `ui` 开浏览器看生态卡片,勾选后「拉齐勾选项」跑真实 pull(需 dsh 已装、profile 启动过)
+- 分支链:main(M0 `0850b27`)→ feat/m1(M1 `7dcddf8`)→ feat/m2(M2 `cb58055`);M0 PR #11 合并后依次 rebase 推 M1/M2 PR
+- 下一步:M3(Node 运行时自持 + 离线包)/ 先推 M1、M2 PR
+
 ## 2026-09-03(M1 编码完成,本地提交)
 
 - **M1(dsh-launcher 仓,分支 `feat/m1-ecosystem-pull`,commit `7dcddf8`,未推送)**——Phase 1 落地:
