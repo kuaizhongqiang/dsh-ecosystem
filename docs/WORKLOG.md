@@ -1,5 +1,15 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(M0 编码完成,本地提交)
+
+- **M0(dsh-launcher 仓,本地 commit `0850b27`,尚未推送 origin)**——P0-4/P1-6 三项落地:
+  - `src/tokenFile.ts`:`clearLaunchToken(source, pid?)` **原子化**——source+pid 双匹配 + 删除前复读确认(读→判归属→复读→内容一致才 rm,至多 3 次;宁残留不误删他人 token,修 P0-4);新增 `redactTokenUrl()` 脱敏工具
+  - `src/log.ts`:`emit()` **中央出口统一 token 掩码**(控制台/文件/UI 订阅者同源生效,修 P1-6)
+  - `src/launch.ts`:`launch.ts:184` 显式脱敏;child log 自 `%TEMP%` 迁至 `%DSH_HOME%\logs`(新增 `ensureChildLogDir()`;启动前建目录)
+  - 验证:新增 `scripts/verify-m0.mjs`(`npm run verify:m0`)——**19 用例全过**:单进程归属 6 + 多进程并发压力 2 场景(非属主不得误删/属主收敛删除)+ 脱敏 5 + 迁址断言 3;`tsc --noEmit` 与 `npm run build` 零错误
+- 技术备忘(dsh-launcher 开发环境):node_modules 原为 **npm** 管理,勿用 pnpm 触发 install(pnpm 11 会把 npm 包挪 `.ignored` 且因 allow-scripts 门禁失败,已恢复 `npm ci`);本机 npm allow-scripts 拦了 electron/esbuild/koffi 的 postinstall,后续打包/运行 GUI 前需批准或手动补跑
+- 下一步:M0 推送确认 → M1(ecosystem.json + `pull` CLI,含 sha256 供应链校验)
+
 ## 2026-09-03(github 治理与模块文档就位)
 
 - 新增 `.AGENT.md`(仓根,commit `57ad68b` 已推 main):代理工作手册——子模块纪律、文档索引、术语速查、提交规约
