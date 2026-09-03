@@ -38,9 +38,9 @@ git submodule update --init --recursive
 
 工作项跟踪:
 
-- **dsh-launcher Issues** — 里程碑 M0–M8(#1–#9):https://github.com/kuaizhongqiang/dsh-launcher/issues
-- **dsh-plugins Issues** — 插件优化 PM1–PM4(#3–#6):https://github.com/kuaizhongqiang/dsh-plugins/issues
-- (迁移后)本仓 Issues — 生态统一工作项
+- **dsh-ecosystem Issues** — 里程碑 M0–M8 + 插件优化 PM1–PM4:https://github.com/kuaizhongqiang/dsh-ecosystem/issues
+- 编号映射:M0=#3、M1=#5、M2=#6、M3=#7、M4=#8、M5=#9、M6=#10、M7=#11、M8=#12;PM1=#13、PM2=#14、PM3=#15、PM4=#16
+- (原 dsh-launcher / dsh-plugins 里程碑 issue 已关闭并留跳转注释;dsh-launcher#1 经 UI transfer 原档迁入,即本仓 #3)
 
 ## 指针更新
 
