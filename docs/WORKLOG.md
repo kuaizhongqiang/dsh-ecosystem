@@ -1,5 +1,21 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(M6 编码完成,本地提交)
+
+- **M6(dsh-launcher 仓,分支 `feat/m6-tray-restart`,commit `b7cdf31`,未推送)**——Phase 6 落地:
+  - **托盘常驻**(`electron-main.ts` + `trayIcon.ts`):Tray 菜单(显示窗口/启动/停止/**重启**/打开浏览器(按激活连接)/连接切换 submenu(点击即 use+restart)/检查更新/退出(停止 dsh));图标状态色**运行时生成 16×16 纯色 PNG**(灰=未运行/绿=运行中/黄=有更新/红=异常,免资源文件,15s 轮询刷新);启停/重启/连接切换气泡通知
+  - **关窗行为**:`closeAction` 默认 `'tray'`(标题栏 ×=隐藏到托盘,dsh 继续跑);`'exit'` 保留旧「关窗即停」;UI「退出」按钮/托盘退出=真退出(preload 新增 hide 通道,x 与退出分流)
+  - **重启 seam**(`registration.ts` + `launch.ts` + `server.ts` + `cli.ts`):
+    - `%DSH_HOME%\launcher-registration.json`(0600 原子写):`{version, launcherExe, launcherVersion, dshInstallDir, pid?, api?, bridgeKey?, running, registeredAt, updatedAt}`;便携版经 `PORTABLE_EXECUTABLE_DIR` 解析原始 exe 路径(dev 跳过注册);**spawn 成功注册、stop/退出注销(owned 保护防误删他人注册)**;心跳 ≤30s(server 就绪 `setBridge` 补写 api/bridgeKey)
+    - spawn 注入发现链环境变量 `DSH_LAUNCHER_EXE` / `DSH_LAUNCHER_PID` / `DSH_LAUNCHER_CONNECTION`;`launch-token.json` 增可选 `managedBy`(读取方忽略未知字段)
+    - `restartActive()`:优雅 stop → 等端口释放 → start(重抓 token 照写,30 天 cookie 免重登);remote=重连/重开浏览器
+    - REST bridge `POST /api/dsh/restart?key=<bridgeKey>`(127.0.0.1+随机密钥,403/409/202);CLI `restart` 单实例转交(注册新鲜+pid 存活+api 健康 → 转交,否则本机执行);GUI 重启按钮
+  - 验证:新增 `scripts/verify-m6.mjs`(`npm run verify:m6`,先 build)——**21 用例全过**:trayIcon PNG 4 + registration 7 + managedBy 1 + restart seam e2e 5(错 key 403/对 key 202/注册获得 bridgeKey)+ CLI 兜底 1 + 源码断言 3;`tsc --noEmit` 与 `npm run build` 零错误
+  - 技术备忘:`version.ts` 的 package.json 导入补 `with { type: 'json' }`(Node 直载 TS 需要,esbuild 兼容)
+  - 真机验证点:打包 exe 后托盘图标四态/关窗到托盘/气泡;真实 dsh 重启免重登;dsh 侧经 DSH_LAUNCHER_EXE/注册文件委托重启(跨仓,落 PM3 插件)
+- 分支链:…→ feat/m5(M5 `2862da4`)→ feat/m6(M6 `b7cdf31`);待 M0 PR#11 合并后统一 rebase 推 M1–M6
+- 下一步:M7(setup 向导整合:GUI 首启向导 + `setup --all` 无头)/ M8(版本 lock + 回传)
+
 ## 2026-09-03(M5 编码完成,本地提交)
 
 - **M5(dsh-launcher 仓,分支 `feat/m5-connections`,commit `2862da4`,未推送)**——Phase 5 落地:
