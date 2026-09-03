@@ -1,5 +1,16 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(M1 编码完成,本地提交)
+
+- **M1(dsh-launcher 仓,分支 `feat/m1-ecosystem-pull`,commit `7dcddf8`,未推送)**——Phase 1 落地:
+  - `src/ecosystem.ts`(新增):ecosystem.json v1 类型与校验;**默认清单内嵌**随启动器走(锁 dsh-plugins `15ffcfd`、11 包 install.ps1 sha256、skills sha256,与仓库根 `ecosystem.json` 快照一致);`loadManifest`(默认/`--manifest` https 强制 HTTPS/本地文件);`ensurePluginsSource` 锁 commit(HEAD 漂移拒绝;缺失时按锁定 sha 克隆);`verifyHashes` 供应链逐文件 sha256(不符即拒,不执行);`runPull` = core 缺口(复用 install)→ 插件 install.ps1(逐个,失败记录不中断)→ skills install-skills.ps1 → 结果写 `ecosystem-state.json`(launcher 旁)
+  - `src/node.ts`:新增 `runPowerShellFile`(install.ps1 执行器,powershell -NoProfile -Bypass -File 隐藏窗口)+ 导出带 cwd 的 `runGit`
+  - `src/cli.ts`:`pull [--manifest <url|file>] [--plugins a,b] [--all] [--no-core] [--no-skills] [--dry-run]`
+  - 验证:新增 `scripts/verify-m1.mjs`(`npm run verify:m1`)——**15 用例全过**:默认清单 4 + HTTPS 强制 1 + 锁 commit 1 + 篡改拒绝执行 2 + dry-run 2 + 真实 pull(真实 powershell 执行插件/技能 + 状态落盘)5;`tsc --noEmit` 与 `npm run build` 零错误
+- 分支关系:M1 分支基于含 M0(`0850b27`)的本地 main;M0 PR #11 合并后需 rebase 再推 M1 PR(避免堆叠 diff)
+- 真机验证点:新机 `install && pull`(默认清单走 github 源 clone+pnpm 构建 + 11 插件 + skills;插件真装需 dsh web profile 已启动过)
+- 下一步:合 M0 PR#11 → 推 M1 PR → M2(GUI 生态页)
+
 ## 2026-09-03(M0 编码完成,本地提交)
 
 - **M0(dsh-launcher 仓,本地 commit `0850b27`,尚未推送 origin)**——P0-4/P1-6 三项落地:
