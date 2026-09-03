@@ -1,5 +1,15 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(PM1+PM2 编码完成,本地提交)
+
+- **PM1+PM2(dsh-plugins 仓,分支 `feat/pm1-pm2-media-deepseek`,commit `40ebb0e`,未推送)**——Phase §8 前两步落地:
+  - **PM1 分层规范+模板**:`docs/PLUGIN-SPEC.md`(五层/准入三问/包结构/install.ps1 七条规范:幂等、-Only、-Uninstall、节头 `# --- dsh-<pkg>: <svc> ---`、cordis.patch 合并剥 `[]`、凭证红线、额外步骤可重跑)+ `_templates/install.ps1.tmpl`、`_templates/SKILL.md.tmpl`
+  - **PM2 合并包**:`plugins/dsh-media-dsh-plugin`(感知五合一,6 工具,payload 平铺复制,-Only/-Uninstall,describe-image 的 apiproxy 补丁与 document-read 的 python 探测保留为可重跑步骤)+ `plugins/dsh-deepseek-dsh-plugin`(账户二合一);仓库根 `uninstall-old.ps1`(旧 7 包载荷删除 + patch 节按旧节头精确剥离,-Skills 可连旧技能清);旧 7 包各加 `DEPRECATED.md`(保留一个 deprecated 周期);README 增 PM1/PM2 段
+  - 验证:新增 `scripts/verify-pm2.mjs`——**23 用例全过**(真 PowerShell:全量安装+幂等 7、-Only 子集 4、-Uninstall 3、dsh-deepseek 3、uninstall-old 迁移闭环 6)
+  - 技术备忘:PowerShell 5.1 对无 BOM UTF-8 按 ANSI 解析,中文注释会破坏字符串——**新写 .ps1 必须带 UTF-8 BOM**(已修)
+  - 真机验证点:本机 `dsh-media install.ps1` 全量 + `-Only` 子集装进真实 profile,重启后工具可用
+- 下一步:PM3(dsh-launcher 插件:launcher_restart/status/connections/open/check_update + install-launcher 技能,消费 M5/M6 seam)→ PM4(skills 11→7、launcher 默认清单切 7 包 + 子模块联动)
+
 ## 2026-09-03(M7+M8 编码完成,本地提交)
 
 - **M7+M8(dsh-launcher 仓,分支 `feat/m7-m8-setup-lock`,commit `5cdc85c`,未推送)**——Phase 7/8 落地:
