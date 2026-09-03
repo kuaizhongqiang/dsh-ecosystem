@@ -1,5 +1,13 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(三仓发版 + vscode 协议对齐)
+
+- **dsh-launcher [v0.7.0](https://github.com/kuaizhongqiang/dsh-launcher/releases/tag/v0.7.0)**:main 版本 0.6.4→0.7.0(`8aa28c4`)、构建 portable+NSIS(electron dist 就绪后 dist:all 成功)、GitHub Release 双产物(85.2/85.4 MB)已上传
+- **dsh-plugins [v0.7.0](https://github.com/kuaizhongqiang/dsh-plugins/releases/tag/v0.7.0)**:tag 于 main `02b61f9`(PM1–PM4 新集合)
+- **dsh-ecosystem [ecosystem-2026.09](https://github.com/kuaizhongqiang/dsh-ecosystem/releases/tag/ecosystem-2026.09)**:首个生态快照 Release(指针表 + 使用说明,tag 于 main a400ee2)
+- **dsh-vscode**:M0 协议对齐 —— `clearLaunchToken(source, pid?)` source+pid 双匹配+复读确认(对称 P0-4)、`managedBy` 兼容字段、launchToken 测试 12 用例(vitest 40 全过)、版本 0.2.9→**0.3.0**;分支 `feat/launch-token-source-pid` 已推并合 main([PR #17](https://github.com/kuaizhongqiang/dsh-vscode/pull/17),5c0a388);**Open VSX 发布待用户 OVSX_PAT**
+- 发版技术备忘:gh release create 的文件参数在 Windows 反斜杠/相对路径下 glob 失败 → 先建 Release 再用 uploads.github.com REST 传资产(绝对路径);PS 5.1 读无 BOM UTF-8 = ANSI 的坑再次确认(package.json 版本替换必须 [IO.File]+UTF8)
+
 ## 2026-09-03(全部推送落地,伞仓指针 bump —— 路线图实施收官)
 
 - **dsh-plugins**:`feat/pm1-pm2-media-deepseek` 推送并经 [PR #7](https://github.com/kuaizhongqiang/dsh-plugins/pull/7) 合入 main(main=02b61f9,含 PM1–PM4,新集合 11→7)
