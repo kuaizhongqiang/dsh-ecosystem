@@ -1,5 +1,17 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-03(M5 编码完成,本地提交)
+
+- **M5(dsh-launcher 仓,分支 `feat/m5-connections`,commit `2862da4`,未推送)**——Phase 5 落地:
+  - `src/connections.ts`(新增):connections.json v1(local/remote 组,remote token 可空=交由 Cloudflare Access;extraHeaders 字段对齐 vscode);**无文件时按 launcher.json 合成默认连接(不落盘,向后兼容)**;原子写(D8 ④:tmp+rename)、`.dsh-connection-changed` 变更标记(D8 ③)、**D8 ② 端口锁** `.dsh-port-<port>.lock`(他组活跃 PID 拒绝/自身放行/陈旧锁覆盖,spawn 前检查+退出清理);`buildRemoteTarget` 纯函数(token 追加 ?/&);损坏文件降级(告警+合成默认,不阻断启动)
+  - `src/launch.ts`:start 跟随激活连接——**remote=不 spawn,健康检查(token 自检 401 提示更新、no-auth 提示外部认证)后带 token 开浏览器,并照写 v1 launch-token.json(兼容层:desktop 完全跟随/vscode token 跟随)**;local=连接端口覆盖 launcher.json 端口 + 端口锁闭环;stop 跟随语义(remote no-op)+ 锁清理;stopChildSilently 清锁
+  - `src/cli.ts`:`connections list|add|use|remove`;`start [--connection <id>]`;`stop/status` 跟随激活连接(remote=HTTP ping);usage 更新
+  - GUI(`server.ts`+`ui/`):连接切换器下拉(首行状态卡上方);`GET /api/connections`(token 不出后端,只回 hasToken)、`POST use/add/remove`;`/api/status` 带 `connection` 字段,remote 时端口行显示 remote 语义
+  - 验证:新增 `scripts/verify-m5.mjs`(`npm run verify:m5`,先 build)——**29 用例全过**:单元 9(合成/增删改查/校验拒/原子写/标记)+ 端口锁 4 + remote target 3 + CLI e2e 6 + UI e2e 7(token 不泄漏/切换/状态带连接/切换器注入);`tsc --noEmit` 与 `npm run build` 零错误
+  - 真机验证点:真实 remote 组(Cloudflare Access)健康检查+开浏览器+desktop/vscode 跟随;本机双端口双实例 + 端口锁拒绝第二监督者
+- 分支链:…→ feat/m4(M4 `7de57b1`)→ feat/m5(M5 `2862da4`);待 M0 PR#11 合并后统一 rebase 推 M1–M5
+- 下一步:M6(托盘常驻 + 重启 seam:DSH_LAUNCHER_EXE 注入、launcher-registration.json、restart 委托)/ 先推 M1–M5 PR
+
 ## 2026-09-03(M4 编码完成,本地提交)
 
 - **M4(dsh-launcher 仓,分支 `feat/m4-profile-pack`,commit `7de57b1`,未推送)**——Phase 4 落地:
