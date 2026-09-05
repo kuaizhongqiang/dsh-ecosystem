@@ -1,0 +1,7 @@
+# 直接工程(独立 git 仓库,各自持有 .git/remote/历史)
+# 伞仓不跟踪它们的内容——严禁对这些目录 git add(见 .AGENT.md「直接工程纪律」)
+/dsh-launcher/
+/dsh-plugins/
+/dsh-vscode/
+/dsh-desktop/
+/dsh-remote/
