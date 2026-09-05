@@ -125,7 +125,7 @@ export const DEFAULT_ECOSYSTEM: EcosystemManifest = {
   plugins: {
     source: {
       repo: 'https://github.com/kuaizhongqiang/dsh-ecosystem.git',
-      commit: '1765dde74b911a83a9aa0c4081502ad2dd1dc9b7',
+      commit: '9a6427e041d408ace76110a72da8fdbae2ade31f',
     },
     packages: PACKAGES.map((p) => ({
       id: p.id,

@@ -7,7 +7,7 @@
   "plugins": {
     "source": {
       "repo": "https://github.com/kuaizhongqiang/dsh-ecosystem.git",
-      "commit": "1765dde74b911a83a9aa0c4081502ad2dd1dc9b7"
+      "commit": "9a6427e041d408ace76110a72da8fdbae2ade31f"
     },
     "packages": [
       { "id": "dsh-media", "dir": "dsh-plugins/plugins/dsh-media-dsh-plugin", "sha256": { "install.ps1": "fc8d4ce29486c03079e071138e9f2fcad809e843c699d22c989b7784fd4d91e3" } },
