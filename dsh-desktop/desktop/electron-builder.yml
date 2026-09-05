@@ -30,6 +30,6 @@ nsis:
 publish:
   provider: github
   owner: kuaizhongqiang
-  repo: dsh-desktop
+  repo: dsh-ecosystem
   channel: latest
   releaseType: release

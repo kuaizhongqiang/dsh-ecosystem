@@ -1,6 +1,6 @@
 {
   "name": "@kuaizhongqiang/dsh-desktop",
-  "version": "0.2.3",
+  "version": "0.8.0",
   "description": "Desktop shell for DeepSeek Harness (dsh): a pure Electron shell over the shared dsh Web UI. Never spawns dsh — it connects to the server started by dsh-launcher / dsh-vscode / `dsh web` (whoever started first owns it). Windows-only.",
   "license": "MIT",
   "private": true,

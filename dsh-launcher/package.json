@@ -1,6 +1,6 @@
 {
   "name": "dsh-launcher",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "dsh 本机安装 + 启动引导器（GitHub 源码构建 / npm 双源）—— TS/JS，Electron 桌面窗口单文件版",
   "type": "module",
   "main": "dist/electron-main.cjs",

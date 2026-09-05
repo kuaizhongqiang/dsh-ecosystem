@@ -76,7 +76,7 @@ export async function startServerViaLauncher(): Promise<{ ok: boolean; error?: s
   if (!exe) {
     return {
       ok: false,
-      error: '未找到 dsh-launcher.exe。请在「设置」中指定其路径，或从 https://github.com/kuaizhongqiang/dsh-launcher/releases 安装（安装版会注册到标准位置，桌面端即可自动找到）。',
+      error: '未找到 dsh-launcher.exe。请在「设置」中指定其路径，或从 https://github.com/kuaizhongqiang/dsh-ecosystem/releases 安装（全量发布含 dsh-launcher.exe；安装版会注册到标准位置，桌面端即可自动找到）。',
     }
   }
   const port = getSettings().port

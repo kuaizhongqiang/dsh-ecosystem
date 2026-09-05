@@ -1,73 +1,74 @@
-# RELEASING — 伞仓发布流程(手动 SOP)
+# RELEASING — 伞仓发布流程(全量 tag,自动化)
 
-> 适用范围:**dsh-ecosystem(monorepo)是唯一权威代码仓**(2026-09-04 收敛,见
-> [MONOREPO-UMBRELLA.md](MONOREPO-UMBRELLA.md));组件发版在伞仓进行。
-> 原 5 个源仓已并入本仓并**归档只读**,其 GitHub Actions(CI/release)已停摆——
-> 当前发布为**本地构建 + 手动上传**;伞仓根重建 CI / Open VSX 管道列为后续工作项。
+> **总则(2026-09-04 起)**:dsh-ecosystem 是 monorepo 唯一权威仓,发布 = **一个 tag 全量发布所有包**。
+> tag `vX.Y.Z`(semver)→ 伞仓根 CI(`.github/workflows/release.yml`)并行构建并发布:
+> dsh-launcher(portable+NSIS)、dsh-desktop(NSIS+latest.yml)、dsh-vscode(VSIX + Open VSX)、
+> dsh-plugins(清单校验)。原 5 源仓已并入并**归档只读**,不再逐仓发布。
 
-## 组件发布概览
+## 版本策略
 
-| 组件 | 版本位置 | 产物与渠道(手动) |
-|---|---|---|
-| dsh-launcher | `dsh-launcher/package.json` | 本地 `npm run build` + `dist:all`(portable+NSIS)→ 上传伞仓 Releases |
-| dsh-plugins | `dsh-plugins/README.md` 版本约定 | 插件集改版随伞仓 tag;无独立产物 |
-| dsh-vscode | `dsh-vscode/package.json` | 本地打包 vsix → 手动发布 Open VSX(需 OVSX_PAT)/ 上传伞仓 Releases |
-| dsh-desktop | `dsh-desktop/desktop/package.json` | 本地 electron-builder → 上传伞仓 Releases |
-| dsh-remote | — | 部署记录,随伞仓提交 |
-| deepseek-harness | 子模块指针 | **不发布**,跟随官方 bump(见 .AGENT.md §2) |
+- 伞仓统一 semver,组件内部版本号与 tag 一致(CI 逐组件断言,不一致即失败)。
+- 语义:生态大功能/破坏 → minor;修复 → patch。**只有单组件变更也整体 bump**(全量发布)。
+- 现状基线:launcher `0.8.0`(运行时源切伞仓)/ vscode `0.8.0` / desktop `0.8.0`;plugins 随伞仓提交,无独立号。
+- 历史 tag(ecosystem-YYYY.MM、组件仓旧 tag)保留只读,不再使用。
 
-## 何时发伞仓 release
+## 发布前置
 
-- 任一组件进入新版本 / 修复已验证,或伞仓文档/治理达里程碑;建议低频(跟随组件里程碑或月末)。
-- tag 命名:`ecosystem-YYYY.MM`(汇总快照);组件级产物可另加组件前缀 tag
-  (如 `dsh-launcher-v0.8.0`)上传对应 release。
+- [ ] 组件改动已按各自质量门验证(launcher:`npm run check`/`verify:m*`;vscode:`pnpm typecheck`/`pnpm test`;
+      desktop:`npm run build` + smoke),并 `node scripts/verify-release.mjs`(伞仓根)通过
+- [ ] **版本 bump**:`dsh-launcher/package.json`、`dsh-vscode/package.json`、`dsh-desktop/desktop/package.json`
+      → 目标版本(与将打的 tag 一致)
+- [ ] **插件集更新**(若有):dsh-plugins/ 内容变更后,重算 7 包 `install.ps1` + `skills/install-skills.ps1`
+      的 sha256,同步 `dsh-launcher/ecosystem.json` 与 `dsh-launcher/src/ecosystem.ts`(PACKAGES / DEFAULT_ECOSYSTEM);
+      manifest `commit` 指向**包含该插件内容的伞仓提交**(两步提交:先提交内容取 sha,再提交把 commit 字段指过去)
+- [ ] harness 指针 = 已验证官方 commit(`git submodule status`,未变则不动)
+- [ ] 工作树干净;凭证/运行时文件未入仓(红线 D2)
 
-## 发布前检查清单
-
-- [ ] 组件改动已按各自质量门验证(目录内:`npm run build` / `verify:m*` / `pnpm test` 等)
-- [ ] `deepseek-harness` 指针 = 已验证官方 commit(`git submodule status`)
-- [ ] `docs/modules/*.md` 快照与组件版本一致;`docs/WORKLOG.md` 已记录本轮
-- [ ] 工作树干净;凭证 / 运行时文件未入仓(红线 D2)
-
-## 发布步骤(手动)
+## 发布步骤
 
 ```powershell
-# 1. 确认版本状态
-git status                              # 干净
-git submodule status                    # harness 指针
-git -C dsh-launcher log -1 --oneline    # 各组件最近提交(逐目录)
+# 1. 提交发布准备(含版本 bump 与清单同步)
+git add -u . && git add .github scripts && git commit -m "release: prepare v0.8.0 (全量)"
+git push origin main
 
-# 2. 组件产物本地构建(示例 launcher;详见各组件 README/scripts)
-cd dsh-launcher; npm run build; npm run dist:all; cd ..
+# 2. 打 tag 并推送 → CI 自动触发
+git tag -a v0.8.0 -m "dsh-ecosystem v0.8.0 — 全量发布"
+git push origin v0.8.0
 
-# 3. 打伞仓 tag(汇总快照)或组件 tag
-git tag -a ecosystem-2026.09 -m "ecosystem snapshot YYYY-MM"
-git tag -a dsh-launcher-v0.8.0 -m "dsh-launcher v0.8.0"   # 组件级产物用
-git push origin --tags
-
-# 4. 建 GitHub Release(网页 Releases → Draft,或 gh CLI)并上传产物
-gh release create ecosystem-2026.09 --title "dsh-ecosystem YYYY-MM — <摘要>" --notes-file RELEASE_NOTES.md
-# 组件产物:gh release upload <tag> <dist 路径>(绝对路径;Windows glob 有坑,用显式文件列表)
-
-# 5. vscode:本地打包 + 手动发 Open VSX
-cd dsh-vscode; <打包 vsix>; npx ovsx publish <file> -p $env:OVSX_PAT; cd ..
+# 3. 盯 CI(本地 gh)
+gh run watch --repo kuaizhongqiang/dsh-ecosystem
+gh run list --repo kuaizhongqiang/dsh-ecosystem   # 失败 job 看日志:gh run view <id> --log
 ```
 
-> `gh` 未安装时用网页。Windows 上传 assets 的 glob 反斜杠坑:用显式文件路径而非通配符。
-
-## Release Notes
-
-- 模板:`.github/release-notes-template.md`;必填:生态变更摘要、**组件版本表**(各组件版本 + harness 锁,
-  含所属里程碑)、文档/治理更新、里程碑进度。
-- 旧快照取上一 release tag 时的组件版本记录。
+CI 行为:init job 重建该 tag 的 Release(幂等,先删同名 release 不动 tag)→
+launcher/desktop/vscode 并行构建并上传资产到该 Release;vscode 在 `secrets.OVSX_PAT` 存在时同步发布 Open VSX;
+desktop 在 `secrets.NPM_TOKEN` 存在时顺带发布 npm `@kuaizhongqiang/dsh-desktop`;plugins job 跑清单一致性校验。
 
 ## 发布后
 
-- [ ] 验证拉取:`git clone https://github.com/kuaizhongqiang/dsh-ecosystem.git` + `git submodule update --init deepseek-harness`
-- [ ] 在 docs/WORKLOG.md 记一笔「已发 <tag>」
+- [ ] Releases 页可见全部资产(launcher exe/setup、desktop setup+latest.yml+blockmap、vscode vsix)
+- [ ] Open VSX 页面出现新版本(若配了 OVSX_PAT)
+- [ ] 在 docs/WORKLOG.md 记「已发 vX.Y.Z」
+
+## 失败重跑
+
+- 单 job 失败修复后:**先删 release 再整跑**(资产/版本唯一性):`gh release delete vX.Y.Z --yes`
+  → 修复提交 push → 若 tag 需指向新 commit:删旧 tag 重打
+  (`git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z` → 重打 → push)→ CI 全量重跑(init 幂等重建)。
+- 不改版本小修重发同 tag 需谨慎:Open VSX 不接受重复版本(需 bump)。
+
+## 组件发布矩阵
+
+| 组件 | 产物 | 渠道 | 触发 |
+|---|---|---|---|
+| dsh-launcher | portable exe + NSIS setup | 伞仓 Release 资产 | tag v* |
+| dsh-desktop | NSIS setup + latest.yml + blockmap(updater feed = 伞仓) | 伞仓 Release 资产;(可选 npm) | tag v* |
+| dsh-vscode | VSIX | 伞仓 Release 资产 + **Open VSX**(OVSX_PAT) | tag v* |
+| dsh-plugins | 无独立产物(校验 + release notes) | 随 launcher 清单发布 | tag v* |
+| deepseek-harness | 官方上游,不发布 | 子模块 bump(见 .AGENT.md) | 手动 |
 
 ## 不做什么
 
-- 不向已归档的源仓发布或推送(只读);
+- 不向已归档源仓发布/推送(只读);不逐仓发版;
 - 不在伞仓建 PR 门禁(直接推 main 既定工作流);
-- 不把任何凭证内容带进 tag / notes / 产物。
+- 不把凭证内容带进 tag / notes / 产物。

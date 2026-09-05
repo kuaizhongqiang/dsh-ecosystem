@@ -1,20 +1,20 @@
 // update.ts —— 升级检测，覆盖两条独立的分发渠道：
 //   - dsh 本体：GitHub 源码源查仓库最新 tag（source='github'，默认）；
 //     或 npm registry 查 latest dist-tag（source='npm'）。
-//   - dsh-launcher 走 GitHub Release，检测仓库最新 tag。
+//   - dsh-launcher 走伞仓 GitHub Release（monorepo 全量发布，2026-09-04 起：源仓已归档）。
 // 本模块只做"检测"，不执行升级。移植自 Go internal/update。
 
 import { compareSemver, parseSemver } from './semver.js';
 import * as node from './node.js';
 
-/** 启动器 GitHub Release 最新版页面（升级启动器时打开）。 */
-export const LauncherReleaseURL = 'https://github.com/kuaizhongqiang/dsh-launcher/releases/latest';
-const launcherAPI = 'https://api.github.com/repos/kuaizhongqiang/dsh-launcher/releases/latest';
+/** 伞仓 GitHub Release 最新版页面（升级启动器时打开；全量 release 含 launcher 资产）。 */
+export const LauncherReleaseURL = 'https://github.com/kuaizhongqiang/dsh-ecosystem/releases/latest';
+const launcherAPI = 'https://api.github.com/repos/kuaizhongqiang/dsh-ecosystem/releases/latest';
 const httpTimeoutMs = 10_000;
 
 // ---------- 检测 ----------
 
-/** 检测启动器自身（GitHub Release 最新 tag）是否有新版。current 为 dev 时跳过。 */
+/** 检测启动器自身（伞仓 GitHub Release 最新 tag）是否有新版。current 为 dev 时跳过。 */
 export async function checkLauncher(current: string): Promise<{ latest: string; hasUpdate: boolean }> {
   if (!current || current === 'dev') {
     throw new Error('当前为 dev 构建，跳过启动器升级检测');

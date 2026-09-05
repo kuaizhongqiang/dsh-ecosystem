@@ -2,14 +2,14 @@
   "name": "dsh-vscode",
   "displayName": "DSH - DeepSeek Harness",
   "description": "在 VSCode 中连接 DeepSeek Harness（DSH）实例：会话列表、流式聊天、工具调用、审批与提问处理。",
-  "version": "0.3.0",
+  "version": "0.8.0",
   "publisher": "kuaizhongqiang",
   "license": "MIT",
   "icon": "media/dsh-icon.png",
   "packageManager": "pnpm@11.13.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kuaizhongqiang/dsh-vscode.git"
+    "url": "https://github.com/kuaizhongqiang/dsh-ecosystem.git"
   },
   "engines": {
     "vscode": "^1.90.0",

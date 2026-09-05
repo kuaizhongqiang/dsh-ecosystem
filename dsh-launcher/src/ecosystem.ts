@@ -101,28 +101,31 @@ export interface PullOptions {
 
 // ---------------------------------------------------------------- 默认清单
 
-/** 新集合 7 包(PM4 / §8 11→7):id、包目录、install.ps1 sha256。 */
+/** 新集合 7 包(PM4 / §8 11→7):id、包目录(相对生态源检出根=伞仓)、install.ps1 sha256。
+ *  monorepo 化(2026-09-04):插件源 = kuaizhongqiang/dsh-ecosystem,dir 加 dsh-plugins/ 前缀。 */
 const PACKAGES: Array<{ id: string; dir: string; installPs1: string }> = [
-  { id: 'dsh-media', dir: 'plugins/dsh-media-dsh-plugin', installPs1: 'fc8d4ce29486c03079e071138e9f2fcad809e843c699d22c989b7784fd4d91e3' },
-  { id: 'dsh-deepseek', dir: 'plugins/dsh-deepseek-dsh-plugin', installPs1: '64821f594bb58516bce53ad9de2470b36ea1e1b115092b8855e3d45fabe7b59f' },
-  { id: 'dsh-credentials', dir: 'plugins/credentials-dsh-plugin', installPs1: 'e4d183d676ee2c2e5e6e9cd2bbb85cd37ec77171588ff4226cd60d7e7563214b' },
-  { id: 'dsh-github', dir: 'plugins/github-dsh-plugin', installPs1: 'd69340d34628549cb793fc7600632ceeabdf23f1a3fed09bafb6b0afe0414254' },
-  { id: 'dsh-stock', dir: 'plugins/stock-dsh-plugin', installPs1: 'e20fed7cac47e4bb4d976dbc752d5c6dd735fc94c215c4920425ba7fe4731a89' },
-  { id: 'dsh-unity', dir: 'plugins/unity-mcp-dsh-plugin', installPs1: 'e76e308719dd22c804276e48584c6d5b3c16ce5a2c5a205f3b598165576e02a5' },
-  { id: 'dsh-launcher', dir: 'plugins/dsh-launcher-dsh-plugin', installPs1: '5b317ae4981dae20201efce32fe9c09290c4ae5ad6b6d9292834c663d5bba2fc' },
+  { id: 'dsh-media', dir: 'dsh-plugins/plugins/dsh-media-dsh-plugin', installPs1: 'fc8d4ce29486c03079e071138e9f2fcad809e843c699d22c989b7784fd4d91e3' },
+  { id: 'dsh-deepseek', dir: 'dsh-plugins/plugins/dsh-deepseek-dsh-plugin', installPs1: '64821f594bb58516bce53ad9de2470b36ea1e1b115092b8855e3d45fabe7b59f' },
+  { id: 'dsh-credentials', dir: 'dsh-plugins/plugins/credentials-dsh-plugin', installPs1: 'e4d183d676ee2c2e5e6e9cd2bbb85cd37ec77171588ff4226cd60d7e7563214b' },
+  { id: 'dsh-github', dir: 'dsh-plugins/plugins/github-dsh-plugin', installPs1: 'd69340d34628549cb793fc7600632ceeabdf23f1a3fed09bafb6b0afe0414254' },
+  { id: 'dsh-stock', dir: 'dsh-plugins/plugins/stock-dsh-plugin', installPs1: 'e20fed7cac47e4bb4d976dbc752d5c6dd735fc94c215c4920425ba7fe4731a89' },
+  { id: 'dsh-unity', dir: 'dsh-plugins/plugins/unity-mcp-dsh-plugin', installPs1: 'e76e308719dd22c804276e48584c6d5b3c16ce5a2c5a205f3b598165576e02a5' },
+  { id: 'dsh-launcher', dir: 'dsh-plugins/plugins/dsh-launcher-dsh-plugin', installPs1: '5b317ae4981dae20201efce32fe9c09290c4ae5ad6b6d9292834c663d5bba2fc' },
 ];
 
 /**
- * 默认清单（内嵌，随启动器走）：与 dsh-plugins 锁点 9f47279（新集合 11→7）对齐。
- * 更新流程：在 dsh-plugins 新 commit 上重算各 install.ps1 sha256 → 同步本对象与仓库根 ecosystem.json。
+ * 默认清单（内嵌，随启动器走）：monorepo 化后插件源 = kuaizhongqiang/dsh-ecosystem，
+ * 锁定**伞仓 commit**（插件集即该提交下的 dsh-plugins/ 目录）。
+ * 更新流程：dsh-plugins 内容变更 → 重算各 install.ps1 sha256 → 同步本对象与 dsh-launcher/ecosystem.json，
+ * commit 指向包含该内容的伞仓提交（随 launcher 版本前进）。
  */
 export const DEFAULT_ECOSYSTEM: EcosystemManifest = {
   version: 1,
   dsh: { source: 'github', version: 'latest' },
   plugins: {
     source: {
-      repo: 'https://github.com/kuaizhongqiang/dsh-plugins.git',
-      commit: '360d1fffeb3a2a2399a0a56e2d8d92b415f0f0da',
+      repo: 'https://github.com/kuaizhongqiang/dsh-ecosystem.git',
+      commit: '1765dde74b911a83a9aa0c4081502ad2dd1dc9b7',
     },
     packages: PACKAGES.map((p) => ({
       id: p.id,
@@ -131,7 +134,7 @@ export const DEFAULT_ECOSYSTEM: EcosystemManifest = {
     })),
   },
   skills: {
-    script: 'skills/install-skills.ps1',
+    script: 'dsh-plugins/skills/install-skills.ps1',
     sha256: '2fc2d4f396b1c5fc1c21437058bf473a107017698c3694511721ba3f7f61e96a',
   },
 };
@@ -233,16 +236,16 @@ export async function loadManifest(spec?: string): Promise<{ manifest: Ecosystem
 
 // ---------------------------------------------------------------- 源与哈希
 
-/** dsh-plugins 检出根：显式 > 环境变量 > launcher 旁默认。 */
+/** 生态源检出根：显式 > 环境变量 > launcher 旁默认（monorepo 后检出的是 dsh-ecosystem 仓库）。 */
 export function pluginsRootDir(explicit?: string): string {
   if (explicit) return resolve(explicit);
   const env = process.env.DSH_LAUNCHER_PLUGINS_DIR;
   if (env) return resolve(env);
-  return join(dirname(config.configPath()), 'dsh-plugins');
+  return join(dirname(config.configPath()), 'dsh-ecosystem');
 }
 
 /**
- * 确保 dsh-plugins 检出在**锁定的 commit**（P1-7）：
+ * 确保生态源（dsh-ecosystem 检出）在**锁定的 commit**（P1-7）：
  * - 目录不存在 → 克隆并 checkout 锁定 commit；
  * - 目录存在但非 git 检出 → 报错（提示删除后让 pull 克隆，或设置 DSH_LAUNCHER_PLUGINS_DIR）；
  * - 检出 HEAD ≠ 锁定 commit → 报错（不自动漂移）。
@@ -263,7 +266,7 @@ export async function ensurePluginsSource(
     if (trust && explicit) {
       throw new Error(`信任的插件目录不存在：${dir}（离线包缺少 plugins/？）`);
     }
-    log.info(`克隆 dsh-plugins（锁 ${src.commit.slice(0, 8)}）：${src.repo}`);
+    log.info(`克隆生态源 dsh-ecosystem（锁 ${src.commit.slice(0, 8)}）：${src.repo}`);
     await clonePinned(src.repo, src.commit, dir);
     return dir;
   }
@@ -275,13 +278,13 @@ export async function ensurePluginsSource(
   if (!existsSync(join(dir, '.git'))) {
     throw new Error(
       `插件源目录 ${dir} 不是 git 检出（缺 .git）。请删除该目录后让 pull 重新克隆，` +
-        `或把 DSH_LAUNCHER_PLUGINS_DIR 指向已检出的 dsh-plugins 仓库`,
+        `或把 DSH_LAUNCHER_PLUGINS_DIR 指向已检出的 dsh-ecosystem 仓库`,
     );
   }
   const head = (await node.runGit(['rev-parse', 'HEAD'], undefined, dir)).trim();
   if (head !== src.commit) {
     throw new Error(
-      `dsh-plugins 检出 HEAD=${head.slice(0, 8)}，清单锁定 ${src.commit.slice(0, 8)}（P1-7 锁 commit，不自动漂移）。` +
+      `生态源检出 HEAD=${head.slice(0, 8)}，清单锁定 ${src.commit.slice(0, 8)}（P1-7 锁 commit，不自动漂移）。` +
         `请在 ${dir} 更新到锁定 commit 后重试 pull`,
     );
   }

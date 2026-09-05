@@ -1,0 +1,195 @@
+# release.yml —— dsh-ecosystem 全量发布(monorepo)
+# 触发:push tag vX.Y.Z(如 v0.8.0)→ 一个 tag 发布所有包:
+#   - init:创建/重建该 tag 的 GitHub Release(幂等:先删同名 release,不动 tag)
+#   - launcher(windows):tsc + build + portable/NSIS + smoke → 上传资产
+#   - desktop(windows):build + smoke + NSIS(+latest.yml/blockmap)→ 上传资产
+#   - vscode(ubuntu):typecheck/test/build + vsix → 上传资产 + Open VSX(有 OVSX_PAT 时)
+#   - plugins(ubuntu):verify-release.mjs 校验伞仓插件源清单一致性
+# 流程与版本策略见 docs/RELEASING.md。
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  init:
+    name: Init release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create / refresh release for tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          tag="${{ github.ref_name }}"
+          # 幂等:删除同名 release(保留 git tag)后重建,避免资产残留/上传冲突
+          gh release delete "$tag" --yes 2>/dev/null || true
+          gh release create "$tag" \
+            --title "dsh-ecosystem $tag" \
+            --notes "dsh-ecosystem $tag — 全量发布(launcher / desktop / vscode / plugins 同一版本)。
+每个组件的安装/下载入口见本 release 资产;vscode 同步发布 Open VSX。详细流程见 docs/RELEASING.md。"
+
+  launcher:
+    name: Build dsh-launcher (portable + NSIS)
+    needs: init
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: dsh-launcher
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dsh-launcher/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Assert version matches tag
+        run: node -e "const p=require('./package.json');const t=process.argv[1].replace(/^v/,'');if(p.version!==t){console.error('package.json',p.version,'!= tag',t);process.exit(1)};console.log('version ok:',p.version)" "${{ github.ref_name }}"
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Build bundles
+        run: node scripts/build.mjs
+      - name: Package portable exe
+        run: npx electron-builder --win portable --publish never
+      - name: Package NSIS installer
+        run: npx electron-builder --win nsis --publish never
+      - name: Smoke test (CLI mode)
+        shell: pwsh
+        run: |
+          $exe = "release\dsh-launcher.exe"
+          if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
+          Get-Item $exe | Select-Object Name, @{N='MB';E={[math]::Round($_.Length/1MB,1)}}
+          $setup = "release\dsh-launcher-setup-*.exe"
+          if (-not (Get-ChildItem $setup)) { throw "installer not found: $setup" }
+          Get-ChildItem $setup | Select-Object Name, @{N='MB';E={[math]::Round($_.Length/1MB,1)}}
+          $p = Start-Process (Join-Path (Get-Location) $exe) -ArgumentList '--version' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "exit code $($p.ExitCode)" }
+          $p2 = Start-Process (Join-Path (Get-Location) $exe) -ArgumentList '--help' -Wait -PassThru
+          if ($p2.ExitCode -ne 0) { throw "help exit code $($p2.ExitCode)" }
+      - name: Smoke test (desktop window)
+        shell: pwsh
+        run: |
+          $exe = Join-Path (Get-Location) "release\dsh-launcher.exe"
+          $p = Start-Process $exe -PassThru
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 20; $i++) {
+              Start-Sleep -Seconds 2
+              try {
+                $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:3177/' -UseBasicParsing -TimeoutSec 3
+                if ($resp.Content -match 'launcherBridge') { $ok = $true; break }
+              } catch {}
+            }
+            if (-not $ok) { throw 'UI service did not come up on 3177' }
+            Write-Host 'desktop window smoke OK'
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Get-Process -Name 'dsh-launcher' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+      - name: Publish assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dsh-launcher/release/dsh-launcher.exe
+            dsh-launcher/release/dsh-launcher-setup-*.exe
+          fail_on_unmatched_files: true
+
+  desktop:
+    name: Build dsh-desktop (NSIS + updater feed)
+    needs: init
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: dsh-desktop/desktop
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dsh-desktop/desktop/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Assert version matches tag
+        run: node -e "const p=require('./package.json');const t=process.argv[1].replace(/^v/,'');if(p.version!==t){console.error('package.json',p.version,'!= tag',t);process.exit(1)};console.log('version ok:',p.version)" "${{ github.ref_name }}"
+      - name: Build app
+        run: npm run build
+      - name: "Smoke: shared-server protocol (launch-token auth)"
+        run: node scripts/smoke.mjs
+      - name: Package (NSIS)
+        run: npx electron-builder --config electron-builder.yml --publish never
+      - name: Publish assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dsh-desktop/desktop/release/dsh-desktop-*-setup.exe
+            dsh-desktop/desktop/release/dsh-desktop-*-setup.exe.blockmap
+            dsh-desktop/desktop/release/latest.yml
+          fail_on_unmatched_files: true
+      - name: Publish to npm (optional)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/publish-npm.mjs
+        if: env.NPM_TOKEN != ''
+
+  vscode:
+    name: Build dsh-vscode (VSIX + Open VSX)
+    needs: init
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dsh-vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: dsh-vscode/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Assert version matches tag
+        run: node -e "const p=require('./package.json');const t=process.argv[1].replace(/^v/,'');if(p.version!==t){console.error('package.json',p.version,'!= tag',t);process.exit(1)};console.log('version ok:',p.version)" "${{ github.ref_name }}"
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Build bundle
+        run: pnpm build
+      - name: Package VSIX
+        run: pnpm exec vsce package --no-dependencies
+      - name: Publish VSIX to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dsh-vscode/*.vsix
+          fail_on_unmatched_files: true
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: pnpm dlx ovsx publish --no-dependencies dsh-vscode-*.vsix -p "$OVSX_PAT"
+
+  plugins:
+    name: Verify plugins manifest
+    needs: init
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify release manifest
+        run: node scripts/verify-release.mjs
