@@ -33,8 +33,7 @@ jobs:
           gh release delete "$tag" --yes 2>/dev/null || true
           gh release create "$tag" \
             --title "dsh-ecosystem $tag" \
-            --notes "dsh-ecosystem $tag — 全量发布(launcher / desktop / vscode / plugins 同一版本)。
-每个组件的安装/下载入口见本 release 资产;vscode 同步发布 Open VSX。详细流程见 docs/RELEASING.md。"
+            --notes "dsh-ecosystem $tag — 全量发布(launcher / desktop / vscode / plugins 同一版本)。安装/下载入口见本 release 资产;vscode 同步发布 Open VSX;流程见 docs/RELEASING.md。"
 
   launcher:
     name: Build dsh-launcher (portable + NSIS)

@@ -1,5 +1,26 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-05(发布流程重做 —— 全量 tag 自动化,待真实发版验证)
+
+- **决策**:用户拍板「一个 tag 搞定所有包」全量发布 + 源仓(5 个)已完成 GitHub 归档(只读)。
+  伞仓 = 唯一权威代码/发布仓;发布 = 打 `vX.Y.Z` → 伞仓根 CI 全量构建并发布。
+- **已完成(提交 9a6427e + f69f29f,已推 main)**:
+  - `dsh-remote` 组件**完全移除**(目录 + docs/modules/dsh-remote.md + 全部引用清理;内容在归档仓可查)。
+  - `.github/workflows/release.yml`:push tag `v*` → init(幂等重建 release)→ launcher/desktop/vscode 并行
+    构建上传资产到该 release + plugins 校验;vscode 有 `OVSX_PAT` secret 时发布 Open VSX;desktop 有
+    `NPM_TOKEN` 时顺带发 npm。
+  - **launcher 运行时源切伞仓**(源码改):插件源 repo/commit + dir/skills 前缀 `dsh-plugins/`、
+    默认检出根 `dsh-ecosystem`(ecosystem.ts 内嵌 + ecosystem.json 同步,commit 指向 9a6427e);
+    自更新 URL(update.ts)→ kuaizhongqiang/dsh-ecosystem/releases;desktop electron-builder
+    publish.repo → dsh-ecosystem(updater feed);launcher 未找到提示 URL 同步改。
+  - 版本统一 bump **0.8.0**(launcher/vscode/desktop package.json);`scripts/verify-release.mjs` 发布门
+    (7 包 install.ps1 + skills sha、repo/commit 与内嵌同步);RELEASING/README/.AGENT/modules/release-notes 同步。
+  - 归档后 clone 链路验证:`clonePinned` 等价操作(浅取伞仓 @9a6427e)文件/哈希全匹配;launcher `tsc` 零错误;
+    release.yml 本地 YAML 校验通过(修掉 init `--notes` 换行缩进 bug)。
+- **待办(等用户)**:①用户已去加伞仓 Actions secret `OVSX_PAT`(Open VSX);②加好后打 `v0.8.0` tag →
+  `gh run` 盯 CI → 修到发布成功(资产上传 + vscode 上 Open VSX);③成功后补模块页版本快照与真机冒烟。
+- 遗留清扫项(非阻塞):组件目录内旧文档对已归档仓/旧 submodule 的引用;desktop/npm 渠道观察。
+
 ## 2026-09-04(伞仓 monorepo 化 —— 阶段 A 代码收敛完成)
 
 - **决策**:用户拍板「归档 = 收敛到伞仓 monorepo」——5 自有组件并入伞仓单一 git,源仓归档只读;
