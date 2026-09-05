@@ -178,10 +178,14 @@ jobs:
           files: dsh-vscode/*.vsix
           fail_on_unmatched_files: true
       - name: Publish to Open VSX
-        if: env.OVSX_PAT != ''
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: pnpm dlx ovsx publish --no-dependencies dsh-vscode-*.vsix -p "$OVSX_PAT"
+        run: |
+          if [ -n "$OVSX_PAT" ]; then
+            pnpm dlx ovsx publish --no-dependencies dsh-vscode-*.vsix -p "$OVSX_PAT"
+          else
+            echo "OVSX_PAT not set — skip Open VSX publish"
+          fi
 
   plugins:
     name: Verify plugins manifest

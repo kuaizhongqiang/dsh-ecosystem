@@ -1,0 +1,4 @@
+# 统一换行策略(2026-09-05 发布修复):
+# 仓库 blob 一律 LF;但 *.ps1 检出强制 CRLF —— 供应链清单(launcher ecosystem.json)
+# 的 sha256 基于 CRLF 工作树计算,须保证 CI/用户机/本机检出一致,否则 P1-7 哈希校验漂移。
+*.ps1 text eol=crlf
