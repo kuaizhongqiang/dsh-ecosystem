@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'">
+<title>dsh-desktop</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <strong>dsh-desktop</strong>
+    <span id="server-badge" class="badge badge-info"></span>
+    <span class="spacer"></span>
+    <button id="btn-logs" class="ghost" type="button">日志</button>
+    <button id="btn-settings" class="ghost" type="button">设置</button>
+  </header>
+
+  <!-- ── Connect view (shell home: shared server status + actions) ── -->
+  <section id="view-connect" class="view" hidden>
+    <h2>连接到 dsh server</h2>
+    <p id="connect-status" class="connect-status">检测中…</p>
+    <p id="connect-detail" class="muted"></p>
+    <div id="connect-meta" class="env-list"></div>
+    <div class="actions">
+      <button id="btn-start" class="primary" type="button">启动服务（dsh-launcher）</button>
+      <button id="btn-reconnect" class="ghost" type="button">重连</button>
+      <button id="btn-stop" class="ghost" type="button">停止服务</button>
+      <button id="btn-open-browser" class="ghost" type="button">在浏览器打开</button>
+      <button id="btn-open-launcher" class="ghost" type="button">打开 dsh-launcher</button>
+    </div>
+    <p class="muted">
+      dsh server 由先启动的一端持有（dsh-launcher / VSCode 扩展 / <code>dsh web</code>），
+      桌面端只是外壳，三端共享同一服务与数据（<code>%DSH_HOME%</code>）。
+    </p>
+  </section>
+
+  <!-- ── Log view ── -->
+  <section id="view-log" class="view" hidden>
+    <div class="view-head">
+      <h2>日志</h2>
+      <div class="actions">
+        <label><input id="log-autoscroll" type="checkbox" checked> 自动滚动</label>
+        <button id="btn-log-clear" class="ghost" type="button">清空</button>
+        <button id="btn-log-export" class="ghost" type="button">导出</button>
+      </div>
+    </div>
+    <pre id="log-output" class="log-box" tabindex="0"></pre>
+  </section>
+
+  <!-- ── Settings view ── -->
+  <section id="view-settings" class="view" hidden>
+    <h2>设置</h2>
+    <form id="settings-form" class="form">
+      <label>共享 server 端口（dsh web 默认 3080）
+        <input id="set-port" type="number" min="1" max="65535" required>
+      </label>
+      <label class="row"><input id="set-close-tray" type="checkbox"> 关闭窗口时最小化到托盘</label>
+      <label class="row"><input id="set-autolaunch" type="checkbox"> 开机自启</label>
+      <label>dsh 数据目录 DSH_HOME（留空 = ~/.dsh，存放 launch-token.json）
+        <span class="row">
+          <input id="set-datadir" type="text" placeholder="~/.dsh">
+          <button id="btn-browse-datadir" class="ghost" type="button">浏览…</button>
+        </span>
+      </label>
+      <label>dsh-launcher.exe 路径（留空 = 自动查找 PATH / 常见位置）
+        <span class="row">
+          <input id="set-launcher" type="text" placeholder="自动查找">
+          <button id="btn-browse-launcher" class="ghost" type="button">浏览…</button>
+        </span>
+      </label>
+      <div class="actions">
+        <button id="btn-settings-save" class="primary" type="submit">保存</button>
+        <span id="settings-saved" class="muted" hidden>已保存 ✓</span>
+      </div>
+    </form>
+    <hr>
+    <h3>更新</h3>
+    <p id="update-status" class="muted">未检查</p>
+    <div class="actions">
+      <button id="btn-update-check" type="button">检查更新</button>
+      <button id="btn-update-download" class="ghost" type="button" hidden>下载更新</button>
+      <button id="btn-update-install" class="primary" type="button" hidden>重启安装</button>
+    </div>
+  </section>
+
+  <footer class="statusbar">
+    <span id="foot-server"></span>
+    <span id="foot-update"></span>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

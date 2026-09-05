@@ -1,0 +1,39 @@
+# Node / npm
+node_modules/
+*.log
+npm-debug.log*
+
+# dsh 子模块构建产物（不入库）
+deepseek-harness/node_modules/
+deepseek-harness/**/lib/
+deepseek-harness/**/lib.types/
+deepseek-harness/apps/web/dist/
+deepseek-harness/dist/
+deepseek-harness/.turbo/
+
+# Electron / 打包产物
+desktop/node_modules/
+desktop/out/
+desktop/dist/
+desktop/release/
+desktop/build/artifacts/
+desktop/.ci-dsh/
+.verify-dsh/
+
+# 环境与密钥
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+*.p12
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 临时
+tmp/
+*.tmp

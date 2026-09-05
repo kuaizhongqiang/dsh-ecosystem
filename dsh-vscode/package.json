@@ -1,0 +1,429 @@
+{
+  "name": "dsh-vscode",
+  "displayName": "DSH - DeepSeek Harness",
+  "description": "在 VSCode 中连接 DeepSeek Harness（DSH）实例：会话列表、流式聊天、工具调用、审批与提问处理。",
+  "version": "0.3.0",
+  "publisher": "kuaizhongqiang",
+  "license": "MIT",
+  "icon": "media/dsh-icon.png",
+  "packageManager": "pnpm@11.13.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kuaizhongqiang/dsh-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Other",
+    "AI"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek",
+    "harness",
+    "agent",
+    "ai"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:dsh.sessions"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "DSH",
+      "properties": {
+        "dsh.serverUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3080",
+          "description": "DeepSeek Harness 服务地址（dsh web 的监听地址），例如 http://127.0.0.1:3080 或 https://dsh.example.com。"
+        },
+        "dsh.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "VSCode 启动后自动连接 DSH 实例。"
+        },
+        "dsh.autoAttachWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "打开文件夹时自动在 DSH 中创建/关联同名工作区，新会话默认使用该工作区目录。"
+        },
+        "dsh.defaultAgentPreset": {
+          "type": "string",
+          "default": "standard",
+          "description": "新建会话使用的 agent preset（需 DSH 实例已配置该 preset）。"
+        },
+        "dsh.historyPageSize": {
+          "type": "number",
+          "default": 40,
+          "minimum": 5,
+          "maximum": 200,
+          "description": "打开会话历史时一次拉取的 message 数量。"
+        },
+        "dsh.reconnectIntervalMs": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 1000,
+          "description": "事件流断开后的自动重连间隔（毫秒）。"
+        },
+        "dsh.autoOpenChat": {
+          "type": "boolean",
+          "default": true,
+          "description": "新建会话后自动打开聊天面板。"
+        },
+        "dsh.showReasoning": {
+          "type": "boolean",
+          "default": true,
+          "description": "在聊天面板中显示模型的思考过程（reasoning）折叠块。"
+        },
+        "dsh.maxToolResultChars": {
+          "type": "number",
+          "default": 4000,
+          "minimum": 200,
+          "maximum": 100000,
+          "description": "工具调用结果在聊天面板中的最大展示字符数（超出截断）。"
+        },
+        "dsh.extraHeaders": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "附加到每个 /api 请求和 remote.mux 事件流 WebSocket 握手头的自定义请求头。"
+        },
+        "dsh.remote": {
+          "type": "boolean",
+          "default": false,
+          "description": "连接模式：true = 远程模式（直连远程 DSH，配 dsh.token 认证）；false = 本地模式（可配置 dsh.localServerPath 拉起本地 dsh web）。"
+        },
+        "dsh.token": {
+          "type": "string",
+          "default": "",
+          "description": "DSH 进程启动 token（`dsh web` 启动时打印的 `?token=` 值）。扩展用它换取浏览器会话 cookie，认证所有 /api 请求与 remote.mux 事件流。适用于远程部署；本地未开启 token 时可留空。"
+        },
+        "dsh.localServerPath": {
+          "type": "string",
+          "default": "",
+          "description": "本地模式下 dsh 安装 / 启动目录（即运行 `dsh web` 时所在的目录，应包含 dsh 启动器 dsh.cmd / dsh / dsh-launcher.exe）。样例：Windows `D:\\dsh`，macOS/Linux `~/dsh`。配置后 VSCode 启动（或点击连接）会自动拉起 `dsh web`（cwd=该目录）并轮询就绪后连接，退出时自动终止服务进程；设置时会校验路径存在、是目录且含启动器。"
+        },
+        "dsh.launchTokenFollow": {
+          "type": "boolean",
+          "default": true,
+          "description": "本地模式且 dsh.token 为空时，读取 %DSH_HOME%\\launch-token.json 实现 token 认证跟随（launcher 与本扩展谁拉起 dsh 谁写该文件）；dsh.token 显式配置时仍以静态配置优先。关闭后与旧版行为一致（token 只来自静态配置，401 也不再自动切到共享文件 token）。"
+        },
+        "dsh.promptMode": {
+          "type": "string",
+          "enum": [
+            "steer",
+            "queue"
+          ],
+          "default": "steer",
+          "description": "发送消息的模式：steer = 插话（立即处理，默认，与 DSH Web 一致）；queue = 排队（等当前回合结束后再处理）。"
+        },
+        "dsh.pricing": {
+          "type": "object",
+          "default": {
+            "deepseek-v4-flash": {
+              "input": 3,
+              "cacheHit": 0.1,
+              "output": 9,
+              "offPeak": {
+                "input": 1.5,
+                "cacheHit": 0.05,
+                "output": 4.5
+              }
+            },
+            "deepseek-v4-pro": {
+              "input": 9,
+              "cacheHit": 0.3,
+              "output": 27,
+              "offPeak": {
+                "input": 4.5,
+                "cacheHit": 0.15,
+                "output": 13.5
+              }
+            },
+            "mimo-v2.5": {
+              "input": 1,
+              "cacheHit": 0.02,
+              "output": 2
+            },
+            "mimo-v2.5-pro": {
+              "input": 3,
+              "cacheHit": 0.025,
+              "output": 6
+            }
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "number",
+                "description": "输入（缓存未命中）每百万 tokens 价格（¥）"
+              },
+              "cacheHit": {
+                "type": "number",
+                "description": "输入（缓存命中）每百万 tokens 价格（¥）"
+              },
+              "output": {
+                "type": "number",
+                "description": "输出每百万 tokens 价格（¥）"
+              },
+              "offPeak": {
+                "type": "object",
+                "description": "空闲时段价格（DeepSeek 峰谷定价；北京时间 9-12、14-18 为高峰，其余为空闲）",
+                "properties": {
+                  "input": {
+                    "type": "number"
+                  },
+                  "cacheHit": {
+                    "type": "number"
+                  },
+                  "output": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "description": "用量栏费用估算的价格表：按模型 id 的每百万 tokens 单价（人民币 ¥）。默认内置 DeepSeek 官方峰谷价（2026-08-17 生效）与小米 MiMo 价，官方调价后可在此覆盖。"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "dsh.connect",
+        "title": "DSH: 连接",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "dsh.disconnect",
+        "title": "DSH: 断开连接",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "dsh.openChat",
+        "title": "DSH: 打开聊天",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "dsh.newSession",
+        "title": "DSH: 新建会话",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "dsh.refreshSessions",
+        "title": "DSH: 刷新会话列表",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dsh.openInBrowser",
+        "title": "DSH: 在浏览器打开",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "dsh.cancel",
+        "title": "DSH: 停止当前回合",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "dsh.renameSession",
+        "title": "DSH: 重命名会话",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "dsh.showOutput",
+        "title": "DSH: 显示输出日志",
+        "icon": "$(output)"
+      },
+      {
+        "command": "dsh.openSettings",
+        "title": "DSH: 打开设置",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "dsh.sidebarBack",
+        "title": "DSH: 返回首页",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "dsh.sidebarNavigate",
+        "title": "DSH: 切换侧边栏视图",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "dsh.sidebarNavigateSettings",
+        "title": "DSH: 打开设置页",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "dsh.toggleAllSessions",
+        "title": "DSH: 切换会话范围",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "dsh.toggleSetting",
+        "title": "DSH: 编辑设置项",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "dsh.usePreset",
+        "title": "DSH: 设为默认 preset",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "dsh.openSettingsJson",
+        "title": "DSH: 打开设置 JSON",
+        "icon": "$(json)"
+      },
+      {
+        "command": "dsh.openDshHome",
+        "title": "DSH: 打开 DSH_HOME 目录",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "dsh.openPluginPath",
+        "title": "DSH: 打开插件路径",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "dsh.startLocalService",
+        "title": "DSH: 启动本地服务",
+        "icon": "$(play)"
+      },
+      {
+        "command": "dsh.stopLocalService",
+        "title": "DSH: 停止本地服务",
+        "icon": "$(debug-stop)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dsh",
+          "title": "DSH",
+          "icon": "media/dsh-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "dsh": [
+        {
+          "id": "dsh.sessions",
+          "name": "会话",
+          "icon": "media/dsh-icon.svg"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "dsh.newSession",
+          "when": "view == dsh.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dsh.refreshSessions",
+          "when": "view == dsh.sessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "dsh.connect",
+          "when": "view == dsh.sessions && !dsh.connected",
+          "group": "navigation@3"
+        },
+        {
+          "command": "dsh.disconnect",
+          "when": "view == dsh.sessions && dsh.connected",
+          "group": "navigation@3"
+        },
+        {
+          "command": "dsh.openSettings",
+          "when": "view == dsh.sessions",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dsh.openChat",
+          "when": "view == dsh.sessions && viewItem == dsh-session",
+          "group": "inline@1"
+        },
+        {
+          "command": "dsh.openInBrowser",
+          "when": "view == dsh.sessions && viewItem == dsh-session",
+          "group": "inline@2"
+        },
+        {
+          "command": "dsh.renameSession",
+          "when": "view == dsh.sessions && viewItem == dsh-session",
+          "group": "inline@3"
+        },
+        {
+          "command": "dsh.cancel",
+          "when": "view == dsh.sessions && viewItem == dsh-session",
+          "group": "inline@4"
+        },
+        {
+          "command": "dsh.openChat",
+          "when": "view == dsh.sessions && viewItem == dsh-workspace",
+          "group": "inline@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "dsh.connect",
+          "when": "!dsh.connected"
+        },
+        {
+          "command": "dsh.disconnect",
+          "when": "dsh.connected"
+        },
+        {
+          "command": "dsh.sidebarNavigate",
+          "when": "false"
+        },
+        {
+          "command": "dsh.toggleSetting",
+          "when": "false"
+        },
+        {
+          "command": "dsh.openPluginPath",
+          "when": "false"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "dsh.openChat",
+        "key": "ctrl+alt+d",
+        "mac": "cmd+alt+d"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "package": "vsce package --no-dependencies",
+    "vscode:prepublish": "node esbuild.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^22.20.1",
+    "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.1",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}

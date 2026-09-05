@@ -1,7 +1,2 @@
-# 直接工程(独立 git 仓库,各自持有 .git/remote/历史)
-# 伞仓不跟踪它们的内容——严禁对这些目录 git add(见 .AGENT.md「直接工程纪律」)
-/dsh-launcher/
-/dsh-plugins/
-/dsh-vscode/
-/dsh-desktop/
-/dsh-remote/
+# 伞仓已收敛为 monorepo(2026-09-04):5 个组件目录是伞仓 git 的普通目录,不再忽略。
+# 各组件自带 .gitignore 管理内部忽略;deepseek-harness 为唯一子模块,同样不在此忽略。

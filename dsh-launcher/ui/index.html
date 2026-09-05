@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dsh-launcher</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="launcher.css">
+</head>
+<body data-ds-dark-theme>
+
+  <!-- 背景极光（纯装饰） -->
+  <div class="aurora" aria-hidden="true">
+    <div class="aurora-blob aurora-blob-1"></div>
+    <div class="aurora-blob aurora-blob-2"></div>
+    <div class="aurora-blob aurora-blob-3"></div>
+  </div>
+
+  <!-- 应用窗口 -->
+  <div class="app-window" id="appWindow">
+
+    <!-- 标题栏 -->
+    <header class="titlebar">
+      <img class="logo" src="favicon.svg" alt="dsh" draggable="false">
+      <span class="title">dsh-launcher</span>
+      <span class="version" id="ver">v0.3.1</span>
+      <button class="btn btn-icon btn-min" id="btnMin" title="最小化" aria-label="最小化" hidden>─</button>
+      <button class="btn btn-icon btn-close" id="btnClose" title="关闭" aria-label="关闭">×</button>
+    </header>
+
+    <main class="content">
+
+      <!-- 连接切换器（M5：激活连接，local/remote 语义跟随） -->
+      <section class="path-row">
+        <label class="path-label" for="connSelect">连接</label>
+        <select id="connSelect" class="path-input" title="激活连接（local=本机端口；remote=广域网）"></select>
+      </section>
+
+      <!-- 环境状态卡片 -->
+      <section class="card status-card">
+        <h2 class="card-title">环境状态</h2>
+        <ul class="status-rows">
+          <li class="status-row" data-key="node">
+            <span class="dot dot-dim"></span>
+            <span class="row-label">Node.js</span>
+            <span class="row-value" id="node" data-field="node">检测中…</span>
+          </li>
+          <li class="status-row" data-key="npm">
+            <span class="dot dot-dim"></span>
+            <span class="row-label">npm</span>
+            <span class="row-value" id="npm" data-field="npm">检测中…</span>
+          </li>
+          <li class="status-row" data-key="dsh">
+            <span class="dot dot-dim"></span>
+            <span class="row-label">dsh</span>
+            <span class="row-value" id="dsh" data-field="dsh">检测中…</span>
+          </li>
+          <li class="status-row" data-key="port">
+            <span class="dot dot-dim"></span>
+            <span class="row-label">端口</span>
+            <span class="row-value" id="port" data-field="port">—</span>
+          </li>
+          <li class="status-row" data-key="update">
+            <span class="dot dot-dim"></span>
+            <span class="row-label">更新</span>
+            <span class="row-value" id="update" data-field="update">检查中…</span>
+          </li>
+        </ul>
+      </section>
+
+      <!-- 安装目录行 -->
+      <section class="path-row">
+        <label class="path-label" for="pathInput">安装目录</label>
+        <input id="pathInput" class="path-input" type="text" spellcheck="false"
+               value="C:\Users\kua\AppData\Local\dsh">
+        <div class="path-actions">
+          <button class="btn btn-sec" id="btnBrowse">浏览…</button>
+          <button class="btn btn-sec" id="btnInstall">安装</button>
+          <button class="btn btn-sec" id="btnMove">移动</button>
+        </div>
+      </section>
+
+      <!-- dsh 版本选择行（GitHub 源） -->
+      <section class="path-row">
+        <label class="path-label" for="verSelect">dsh 版本</label>
+        <select id="verSelect" class="path-input" title="GitHub 源码安装的版本（留空 = 最新 tag）">
+          <option value="">最新（GitHub，推荐）</option>
+        </select>
+        <div class="path-actions">
+          <button class="btn btn-sec" id="btnRefreshTags" title="从 GitHub 拉取可选版本">刷新列表</button>
+        </div>
+      </section>
+
+      <!-- 生态卡片（M2：清单 + 安装状态 + 一键拉齐） -->
+      <section class="card eco-card">
+        <div class="card-row">
+          <h2 class="card-title">生态</h2>
+          <span class="eco-meta" id="ecoMeta">读取中…</span>
+          <span class="action-spacer"></span>
+          <button class="btn btn-ghost btn-sm" id="btnEcoRefresh">刷新</button>
+        </div>
+        <p class="eco-state" id="ecoState">—</p>
+        <div class="eco-pkgs" id="ecoPkgs"></div>
+        <div class="eco-foot">
+          <label class="eco-chk"><input type="checkbox" id="ecoCore" checked> 含 core（未装时 install）</label>
+          <label class="eco-chk"><input type="checkbox" id="ecoSkills" checked> 含技能</label>
+          <span class="action-spacer"></span>
+          <button class="btn btn-sec btn-sm" id="btnEcoDry" disabled>仅校验（dry-run）</button>
+          <button class="btn btn-primary btn-sm" id="btnEcoPull" disabled>拉齐勾选项</button>
+        </div>
+      </section>
+
+      <!-- 日志控制台 -->
+      <section class="card log-panel">
+        <div class="log" id="log" aria-live="polite"></div>
+      </section>
+
+      <!-- 底部操作栏 -->
+      <footer class="action-bar">
+        <button class="btn btn-primary" id="btnStart">启动</button>
+        <button class="btn btn-sec" id="btnStop" disabled>停止</button>
+        <button class="btn btn-sec" id="btnRestart" disabled>重启</button>
+        <button class="btn btn-sec" id="btnSetup">一键部署</button>
+        <button class="btn btn-sec" id="btnUpdate">检查更新</button>
+        <div class="action-spacer"></div>
+        <button class="btn btn-ghost" id="btnExit">退出</button>
+      </footer>
+
+      <!-- 安装进度条（不定进度，默认隐藏） -->
+      <div class="progress" id="progress" hidden>
+        <div class="progress-track"><div class="progress-bar"></div></div>
+        <span class="progress-text" id="progressText">安装中…</span>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

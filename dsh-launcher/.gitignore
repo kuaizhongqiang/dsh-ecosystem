@@ -1,0 +1,27 @@
+# 构建产物
+dsh-launcher.exe
+dsh-launcher-debug.exe
+dsh-launcher-console.exe
+*.exe
+
+# 运行期配置（install 生成，跟随 exe）
+launcher.json
+
+# 资源文件（CI / build.ps1 用 rsrc 生成，旧 Go 版）
+rsrc.syso
+
+# 工具输出
+preview.png
+
+# 测试目录
+.test/
+
+# TS 工程
+node_modules/
+dist/
+dist-sea/
+release/
+.test/
+
+# 运行期调试
+dsh-launcher-debug.log

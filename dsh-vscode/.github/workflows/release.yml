@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build bundle
+        run: pnpm build
+
+      - name: Package VSIX
+        run: pnpm exec vsce package --no-dependencies
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: '*.vsix'
+          generate_release_notes: true
+
+      # 可选：往 Open VSX 发布。在仓库 Secrets 里加 OPEN_VSX_TOKEN 后自动生效。
+      # （secrets 不可用于 step 级 if，改用 env 上下文判断）
+      - name: Publish to Open VSX (optional)
+        if: env.OPEN_VSX_TOKEN != ''
+        env:
+          OPEN_VSX_TOKEN: ${{ secrets.OPEN_VSX_TOKEN }}
+        run: pnpm dlx ovsx publish --no-dependencies dsh-vscode-*.vsix -p "$OPEN_VSX_TOKEN"

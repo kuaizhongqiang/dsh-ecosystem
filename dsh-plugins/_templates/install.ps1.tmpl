@@ -1,0 +1,87 @@
+# install.ps1 模板(PM1):复制为 plugins/<pkg>-dsh-plugin/install.ps1 后按注释填充。
+# 规范:docs/PLUGIN-SPEC.md §4(幂等 / -Only / -Uninstall / 节头 / 凭证红线)。
+#
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Only <svc1,svc2>
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall [-Only <svc>]
+param(
+  [string]$Only = '',
+  [switch]$Uninstall
+)
+
+$ErrorActionPreference = 'Stop'
+
+# TODO: 服务表(id 必须与载荷目录 / tool-<id> 一致;files 为载荷内需复制文件)
+$AllServices = @(
+  @{ id = '__SVC1__'; files = @('index.js', 'package.json') },
+  @{ id = '__SVC2__'; files = @('index.js', 'package.json') }
+)
+
+$selected = if ($Only) { $Only.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ } } else { $AllServices | ForEach-Object { $_.id } }
+if (-not $selected -or $selected.Count -eq 0) { Write-Host 'ERROR: -Only 为空' -ForegroundColor Red; exit 1 }
+$unknown = $selected | Where-Object { $AllServices.id -notcontains $_ }
+if ($unknown) { Write-Host ('ERROR: 未知服务: ' + ($unknown -join ', ')) -ForegroundColor Red; exit 1 }
+
+$dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
+$profileDir = Join-Path $dshHome 'profiles\web'
+$patchFile = Join-Path $profileDir 'cordis.patch.yml'
+if (-not (Test-Path (Join-Path $dshHome 'profiles'))) { Write-Host 'ERROR: no dsh profiles. Install dsh first.' -ForegroundColor Red; exit 1 }
+if (-not (Test-Path $profileDir)) { Write-Host 'ERROR: boot web profile once first (dsh web).' -ForegroundColor Red; exit 1 }
+
+function Remove-PatchSection([string]$text, [string]$header) {
+  $lines = $text -split "`r?`n"
+  $out = New-Object System.Collections.Generic.List[string]
+  $skip = $false
+  foreach ($l in $lines) {
+    if (-not $skip -and $l -match '^\s*#\s*---\s*' -and $l -like "*$header*") { $skip = $true; continue }
+    if ($skip) {
+      if ($l -match '^\s*#' -or $l -match '^\s*- insert:' -or $l -match '^\s+- ' -or $l.Trim() -eq '') { continue }
+      $skip = $false
+    }
+    [void]$out.Add($l)
+  }
+  return (($out -join "`n").TrimEnd())
+}
+
+function Add-PatchEntry([string]$pkg, [string]$toolId, [string]$svcId) {
+  $current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
+  if ($current -match [regex]::Escape($toolId)) { Write-Host "SKIP $toolId already present" -ForegroundColor Yellow; return }
+  $entryText = @"
+
+# --- $pkg`: $svcId (native dsh) ---
+# Main model stays text-only; payload: ./plugins/$svcId/index.js
+- insert:
+    - id: $toolId
+      name: './plugins/$svcId/index.js'
+"@
+  $lines = ($current -split "`r?`n") | Where-Object { $_ -notmatch '^\s*\[\]\s*$' }
+  $base = ($lines -join "`n").TrimEnd()
+  $combined = if ($base) { $base + "`n" + $entryText.TrimStart() } else { $entryText.TrimStart() }
+  [System.IO.File]::WriteAllText($patchFile, $combined, (New-Object System.Text.UTF8Encoding($false)))
+  Write-Host "OK  patch entry added ($toolId)" -ForegroundColor Green
+}
+
+if ($Uninstall) {
+  foreach ($id in $selected) {
+    $dir = Join-Path $profileDir ("plugins\" + $id)
+    if (Test-Path $dir) { Remove-Item $dir -Recurse -Force; Write-Host "OK  removed $dir" -ForegroundColor Green }
+    if (Test-Path $patchFile) {
+      $raw = Get-Content $patchFile -Raw
+      $cleaned = Remove-PatchSection $raw "__PKG__: $id"
+      if ($cleaned -ne $raw) { [System.IO.File]::WriteAllText($patchFile, $cleaned, (New-Object System.Text.UTF8Encoding($false))); Write-Host "OK  section removed" -ForegroundColor Green }
+    }
+  }
+  exit 0
+}
+
+foreach ($svc in $AllServices) {
+  $id = $svc.id
+  if ($selected -notcontains $id) { continue }
+  $pluginDir = Join-Path $profileDir ("plugins\" + $id)
+  New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
+  foreach ($f in $svc.files) { Copy-Item (Join-Path $PSScriptRoot ("plugins\" + $id + "\" + $f)) -Destination $pluginDir -Force }
+  Write-Host "OK  copied $id" -ForegroundColor Green
+  Add-PatchEntry '__PKG__' "tool-$id" $id
+}
+Write-Host 'Next: configure credentials (.env.example); restart web instance.' -ForegroundColor Cyan

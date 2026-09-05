@@ -1,0 +1,5 @@
+# pnpm 11：允许依赖构建脚本（esbuild 需要 postinstall 下载二进制）
+allowBuilds:
+  esbuild: true
+  '@vscode/vsce-sign': true
+  keytar: true

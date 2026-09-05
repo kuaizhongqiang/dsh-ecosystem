@@ -1,0 +1,42 @@
+{
+  "name": "@kuaizhongqiang/dsh-desktop",
+  "version": "0.2.3",
+  "description": "Desktop shell for DeepSeek Harness (dsh): a pure Electron shell over the shared dsh Web UI. Never spawns dsh — it connects to the server started by dsh-launcher / dsh-vscode / `dsh web` (whoever started first owns it). Windows-only.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "out/main/index.js",
+  "bin": {
+    "dsh-desktop": "bin/dsh-desktop.cjs"
+  },
+  "os": [
+    "win32"
+  ],
+  "author": "dsh-desktop contributors",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "electron .",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke": "node scripts/smoke.mjs",
+    "plugins:install": "node scripts/install-plugins.mjs",
+    "pack": "npm run build && electron-builder --config electron-builder.yml",
+    "pack:dir": "npm run build && electron-builder --config electron-builder.yml --dir",
+    "publish:npm": "node scripts/publish-npm.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.7.0"
+  },
+  "allowScripts": {
+    "electron": true,
+    "electron-winstaller": true
+  }
+}

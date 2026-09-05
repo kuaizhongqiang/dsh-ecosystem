@@ -1,0 +1,45 @@
+# SKILL.md 模板(PM1):复制为 skills/install-<pkg>/SKILL.md 后填充。
+# 规范:docs/PLUGIN-SPEC.md §5。
+
+---
+name: install-__PKG__
+description: 把 __PKG__ 插件安装到 dsh web(profiles/web/plugins)+ cordis.patch 条目,并完成凭证与重启验证
+whenToUse: 用户要求安装/卸载/排查 __PKG__ 插件,或首次配置其凭证时使用
+---
+
+# 安装 __PKG__ 插件
+
+## 目的
+
+<!-- 一句话:装完用户能做什么(工具名列表) -->
+
+## 前置
+
+1. dsh 已安装且 web profile 存在(`%DSH_HOME%\profiles\web`,没启动过先 `dsh web` 一次);
+2. 凭证可用:`__CREDENTIAL__`(credentials seam 或环境变量)。
+
+## 步骤
+
+1. 运行安装器:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File "<dsh-plugins>/plugins/__PKG__-dsh-plugin/install.ps1"
+   ```
+
+   - 子集安装:`-Only <svc1,svc2>`;
+   - 卸载:`-Uninstall [-Only <svc>]`;
+   - 幂等:可重复执行(载荷覆盖复制,patch 条目判重跳过)。
+
+2. 凭证:按 `.env.example` 把 `__CREDENTIAL__` 写入 `%DSH_HOME%\.credentials.yaml`
+   (推荐,credentials 服务)或设置环境变量。**红线:凭证值绝不入库/入日志。**
+
+3. **重启并验证**:
+   - 优先走 launcher 重启 seam:`launcher_restart` 工具(dsh-launcher 插件),或
+     `%DSH_HOME%\launcher-registration.json` 中 api 的 `POST /api/dsh/restart?key=<bridgeKey>`;
+   - 无 launcher 时提示用户手动重启:`停掉 web → dsh web`;
+   - 验证:让主模型调用一次本包任一工具,确认工具出现在会话工具列表且可执行。
+
+## 故障排查
+
+- 工具不出现:检查 `cordis.patch.yml` 是否含 `tool-<svc>` 条目;重启是否执行;
+- 凭证错误:工具返回 401/403 时检查 credentials seam 与环境变量优先级。

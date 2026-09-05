@@ -1,0 +1,79 @@
+# Release: build the single-variant NSIS installer, sign when secrets are
+# present, publish to a GitHub Release (electron-updater feed via latest.yml).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Signing is opt-in: provide CSC_LINK + CSC_KEY_PASSWORD secrets to sign.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # electron-builder 422s when a release already exists for the tag; make
+      # re-runs idempotent by removing any stale release first.
+      - name: Clean stale release (idempotent re-runs)
+        run: |
+          gh release delete "$env:GITHUB_REF_NAME" --yes 2>$null
+          exit 0
+
+      - name: Build app
+        run: npm run build
+
+      - name: "Smoke: shared-server protocol (launch-token auth)"
+        run: node scripts/smoke.mjs
+
+      - name: Package (NSIS)
+        run: npx electron-builder --config electron-builder.yml --publish never
+
+      # electron-builder's own GitHub publisher is flaky (list-endpoint
+      # eventual consistency causes 422 on re-create); publish explicitly.
+      - name: Publish GitHub Release
+        shell: pwsh
+        run: |
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "$env:GITHUB_REF_NAME"
+          $files = @(
+            "release/dsh-desktop-$ver-setup.exe",
+            "release/dsh-desktop-$ver-setup.exe.blockmap",
+            "release/latest.yml"
+          )
+          foreach ($f in $files) { if (-not (Test-Path $f)) { throw "missing artifact: $f" } }
+          gh release create $tag $files --title "dsh-desktop $ver" --notes "dsh-desktop $ver — 纯壳桌面端（共享 dsh server，三端同步）。"
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+          Write-Host "published $tag with $($files.Count) assets"
+
+      # npm 同步发布：@kuaizhongqiang/dsh-desktop（独立发布清单，electron 作为依赖，
+      # 见 desktop/scripts/publish-npm.mjs）。需要仓库 Secret：NPM_TOKEN。
+      - name: Publish to npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/publish-npm.mjs
+        if: env.NPM_TOKEN != ''
+
+      - name: List artifacts
+        run: Get-ChildItem release -File | Select-Object FullName, Length

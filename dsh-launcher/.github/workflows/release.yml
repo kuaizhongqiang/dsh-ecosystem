@@ -1,0 +1,102 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build dsh-launcher (portable exe + NSIS installer)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Inject version from tag
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          npm version $ver --no-git-tag-version
+          node -e "console.log('version:', require('./package.json').version)"
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build bundles
+        run: node scripts/build.mjs
+
+      - name: Package portable exe
+        # --publish never：发布由下方 action-gh-release 统一处理，
+        # 避免 electron-builder 因 tag 存在而尝试自行发布（无 GH_TOKEN 会失败）
+        run: npx electron-builder --win portable --publish never
+
+      - name: Package NSIS installer
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Smoke test (CLI mode)
+        shell: pwsh
+        run: |
+          $exe = "release\dsh-launcher.exe"
+          if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
+          Get-Item $exe | Select-Object Name, @{N='MB';E={[math]::Round($_.Length/1MB,1)}}
+          $setup = "release\dsh-launcher-setup-*.exe"
+          if (-not (Get-ChildItem $setup)) { throw "installer not found: $setup" }
+          Get-ChildItem $setup | Select-Object Name, @{N='MB';E={[math]::Round($_.Length/1MB,1)}}
+          $p = Start-Process (Join-Path (Get-Location) $exe) -ArgumentList '--version' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "exit code $($p.ExitCode)" }
+          $p2 = Start-Process (Join-Path (Get-Location) $exe) -ArgumentList '--help' -Wait -PassThru
+          if ($p2.ExitCode -ne 0) { throw "help exit code $($p2.ExitCode)" }
+
+      - name: Smoke test (desktop window)
+        shell: pwsh
+        run: |
+          $exe = Join-Path (Get-Location) "release\dsh-launcher.exe"
+          $p = Start-Process $exe -PassThru
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 20; $i++) {
+              Start-Sleep -Seconds 2
+              try {
+                $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:3177/' -UseBasicParsing -TimeoutSec 3
+                if ($resp.Content -match 'launcherBridge') { $ok = $true; break }
+              } catch {}
+            }
+            if (-not $ok) { throw 'UI service did not come up on 3177' }
+            Write-Host 'desktop window smoke OK'
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Get-Process -Name 'dsh-launcher' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-launcher-${{ github.ref_name }}
+          path: |
+            release/dsh-launcher.exe
+            release/dsh-launcher-setup-*.exe
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            release/dsh-launcher.exe
+            release/dsh-launcher-setup-*.exe
+          generate_release_notes: true
+          fail_on_unmatched_files: true

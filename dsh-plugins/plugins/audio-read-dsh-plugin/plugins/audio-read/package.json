@@ -1,0 +1,6 @@
+{
+  "name": "dsh-profile-web-plugin-audio-read",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1"
+}

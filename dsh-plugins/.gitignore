@@ -1,0 +1,21 @@
+# Node
+node_modules/
+
+# Secrets — never commit real keys
+.env
+.env.local
+.env.*.local
+
+# Logs & temp
+*.log
+*.tmp
+
+# Build output
+dist/
+build/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

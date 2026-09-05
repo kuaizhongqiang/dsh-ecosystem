@@ -1,0 +1,82 @@
+{
+  "name": "dsh-launcher",
+  "version": "0.7.3",
+  "description": "dsh 本机安装 + 启动引导器（GitHub 源码构建 / npm 双源）—— TS/JS，Electron 桌面窗口单文件版",
+  "type": "module",
+  "main": "dist/electron-main.cjs",
+  "license": "MIT",
+  "bin": {
+    "dsh-launcher": "dist/launcher.cjs"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "start": "node dist/launcher.cjs",
+    "start:desktop": "electron .",
+    "verify:m0": "node scripts/verify-m0.mjs",
+    "verify:m1": "node scripts/verify-m1.mjs",
+    "verify:m2": "node scripts/verify-m2.mjs",
+    "verify:m3": "node scripts/verify-m3.mjs",
+    "verify:m4": "node scripts/verify-m4.mjs",
+    "verify:m5": "node scripts/verify-m5.mjs",
+    "verify:m6": "node scripts/verify-m6.mjs",
+    "verify:m7": "node scripts/verify-m7.mjs",
+    "verify:m8": "node scripts/verify-m8.mjs",
+    "dist": "node scripts/build.mjs && electron-builder --win portable --publish never",
+    "dist:installer": "node scripts/build.mjs && electron-builder --win nsis --publish never",
+    "dist:all": "node scripts/build.mjs && electron-builder --win portable nsis --publish never",
+    "dist:sea": "node scripts/build.mjs && node scripts/build-sea.mjs"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "build": {
+    "appId": "com.deepseek.dsh-launcher",
+    "productName": "dsh-launcher",
+    "files": [
+      "dist/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "icon.ico"
+    },
+    "portable": {
+      "artifactName": "dsh-launcher.exe"
+    },
+    "nsis": {
+      "artifactName": "dsh-launcher-setup-${version}.exe",
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "dsh-launcher"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/koffi/**",
+      "node_modules/@koromix/**"
+    ],
+    "npmRebuild": false,
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.0",
+    "postject": "^1.0.0-alpha.6",
+    "resedit": "^3.0.2",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "koffi": "^3.1.6"
+  }
+}

@@ -1,0 +1,519 @@
+/* launcher.css —— dsh-launcher 界面样式
+   全部视觉令牌来自 ui/tokens.css（dsh web 同款 dsw 设计系统）。
+   只消费令牌，不硬编码颜色；新增效果只改这里。 */
+
+/* ---------- 页面基底 ---------- */
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+/* ---------- 背景极光（纯 CSS，慢速漂移） ---------- */
+
+.aurora {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.aurora-blob-1 {
+  width: 46vw; height: 46vw;
+  left: -10vw; top: -18vw;
+  background: radial-gradient(circle, color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, transparent), transparent 70%);
+  animation: aurora-drift-1 26s var(--ds-ease-in-out) infinite alternate;
+}
+
+.aurora-blob-2 {
+  width: 38vw; height: 38vw;
+  right: -12vw; top: -6vw;
+  background: radial-gradient(circle, color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent), transparent 70%);
+  animation: aurora-drift-2 32s var(--ds-ease-in-out) infinite alternate;
+}
+
+.aurora-blob-3 {
+  width: 42vw; height: 42vw;
+  left: 22vw; bottom: -24vw;
+  background: radial-gradient(circle, color-mix(in srgb, var(--dsw-static-deepseek-400) 30%, transparent), transparent 70%);
+  animation: aurora-drift-3 38s var(--ds-ease-in-out) infinite alternate;
+}
+
+@keyframes aurora-drift-1 {
+  from { transform: translate(0, 0) scale(1); }
+  to   { transform: translate(9vw, 6vw) scale(1.15); }
+}
+@keyframes aurora-drift-2 {
+  from { transform: translate(0, 0) scale(1.05); }
+  to   { transform: translate(-7vw, 8vw) scale(0.95); }
+}
+@keyframes aurora-drift-3 {
+  from { transform: translate(0, 0) scale(0.95); }
+  to   { transform: translate(6vw, -5vw) scale(1.1); }
+}
+
+/* ---------- 应用窗口（毛玻璃） ---------- */
+
+.app-window {
+  position: relative;
+  z-index: 1;
+  width: 700px;
+  max-width: calc(100vw - 48px);
+  border-radius: 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 78%, transparent);
+  backdrop-filter: blur(20px) saturate(1.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  box-shadow: var(--dsw-shadow-lv3), 0 24px 64px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  animation: window-in 320ms var(--ds-ease-in-out) both;
+}
+
+@keyframes window-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---------- 标题栏 ---------- */
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  /* 桌面窗口（Electron frameless）：整条可拖动 */
+  -webkit-app-region: drag;
+}
+
+.titlebar .btn {
+  -webkit-app-region: no-drag;
+}
+
+.logo {
+  width: 22px;
+  height: 22px;
+  animation: logo-bob 4s var(--ds-ease-in-out) infinite;
+}
+
+@keyframes logo-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+
+.title {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.version {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+}
+
+.titlebar .btn-close {
+  margin-left: auto;
+}
+
+/* ---------- 通用按钮 ---------- */
+
+.btn {
+  font: inherit;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition:
+    background-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    box-shadow var(--ds-transition-duration) var(--ds-ease-in-out),
+    transform var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-icon {
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 主按钮：品牌蓝 + 辉光 */
+.btn-primary {
+  background: var(--dsw-alias-button-primary-fill);
+  color: #fff;
+  font-weight: 500;
+  min-width: 88px;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--dsw-static-deepseek-450) 22%, transparent),
+    0 6px 20px color-mix(in srgb, var(--dsw-static-deepseek-500) 45%, transparent);
+}
+
+.btn-primary:active:not(:disabled) {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--dsw-static-deepseek-450) 14%, transparent);
+}
+
+/* 次级按钮 */
+.btn-sec {
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.btn-sec:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+/* 幽灵按钮（退出） */
+.btn-ghost {
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.btn-ghost:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 关闭按钮：hover 变红 */
+.btn-close:hover {
+  background: var(--dsw-static-red-500);
+  color: #fff;
+}
+
+/* 最小化按钮（仅桌面窗口显示） */
+.btn-min:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ---------- 桌面窗口适配（Electron frameless 占满窗口） ---------- */
+
+body.desktop {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.desktop .app-window {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  /* #20：纵向弹性布局，让 .content 能伸缩滚动 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* #20 界面高度不够：窗口高度与内容自然高度自适应（主进程 win:autosize）后，
+   普通屏幕正好全部放下；小屏（内容超高）时中部滚动，任何操作/日志都不再被静默裁掉。 */
+body.desktop .content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+body.desktop .proto-badge {
+  display: none;
+}
+
+/* ---------- 内容区 ---------- */
+
+.content {
+  padding: 18px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---------- 状态卡片 ---------- */
+
+.card {
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+}
+
+.status-card {
+  padding: 12px 16px 10px;
+}
+
+.card-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  letter-spacing: 0.4px;
+}
+
+.status-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  padding: 3px 0;
+}
+
+.row-label {
+  width: 74px;
+  color: var(--dsw-alias-label-secondary);
+  flex-shrink: 0;
+}
+
+.row-value {
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 状态圆点：dim / green(运行) / red(异常) / brand(有更新) + 呼吸/脉冲 */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.dot-dim   { background: var(--dsw-static-neutral-bluish-600); }
+
+.dot-green {
+  background: var(--dsw-static-green-500);
+  animation: dot-pulse 1.8s var(--ds-ease-in-out) infinite;
+}
+
+.dot-red   { background: var(--dsw-static-red-500); }
+
+.dot-brand {
+  background: var(--dsw-static-deepseek-450);
+  animation: dot-breathe 2.4s var(--ds-ease-in-out) infinite;
+}
+
+@keyframes dot-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dsw-static-green-500) 45%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes dot-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.82); }
+}
+
+.row-value.is-green { color: var(--dsw-static-green-500); }
+.row-value.is-red   { color: var(--dsw-static-red-500); }
+.row-value.is-brand { color: var(--dsw-static-deepseek-450); }
+.row-value.is-dim   { color: var(--dsw-alias-label-tertiary); }
+
+/* ---------- 安装目录行 ---------- */
+
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.path-label {
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+  flex-shrink: 0;
+}
+
+.path-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-static-neutral-bluish-875);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  padding: 7px 12px;
+  outline: none;
+  transition:
+    border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    box-shadow var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.path-input:focus {
+  border-color: var(--dsw-static-deepseek-450);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-static-deepseek-450) 20%, transparent);
+}
+
+.path-input::selection {
+  background: color-mix(in srgb, var(--dsw-static-deepseek-450) 35%, transparent);
+}
+
+.path-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ---------- 日志控制台 ---------- */
+
+.log-panel {
+  height: 158px;
+  padding: 8px 10px;
+  overflow: hidden;
+}
+
+.log {
+  height: 100%;
+  overflow-y: auto;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log .line-time {
+  color: var(--dsw-alias-label-tertiary);
+  margin-right: 8px;
+}
+
+.log .line-ok    { color: var(--dsw-static-green-500); }
+.log .line-warn  { color: var(--dsw-static-amber-500); }
+.log .line-err   { color: var(--dsw-static-red-500); }
+.log .line-brand { color: var(--dsw-static-deepseek-450); }
+
+/* ---------- 底部操作栏 ---------- */
+
+.action-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-spacer { flex: 1; }
+
+/* ---------- 安装进度条（不定进度） ---------- */
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress[hidden] { display: none; }
+
+.progress-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    var(--dsw-static-deepseek-500),
+    var(--dsw-static-deepseek-400),
+    var(--dsw-static-deepseek-500));
+  background-size: 200% 100%;
+  animation: progress-sweep 1.2s linear infinite;
+}
+
+@keyframes progress-sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(350%); }
+}
+
+.progress-text {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  flex-shrink: 0;
+}
+
+/* ---------- 原型角标（正式版移除） ---------- */
+
+.proto-badge {
+  position: fixed;
+  left: 12px;
+  bottom: 10px;
+  z-index: 2;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* ---- 生态卡片（M2） ---- */
+.eco-card .card-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.eco-card .card-row .card-title { margin: 0; }
+.eco-meta { font-size: 12px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eco-state { margin: 2px 0 10px; font-size: 12px; opacity: 0.85; }
+.eco-pkgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px 12px; }
+.eco-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; min-width: 0; }
+.eco-chk span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eco-foot { display: flex; align-items: center; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+.btn-sm { padding: 3px 12px; font-size: 12px; min-height: 24px; }
+.eco-chip { font-size: 11px; padding: 0 7px; border-radius: 9px; line-height: 16px; flex: none; }
+.eco-chip.ok { background: rgba(126, 226, 168, 0.14); color: #7ee2a8; }
+.eco-chip.no { background: rgba(255, 138, 138, 0.14); color: #ff8a8a; }

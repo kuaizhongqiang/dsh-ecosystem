@@ -1,0 +1,6 @@
+{
+  "name": "dsh-profile-web-plugin-launcher",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0"
+}

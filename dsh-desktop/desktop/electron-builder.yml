@@ -1,0 +1,35 @@
+# dsh-desktop — pure shell over the shared dsh server.
+# Single variant: no bundled Node / dsh (the shell never spawns dsh).
+appId: com.dshdesktop.app
+productName: dsh-desktop
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+  - config.json
+  - preload/**/*
+  - assets/**/*
+  - "!**/*.map"
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  executableName: dsh-desktop
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: dsh-desktop
+  artifactName: ${productName}-${version}-setup.${ext}
+publish:
+  provider: github
+  owner: kuaizhongqiang
+  repo: dsh-desktop
+  channel: latest
+  releaseType: release

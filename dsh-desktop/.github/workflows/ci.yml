@@ -1,0 +1,53 @@
+# CI: quick gates on push/PR — typecheck, build, shared-server protocol smoke.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - ".github/**"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/**"
+
+jobs:
+  check:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # Smoke installs @deepseek-ai/dsh@<config.dshVersion> into desktop/.ci-dsh
+      # (a cold full-tree install takes 4-10+ min). Cache it keyed on config.json
+      # so only dsh version bumps invalidate it.
+      - name: Cache smoke dsh install
+        uses: actions/cache@v4
+        with:
+          path: desktop/.ci-dsh
+          key: dsh-smoke-${{ hashFiles('desktop/config.json') }}
+          restore-keys: |
+            dsh-smoke-
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: "Smoke: dsh (pinned) boots with launch-token auth and serves RPC"
+        run: node scripts/smoke.mjs
