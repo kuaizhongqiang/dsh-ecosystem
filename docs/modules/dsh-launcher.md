@@ -5,7 +5,7 @@
 | 来源仓 | [kuaizhongqiang/dsh-launcher](https://github.com/kuaizhongqiang/dsh-launcher)(**已归档只读**) |
 | 形态 | **伞仓内目录 `dsh-launcher/`**(monorepo,随伞仓统一提交) |
 | 生态位 | L0 载体 / 生命周期(随身携带的「一个 exe 走天下」入口) |
-| 并入 HEAD | `979cec6`(v0.7.3;权威版本见目录内 package.json) |
+| 并入 HEAD | `979cec6`(并入快照);**当前发布 v0.8.0**(权威版本见目录内 package.json) |
 
 ## 角色
 

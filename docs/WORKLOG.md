@@ -1,5 +1,22 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-05(dsh-ecosystem v0.8.0 全量发布成功 —— 首次 monorepo 真实发布)
+
+- **发布**:tag `v0.8.0`(main `2a85ea6`)→ 伞仓根 release.yml 触发,CI **5/5 job 全绿**:
+  init(release 重建 6s)/ launcher(3m6s,portable+NSIS+双 smoke)/ desktop(2m38s,NSIS+latest.yml)/
+  vscode(22s,vsix+Open VSX)/ plugins(verify-release 7s)。
+- **渠道核验**:GitHub Release v0.8.0 资产 6 项(launcher.exe/setup、desktop setup+blockmap+latest.yml、vsix);
+  **Open VSX** `kuaizhongqiang.dsh-vscode` 0.8.0 上线;npm `@kuaizhongqiang/dsh-desktop` 0.8.0 上线。
+- **排障记录**(同类幂等/一致性 bug 全量排查,已固化为 CI 行为):
+  1. **plugins verify sha 漂移**:blob 存 LF、Windows autocrlf 检出 CRLF → 本地/历史 sha(CRLF)与 CI(LF)不一致。
+     修复:根 `.gitattributes` `*.ps1 text eol=crlf`,全平台检出一致(供应链清单 sha 基于 CRLF,无需改哈希)。
+  2. **Open VSX 重复发布**(首跑其实已发布 0.8.0,索引延迟造成误判重发失败):发布前查 open-vsx.org 版本,已存在即 skip(幂等)。
+  3. **desktop npm 重复发布**:`npm view` 查版本,已存在即 skip(幂等)。
+  - 技术备忘:step 级 `if: env.X` 读不到同步骤 env(首次 vsx 被静默跳过,后改 shell 守卫);release.yml init `--notes`
+    多行未缩进会坏 YAML(块标量);gh release delete 保留 git tag,重跑同 tag = 删 tag+release 重打。
+- **下一步**:真机冒烟(v0.8.0 安装/托盘/`pull` 插件从伞仓锁定 commit 拉取);旧 0.7.x(运行时源为归档仓)用户
+  升级路径说明;组件内旧文档对归档仓引用清扫。
+
 ## 2026-09-05(发布流程重做 —— 全量 tag 自动化,待真实发版验证)
 
 - **决策**:用户拍板「一个 tag 搞定所有包」全量发布 + 源仓(5 个)已完成 GitHub 归档(只读)。

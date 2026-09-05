@@ -5,7 +5,7 @@
 | 来源仓 | [kuaizhongqiang/dsh-vscode](https://github.com/kuaizhongqiang/dsh-vscode)(**已归档只读**) |
 | 形态 | **伞仓内目录 `dsh-vscode/`**(monorepo,随伞仓统一提交) |
 | 生态位 | L4 周边(编辑器内使用 dsh 的入口) |
-| 并入 HEAD | `1756889`(0.3.0 线;权威版本见目录内 package.json) |
+| 并入 HEAD | `1756889`(并入快照);**当前发布 v0.8.0(Open VSX)**(权威版本见目录内 package.json) |
 | 发布渠道 | Open VSX(手动,需 OVSX_PAT);伞仓 Releases |
 
 ## 角色

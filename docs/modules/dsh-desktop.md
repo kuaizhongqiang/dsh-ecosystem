@@ -5,7 +5,7 @@
 | 来源仓 | [kuaizhongqiang/dsh-desktop](https://github.com/kuaizhongqiang/dsh-desktop)(**已归档只读**) |
 | 形态 | **伞仓内目录 `dsh-desktop/`**(monorepo,随伞仓统一提交;应用代码在 `desktop/` 子目录) |
 | 生态位 | L4 周边(独立桌面客户端) |
-| 并入 HEAD | `250abfb`(fix(tray):close-to-tray 保活;权威版本见 `desktop/package.json`) |
+| 并入 HEAD | `250abfb`(并入快照);**当前发布 v0.8.0**(权威版本见 `desktop/package.json`) |
 
 ## 角色
 
