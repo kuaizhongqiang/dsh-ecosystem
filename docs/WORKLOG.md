@@ -1,5 +1,26 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-04(伞仓 monorepo 化 —— 阶段 A 代码收敛完成)
+
+- **决策**:用户拍板「归档 = 收敛到伞仓 monorepo」——5 自有组件并入伞仓单一 git,源仓归档只读;
+  设计定稿 `docs/MONOREPO-UMBRELLA.md`(D-M1 = squash 快照 / D-M2 = 手动发版 SOP / D-M4 = 组件内
+  嵌套 submodule 清除 / D-M6 = 禁 force push);直接工程形态(RESTRUCTURE)被本形态演进取代。
+- **执行(阶段 A)**:
+  - 探针:5 源仓历史很小(55/33/44/23/2 commits);**launcher/vscode/desktop 挂 GitHub Actions**
+    (release/ci,vscode 含 Open VSX 管线)——归档即停摆,D-M2 定手动 SOP;
+    launcher 与 desktop 原仓各带嵌套 .gitmodules(空占位子模块)。
+  - 提交 `cc0db2c`(monorepo 设计定稿)、`f24cfcb`(代码收敛:264 文件 48898 行,5 组件以快照并入,
+    嵌套 .git/.gitmodules/空占位目录清除,`.gitignore` 撤销组件忽略)+ 文档第三轮同步。
+  - 并入快照:launcher `979cec6`(v0.7.3)/ plugins `7a1b8a9` / vscode `1756889` / desktop `250abfb` /
+    remote `4f755d2`;harness 子模块指针 `47f94385` 不变(唯一 submodule)。
+- **技术备忘**:跨盘 `Move-Item`(G:→C:)在删除只读 `.git` 对象时失败并把源内容移空——因源仓
+  (GitHub)= 真源,直接重新 clone 恢复,**无数据损失**;教训:处理含 .git 的目录用「清只读属性 →
+  就地删 .git」而非跨盘移动。
+- **形态演进速记**:①文档 + 6 gitlink → ②直接工程(5 独立 git 检出)→ ③monorepo(当前,源仓待归档)。
+- **下一步(阶段 B,用户启动)**:逐仓在 GitHub UI 归档(remote → desktop → vscode → plugins → launcher);
+  手动发版 SOP 落地(见 RELEASING.md);后续工作项:伞仓根重建 CI/Open VSX 管道(D-M2(b))、
+  组件内部旧 submodule 文档清扫、组件目录版本推进后刷新 modules 快照。
+
 ## 2026-09-04(伞仓形态改造:直接工程 + harness 唯一 submodule)
 
 - **背景/决策**:原「文档 + 6 gitlink 版本锁」仪式成本高(尤其伞仓顶层与 launcher 内层两处 dsh-plugins

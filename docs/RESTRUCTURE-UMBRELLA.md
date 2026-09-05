@@ -1,5 +1,9 @@
 # 伞仓形态改造:submodule 锁仓 → 直接工程 + dsh 本体 submodule
 
+> ⚠️ **已被 [MONOREPO-UMBRELLA.md](MONOREPO-UMBRELLA.md) 取代**(2026-09-04 同日演进):
+> 直接工程形态执行完毕后,伞仓进一步收敛为 monorepo 单仓,5 组件并入伞仓 git、源仓归档只读。
+> 本文保留为「直接工程」阶段的完整设计与执行记录。
+
 > 状态:**已批准并执行(2026-09-04)** · 执行:伞仓提交 `f4e8275`(设计)+ `400cc0e`(去 submodule)+ 文档同步提交 · 关联:README / .AGENT.md / docs/modules/ · 里程碑:非路线图增量,属仓结构重构
 
 ## 1. 背景与目标

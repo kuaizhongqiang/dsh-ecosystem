@@ -1,6 +1,8 @@
 # 伞仓 monorepo 化设计:文档 + 组件代码 + harness 子模块
 
-> 状态:**已批准定稿并执行阶段 A**(2026-09-04;D-M1 = squash 快照,D-M2 = 手动 SOP)· 前序:[RESTRUCTURE-UMBRELLA.md](RESTRUCTURE-UMBRELLA.md)(直接工程形态,2026-09-04 已执行,
+> 状态:**阶段 A 已执行完成(2026-09-04;D-M1 = squash 快照,D-M2 = 手动 SOP);阶段 B(源仓归档 + 手动发版 SOP 落地)由用户启动**
+> · 阶段 A 提交:设计 `cc0db2c`、代码收敛 `f24cfcb`(264 文件,5 组件并入)+ 文档第三轮同步
+> · 前序:[RESTRUCTURE-UMBRELLA.md](RESTRUCTURE-UMBRELLA.md)(直接工程形态,2026-09-04 已执行,
 > 本设计将其**演进取代**) · 决策来源:用户拍板「归档 = 收敛到伞仓 monorepo」
 
 ## 1. 背景与动机
