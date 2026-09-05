@@ -1,5 +1,30 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-04(伞仓形态改造:直接工程 + harness 唯一 submodule)
+
+- **背景/决策**:原「文档 + 6 gitlink 版本锁」仪式成本高(尤其伞仓顶层与 launcher 内层两处 dsh-plugins
+  指针独立 bump);过时的本地开发根(F:\Project\dsh-dev 等)已不存在。用户拍板改造为
+  **文档 + 5 自有仓直接工程 + dsh 本体(deepseek-harness)唯一官方 submodule**;设计定稿
+  `docs/RESTRUCTURE-UMBRELLA.md`(决策 D-R1–R5、五阶段迁移、回滚 = revert 去 submodule commit)。
+- **执行**:伞仓 `git rm --cached` 5 仓(去 gitlink)→ `.gitmodules` 只留 harness → 根 `.gitignore`
+  忽略 5 直接工程目录 → 逐仓完整 clone 落位(各自 main HEAD)→ 文档全量同步
+  (README / .AGENT.md / docs/modules×7 / RELEASING / 本日志)→ 推 main。
+  伞仓本地提交:`f4e8275`(设计)、`400cc0e`(去 submodule)。
+- **改造后各仓 HEAD(快照,权威值见仓内 `git log -1`)**:
+  - launcher `979cec6`(v0.7.3,含 ue-mcp 默认 OFF 同步 dsh-plugins 7a1b8a9)
+  - plugins `7a1b8a9`(fix(ue-mcp):default OFF opt-in)
+  - vscode `1756889`(feat:launch-token 增量整合)
+  - desktop `250abfb`(fix(tray):close-to-tray 保活)
+  - remote `4f755d2`(远程部署记录)
+  - harness 子模块指针 `47f94385`(未检出,按需 `git submodule update --init`)
+- **顺带补记**(此前未写日志的两笔 bump):plugins `79edc23`(stock v0.2.0 交易层入库 + 日周期时间模型)、
+  launcher `1dd0acb`(dsh-stock v0.2.0 运行时源连锁)——现均已被上述更新 HEAD 取代,快照以工作树为准。
+- **新工作流**:自有仓改动 → 目录内 git add/commit/push(各自 origin);伞仓只提交 docs/ 与元数据;
+  **禁止对 5 直接工程目录 `git add`**;版本发布仍在各仓;伞仓 release 语义简化(见 RELEASING.md)。
+- **遗留/下一步**:launcher 内层 dsh-plugins 子模块(runtime source)仍存在,属 launcher 仓内部结构,
+  单列后续工作项(本次不触碰);docs/modules HEAD 快照随各仓推进手动刷新;Open VSX 发布待 OVSX_PAT、
+  真机验证清单沿用上轮(离线 setup / 托盘重启 seam / remote 跟随 / PM3 插件全链 / profile pack 双机回传)。
+
 ## 2026-09-03(三仓发版 + vscode 协议对齐)
 
 - **dsh-launcher [v0.7.0](https://github.com/kuaizhongqiang/dsh-launcher/releases/tag/v0.7.0)**:main 版本 0.6.4→0.7.0(`8aa28c4`)、构建 portable+NSIS(electron dist 就绪后 dist:all 成功)、GitHub Release 双产物(85.2/85.4 MB)已上传

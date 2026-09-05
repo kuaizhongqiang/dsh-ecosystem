@@ -1,34 +1,33 @@
-# dsh-plugins — L3 插件(开发集合视角)
+# dsh-plugins — L3 插件(伞仓根直接工程)
 
 | 项 | 值 |
 |---|---|
 | 上游仓 | [kuaizhongqiang/dsh-plugins](https://github.com/kuaizhongqiang/dsh-plugins) |
+| 形态 | **直接工程**(伞仓根 `dsh-plugins/`,独立 git,改动在仓内提交推送) |
 | 生态位 | L3 插件(社区插件合集 + install-* 技能) |
-| 伞仓锁指针 | `15ffcfd7`(`15ffcfd77d391d6ba5fed8dc6285e6bb5ff0f72c`) |
-| 本地开发 | 子仓克隆(本地开发根 `F:\Project\dsh-dev\*`,见 WORKLOG 2026-09-02) |
+| HEAD 快照 | `7a1b8a9`(权威值 `git -C dsh-plugins log -1`) |
 
 ## 角色
 
-dsh 会话内「说一句安装」即可落地的插件包 + 配套 `install-*` 技能。当前 **11 个插件包**
-(audio-read / audio-speak / describe-image / video-read / document-read / deepseek-balance /
-deepseek-recharge / credentials / github / stock / unity-mcp 桥),共享凭证/模式高度重叠
-——路线图 §8 计划合并为 **7 个**(dsh-media、dsh-deepseek、dsh-credentials、dsh-github、
-dsh-stock、dsh-unity、dsh-launcher 新增),里程碑 PM1–PM4。
+dsh 会话内「说一句安装」即可落地的插件包 + 配套 `install-*` 技能。路线图 §8 合并已落地(v0.7.0 起),
+当前 **7 个插件包 + 技能**:dsh-media(感知五合一)/ dsh-deepseek(账户二合一)/ dsh-credentials /
+dsh-github / dsh-stock / dsh-unity / dsh-launcher;每包自带 `install.ps1`(支持 `-Only` / `-Uninstall`)与
+`SKILL.md`,仓库根另有 `uninstall-old.ps1`(旧 11 包迁移清理)。
 
 ## 自带文档 / 入口
 
-- 仓内 README、各插件 `install.ps1` / `SKILL.md`(安装逻辑**唯一真源**,launcher 只做编排——决策 D1)。
+- 仓内 README、`docs/PLUGIN-SPEC.md`(分层规范与模板)、各插件 `install.ps1` / `SKILL.md`
+  (安装逻辑**唯一真源**,launcher 只做编排——决策 D1)。
 - 合并计划与准入三问(独立凭证?独立外部系统?工具数 ≥8?):见 [ECOSYSTEM-PLAN.md](../ECOSYSTEM-PLAN.md) §8。
 
 ## 与伞仓的关系
 
-- 伞仓顶层 `dsh-plugins` = **开发集合视角**;bump 指针锁插件集版本。
-- **双指针注意**:dsh-launcher 内部另有 dsh-plugins 子模块(运行时源),两处独立 bump,
-  插件更新后**两处都要推进**(README 同述)。
-- 插件版本化与 launcher 子模块联动落在 PM4(PLAN §8 里程碑表)。
+- 伞仓根的 `dsh-plugins/` 就是本仓检出(开发集合视角):更新 = 目录内 `git pull` / 提交推送,**无伞仓 bump 仪式**。
+- **双 dsh-plugins 注意**:dsh-launcher 仓内部另有自己的 dsh-plugins 子模块(安装/拉取时的运行时源),
+  两处检出相互独立——插件更新后:伞仓根目录推进 + launcher 内层按其仓纪律 bump(README 同述)。
 
-## bump / 发布注意点
+## 发布注意点
 
 - PM 里程碑工作项集中在伞仓 issues(PM1–PM4=#13–#16);实现提交在 dsh-plugins 仓。
-- 合并类改动(PM2)会触碰既有安装面:旧包 deprecated 一个版本周期 + 幂等迁移,凭证与
-  settings 在 DSH_HOME 层不受影响(PLAN §8「迁移与兼容」)。
+- 合并类改动(PM2 已完成)触碰既有安装面:旧包 deprecated 一个版本周期 + 幂等迁移(`uninstall-old.ps1`),
+  凭证与 settings 在 DSH_HOME 层不受影响(PLAN §8「迁移与兼容」)。

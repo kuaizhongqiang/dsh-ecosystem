@@ -1,6 +1,6 @@
 # 伞仓形态改造:submodule 锁仓 → 直接工程 + dsh 本体 submodule
 
-> 状态:**设计稿(待评审定稿)** · 关联:README / .AGENT.md / docs/modules/ · 里程碑:非路线图增量,属仓结构重构
+> 状态:**已批准并执行(2026-09-04)** · 执行:伞仓提交 `f4e8275`(设计)+ `400cc0e`(去 submodule)+ 文档同步提交 · 关联:README / .AGENT.md / docs/modules/ · 里程碑:非路线图增量,属仓结构重构
 
 ## 1. 背景与目标
 
