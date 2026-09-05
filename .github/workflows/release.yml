@@ -140,8 +140,22 @@ jobs:
       - name: Publish to npm (optional)
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: node scripts/publish-npm.mjs
-        if: env.NPM_TOKEN != ''
+        shell: pwsh
+        run: |
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          if (-not $env:NPM_TOKEN) { Write-Host "NPM_TOKEN not set — skip npm publish"; exit 0 }
+          npm view "@kuaizhongqiang/dsh-desktop@$ver" version *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "npm: $ver already published — skip"
+            exit 0
+          }
+          node scripts/publish-npm.mjs
+          if ($LASTEXITCODE -ne 0) {
+            # 竞态兜底:发布失败但版本已在 registry → 视为成功(重跑场景)
+            npm view "@kuaizhongqiang/dsh-desktop@$ver" version *> $null
+            if ($LASTEXITCODE -eq 0) { Write-Host "npm: $ver is live — treat as success"; exit 0 }
+            exit $LASTEXITCODE
+          }
 
   vscode:
     name: Build dsh-vscode (VSIX + Open VSX)
