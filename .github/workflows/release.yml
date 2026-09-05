@@ -182,7 +182,23 @@ jobs:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: |
           if [ -n "$OVSX_PAT" ]; then
-            pnpm dlx ovsx publish --no-dependencies dsh-vscode-*.vsix -p "$OVSX_PAT"
+            ver="$(node -p "require('./package.json').version")"
+            if curl -fsS "https://open-vsx.org/api/kuaizhongqiang/dsh-vscode/$ver" >/dev/null 2>&1; then
+              echo "Open VSX: $ver already published — skip"
+            else
+              set +e
+              pnpm dlx ovsx publish --no-dependencies dsh-vscode-*.vsix -p "$OVSX_PAT"
+              code=$?
+              set -e
+              if [ $code -ne 0 ]; then
+                echo "ovsx publish failed ($code); checking remote state..."
+                if curl -fsS "https://open-vsx.org/api/kuaizhongqiang/dsh-vscode/$ver" >/dev/null 2>&1; then
+                  echo "Open VSX: $ver is live — treat as success (race on rerun)"
+                else
+                  exit $code
+                fi
+              fi
+            fi
           else
             echo "OVSX_PAT not set — skip Open VSX publish"
           fi
