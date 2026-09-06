@@ -1,5 +1,23 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-05(launcher 插件重启编排 seam —— 档 1 hook 落地)
+
+- **问题**:`launcher_restart` 跑在 dsh 进程内,重启会杀掉本进程与进行中的回合/后台任务,自助重启后
+  「无法持续工作」。查证:官方 harness 无进程级生命周期钩子(仅 tool-call 级 hooks 包);插件面支持
+  listen Events/注册 Service,但 before-shutdown 事件是否存在未确认(档 2 可继续深挖);会话历史与
+  goal 跨重启存活(resume 后 disarm)是恢复基础。用户拍板走**档 1:纯插件 seam**。
+- **实现**(dsh-plugins launcher 插件,改动文件):
+  - `plugins/launcher/index.js`:`launcher_restart` 新增 `reason` 参数,触发前原子写
+    `%DSH_HOME%\.dsh-restart-intent.json`(`{version,requestedAt,reason,byPid}`,无 token,D2 合规);
+    `launcher_status` 展示重启意图(本进程是否晚于意图 = 重启后待恢复,摘要带 ⚠️ 提示与恢复动作),
+    新增可选 `clearRestartIntent=true` 确认清除;返回信息附恢复指引。
+  - `skills/install-launcher/SKILL.md`:新增 §3a「重启编排 seam」恢复流程(先 `update_goal resume`
+    再继续,完成后清除意图);§0 定位改伞仓 monorepo 路径(旧独立仓已归档)。
+  - 插件 README 工具表 + seam 说明同步。
+- 语法 `node --check` 通过;未改 install.ps1 → 清单 sha 不变。
+- **下一步**:随下个全量发布(v0.8.1)真机验证「launcher_restart(reason)→ 重启 → launcher_status 见意图 →
+  update_goal resume 继续 → 清除」闭环;可选档 2:查 core Cordis Event 面是否有 before-shutdown 可挂真钩子。
+
 ## 2026-09-05(dsh-ecosystem v0.8.0 全量发布成功 —— 首次 monorepo 真实发布)
 
 - **发布**:tag `v0.8.0`(main `2a85ea6`)→ 伞仓根 release.yml 触发,CI **5/5 job 全绿**:

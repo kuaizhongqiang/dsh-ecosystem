@@ -32,6 +32,7 @@ function dshHome() {
 const registrationPath = () => join(dshHome(), 'launcher-registration.json')
 const connectionsPath = () => join(dshHome(), 'connections.json')
 const launchTokenPath = () => join(dshHome(), 'launch-token.json')
+const restartIntentPath = () => join(dshHome(), '.dsh-restart-intent.json')
 
 function readJson(file) {
   try {
@@ -41,6 +42,31 @@ function readJson(file) {
   } catch {
     return undefined
   }
+}
+
+/** 重启意图(%DSH_HOME%\.dsh-restart-intent.json):launcher_restart 触发前落盘,供重启后恢复工作。 */
+const readRestartIntent = () => readJson(restartIntentPath())
+
+/** 原子写重启意图(内容无任何 token,红线 D2 合规)。失败不致命:重启照常委托。 */
+function writeRestartIntent(reason) {
+  const target = restartIntentPath()
+  const tmp = `${target}.tmp-${Math.floor(Math.random() * 1e6)}`
+  try {
+    mkdirSync(dshHome(), { recursive: true })
+    writeFileSync(
+      tmp,
+      JSON.stringify({ version: 1, requestedAt: new Date().toISOString(), reason: String(reason ?? ''), byPid: process.pid }, null, 2) + '\n',
+      'utf8',
+    )
+    renameSync(tmp, target)
+  } catch {
+    /* 意图落盘失败不致命 */
+  }
+}
+
+/** 清除重启意图(恢复确认后调用)。 */
+function clearRestartIntent() {
+  try { rmSync(restartIntentPath(), { force: true }) } catch { /* ignore */ }
 }
 
 function pidAlive(pid) {
@@ -174,8 +200,11 @@ export function apply(ctx) {
   ctx.tools.register(defineTool({
     name: 'launcher_status',
     description: 'launcher / dsh 运行态汇总:launcher 注册(版本/exe/pid/心跳/api)、激活连接(本地端口或 remote)、'
-      + 'launch-token 状态。排查「重启/连接/升级」问题前先调用。',
-    parameters: {},
+      + 'launch-token 状态、上次重启意图(%DSH_HOME%\\.dsh-restart-intent.json,重启后待恢复的提示)。'
+      + 'clearRestartIntent=true 时在报告后清除该意图文件(确认恢复完成)。排查「重启/连接/升级」问题前先调用。',
+    parameters: {
+      clearRestartIntent: { type: 'boolean', description: '可选:报告后确认并清除重启意图文件(默认 false)' },
+    },
     output: {
       schema: {
         type: 'object',
@@ -187,10 +216,17 @@ export function apply(ctx) {
       },
       render: (_a, v) => [{ type: 'text', text: v.summary }],
     },
-    async execute() {
+    async execute(args) {
       const reg = readJson(registrationPath())
       const { active, list, fromFile } = resolveActiveConnection()
       const token = readJson(launchTokenPath())
+      const intent = readRestartIntent()
+      const cleared = !!(args?.clearRestartIntent && intent)
+      if (cleared) clearRestartIntent()
+      // 意图是否早于本进程启动(即本进程是重启后的实例 → 提示「待恢复」)
+      const procStartMs = Date.now() - process.uptime() * 1000
+      const intentAt = Date.parse(intent?.requestedAt ?? '')
+      const preProcess = intent ? !Number.isNaN(intentAt) && intentAt < procStartMs : false
       const detail = {
         launcher: reg
           ? {
@@ -210,13 +246,30 @@ export function apply(ctx) {
         launchToken: token
           ? { present: true, port: token.port, url: redact(token.url), managedBy: token.managedBy ?? '' }
           : { present: false },
+        restartIntent: intent
+          ? {
+              present: true,
+              preProcess,
+              requestedAt: intent.requestedAt,
+              reason: intent.reason ?? '',
+              byPid: intent.byPid ?? undefined,
+            }
+          : { present: false },
         dshPid: process.pid,
       }
       const l = detail.launcher
-      const summary = l.present
+      let summary = l.present
         ? `launcher v${l.version}(${l.running ? '运行中' : '未运行'},pid ${l.pid}${l.pidAlive ? ' 存活' : ' 已退出'}${l.fresh ? ',心跳新鲜' : ',心跳陈旧'})`
         : 'launcher 未注册(发现链不可用,重启需手动)'
-      return { summary: `${summary};激活连接 ${active.id}(${active.kind}${active.kind === 'local' ? ':' + active.port : ''})`, detail }
+      summary += `;激活连接 ${active.id}(${active.kind}${active.kind === 'local' ? ':' + active.port : ''})`
+      if (intent) {
+        const why = String(intent.reason ?? '').slice(0, 60) || '(未说明)'
+        summary += preProcess
+          ? `;⚠️ 上次重启意图:${why} —— 重启后待恢复:先 update_goal resume 再继续被中断的工作`
+          : `;存在重启意图:${why}`
+      }
+      if (cleared) summary += ';重启意图已确认并清除'
+      return { summary, detail }
     },
     presentCall: (a) => ({ card: 'generic', title: 'launcher_status', kind: 'read', rawInput: a }),
   }))
@@ -225,9 +278,13 @@ export function apply(ctx) {
   ctx.tools.register(defineTool({
     name: 'launcher_restart',
     description: '重启 dsh(按 D6 发现链委托 launcher:环境变量/注册文件的 REST bridge 优先,其次 <launcherExe> restart)。'
+      + '触发前把 reason 写入 %DSH_HOME%\\.dsh-restart-intent.json(重启编排 seam:重启会杀掉本进程与进行中的回合/后台任务,'
+      + '恢复会话后用 launcher_status 查看意图、update_goal resume 后继续未完成工作)。'
       + '优雅停止→等端口释放→重抓 token 照写 launch-token.json,30 天 cookie 下重启后免手动重登;'
       + '激活连接为 remote 时=重连/重开浏览器。发现链不可用时给出手动重启指引。',
-    parameters: {},
+    parameters: {
+      reason: { type: 'string', description: '可选:重启原因/重启后要恢复的工作摘要(写入重启意图文件,重启后待恢复提示用)' },
+    },
     output: {
       schema: {
         type: 'object',
@@ -239,17 +296,20 @@ export function apply(ctx) {
       },
       render: (_a, v) => [{ type: 'text', text: v.message }],
     },
-    async execute() {
+    async execute(args) {
+      writeRestartIntent(args?.reason)
       const channel = await resolveRestartChannel()
+      const resumeHint = '重启意图已记录(.dsh-restart-intent.json);重启会中断本进程——恢复会话后先 launcher_status 查看意图,'
+        + '再 update_goal resume 继续被中断的工作。'
       if (channel.mode === 'bridge') {
         const r = await callBridge(channel.reg)
-        if (r.status === 202) return { mode: 'bridge', message: `已转交运行中的 launcher(${redact(channel.reg.api)})执行 restart,进度见 launcher 日志;约数秒后生效。` }
+        if (r.status === 202) return { mode: 'bridge', message: `已转交运行中的 launcher(${redact(channel.reg.api)})执行 restart,进度见 launcher 日志;约数秒后生效。${resumeHint}` }
         if (r.status === 409) return { mode: 'bridge', message: 'launcher 已在执行 restart,请稍候再查状态。' }
         if (r.status === 403) throw new Error('launcher_restart: bridgeKey 校验失败(注册文件与 launcher 不匹配?),可改用 launcher_check_update/手动重启。')
         throw new Error(`launcher_restart: REST bridge 返回 ${r.status};可尝试手动重启。`)
       }
       const pid = spawnExeRestart(channel.exe)
-      return { mode: 'exe', message: `已拉起 "${channel.exe}" restart(PID ${pid});CLI 经单实例检测转交运行中的 launcher。` }
+      return { mode: 'exe', message: `已拉起 "${channel.exe}" restart(PID ${pid});CLI 经单实例检测转交运行中的 launcher。${resumeHint}` }
     },
     presentCall: (a) => ({ card: 'generic', title: 'launcher_restart', kind: 'action', rawInput: a }),
   }))

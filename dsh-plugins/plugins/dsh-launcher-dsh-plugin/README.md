@@ -7,11 +7,18 @@
 
 | 工具 | 说明 |
 |---|---|
-| `launcher_restart` | 按 D6 发现链委托 launcher 重启:① `DSH_LAUNCHER_EXE` 环境变量 → ② `launcher-registration.json`(心跳+pid 复核)REST bridge 优先、其次 `<launcherExe> restart` → ③ 提示手动 |
-| `launcher_status` | launcher 注册(版本/pid/心跳/running)+ 激活连接 + launch-token 状态(token 脱敏) |
+| `launcher_restart(reason?)` | 按 D6 发现链委托 launcher 重启:① `DSH_LAUNCHER_EXE` 环境变量 → ② `launcher-registration.json`(心跳+pid 复核)REST bridge 优先、其次 `<launcherExe> restart` → ③ 提示手动。触发前把 `reason` 写入重启意图文件(编排 seam) |
+| `launcher_status(clearRestartIntent?)` | launcher 注册(版本/pid/心跳/running)+ 激活连接 + launch-token 状态 + **重启意图**(重启后待恢复提示;`clearRestartIntent=true` 确认清除),token 脱敏 |
 | `launcher_connections` | 列出/切换 `connections.json` 连接组(`action=use`,可 `restart=true` 立即生效);写 D8 变更标记 |
 | `launcher_open` | 按激活/指定连接打开浏览器(带 token 自动登录;url 脱敏回显) |
 | `launcher_check_update` | launcher GitHub Release 升级检测(升级需用户主动确认,M8 lock 语义) |
+
+## 重启编排 seam(2026-09-05)
+
+`launcher_restart` 跑在 dsh 进程内,重启会杀掉本进程与进行中的回合/后台任务。工具在委托重启前
+原子写 `%DSH_HOME%\.dsh-restart-intent.json`(`{version, requestedAt, reason, byPid}`,无 token);
+重启后恢复会话时,`launcher_status` 若显示「⚠️ 上次重启意图」即提示先 `update_goal resume`
+再继续被中断工作,完成后用 `clearRestartIntent=true` 清除。详见 `skills/install-launcher/SKILL.md` §3a。
 
 ## 安装
 
