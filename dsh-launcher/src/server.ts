@@ -54,6 +54,9 @@ const updateState: UpdateState = {
 /** 生态拉齐是否正在执行（防并发触发；GET /api/ecosystem 暴露给前端）。 */
 let ecoPullBusy = false;
 
+/** 一键更新插件（同步源+安装+重启）是否正在执行（防并发；与拉齐互斥）。 */
+let ecoUpdateBusy = false;
+
 /** M6:REST bridge 随机共享密钥(每次进程启动生成;经 launcher-registration.json 0600 分发)。 */
 const bridgeKey = randomBytes(16).toString('hex');
 
@@ -94,6 +97,7 @@ const bridgeScript = `<script>
     exit: function () { return api('/api/exit', {}); },
     getEcosystem: function () { return api('/api/ecosystem'); },
     pullEcosystem: function (opts) { return api('/api/ecosystem/pull', opts || {}); },
+    updateEcosystem: function (opts) { return api('/api/ecosystem/update', opts || {}); },
     getConnections: function () { return api('/api/connections'); },
     useConnection: function (id) { return api('/api/connections/use', { id: id }); },
     restartDsh: function () { return api('/api/dsh/restart?key=${bridgeKey}', {}); },
@@ -490,7 +494,7 @@ async function handleApi(path: string, req: IncomingMessage, res: ServerResponse
         }
         json(res, 200, {
           ok: true,
-          busy: ecoPullBusy,
+          busy: ecoPullBusy || ecoUpdateBusy,
           label,
           manifest: {
             dsh: manifest.dsh,
@@ -533,6 +537,70 @@ async function handleApi(path: string, req: IncomingMessage, res: ServerResponse
           log.error(`生态拉齐失败：${errMessage(e)}`);
         } finally {
           ecoPullBusy = false;
+        }
+      })();
+      return;
+    }
+    case '/api/ecosystem/update': {
+      // M9：一键更新插件 —— 同步最新生态源 commit → 按伞仓自声明清单安装/更新插件与技能
+      //      → 可选重启 dsh（让新插件/补丁生效）。进度经 SSE /api/events 推送。
+      if (ecoPullBusy || ecoUpdateBusy) {
+        json(res, 409, { ok: false, message: '生态操作进行中（拉齐或一键更新），请稍候' });
+        return;
+      }
+      const body = await readBody(req);
+      const restart = body.restart !== false;
+      ecoUpdateBusy = true;
+      json(res, 202, { ok: true, message: '一键更新已开始（同步最新插件源 → 安装/更新 → 重启 dsh；进度见日志）' });
+      void (async () => {
+        try {
+          log.info('一键更新插件开始（GUI 触发）……');
+          const proxy = config.load()?.proxy;
+          // 当前清单：lock 优先（多机收敛），无 lock 用内嵌默认
+          const lock = ecosystem.loadLock();
+          const cur = lock
+            ? { manifest: lock.manifest, label: `lock（${lock.label}）` }
+            : await ecosystem.loadManifest();
+          const curPinned = cur.manifest.plugins.source.commit;
+          const repo = cur.manifest.plugins.source.repo;
+          const dir = ecosystem.pluginsRootDir();
+          log.info(`当前插件集：${curPinned.slice(0, 8)}（${cur.label}）`);
+          const headCommit = await ecosystem.latestEcosystemCommit(repo, proxy);
+          if (headCommit === curPinned) {
+            log.info(`生态源仓库 HEAD（${headCommit.slice(0, 8)}）与当前插件集一致：已是最新` + (restart ? '，跳过重启' : ''));
+          } else {
+            log.info(`仓库 HEAD ${headCommit.slice(0, 8)}：先同步 HEAD 读取伞仓自声明清单……`);
+            await ecosystem.syncPluginsSourceTo(repo, headCommit, dir);
+            const headManifest = ecosystem.readManifestAt(dir).manifest;
+            // 伞仓清单锁定的"插件集提交"可能早于 HEAD（发布流程在 release 时重新钉
+            // 插件集；main 上的 dsh-plugins 内容若未重新发布则不会漂移）——更新目标
+            // 以清单锁定的插件集为准（P1-7：插件内容 sha256 与锁定提交同源）。
+            const target = headManifest.plugins.source.commit;
+            if (target === curPinned) {
+              log.info(`插件发布集未变化：HEAD=${headCommit.slice(0, 8)}，清单仍锁定 ${target.slice(0, 8)}（与当前一致）。` +
+                '生态源检出已同步；新插件集随下次发布（重新钉清单）出现。' + (restart ? ' 跳过重启。' : ''));
+              await ecosystem.syncPluginsSourceTo(repo, curPinned, dir);
+            } else {
+              log.info(`发现新插件集 ${target.slice(0, 8)}：检出对齐……`);
+              if (target !== headCommit) await ecosystem.syncPluginsSourceTo(repo, target, dir);
+              const { file, label } = ecosystem.readRepoManifest(dir, target);
+              log.info(`读取伞仓自声明清单：${label}`);
+              await ecosystem.runPull({ manifest: file, pluginsDir: dir, core: false, skills: true, updateLock: true });
+              log.info('插件与技能已安装/更新完成。');
+              if (restart) {
+                log.info('重启 dsh（让新插件与技能生效）……');
+                await launch.restartActive();
+                log.info('dsh 已重启。');
+              } else {
+                log.info('未请求重启：新插件将在下次启动 dsh 时生效。');
+              }
+            }
+          }
+          log.info('一键更新完成。');
+        } catch (e) {
+          log.error(`一键更新失败：${errMessage(e)}`);
+        } finally {
+          ecoUpdateBusy = false;
         }
       })();
       return;

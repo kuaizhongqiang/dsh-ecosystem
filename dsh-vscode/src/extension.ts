@@ -10,7 +10,7 @@ import { DshConnection } from './client/connection.ts'
 import type { DshEvent } from './client/connection.ts'
 import { RpcErrorResult, DshTransportError } from './client/rpc.ts'
 import { SessionStore } from './sessionStore.ts'
-import { SessionsTreeProvider, type SidebarView } from './sidebar.ts'
+import { SidebarWebviewProvider, type SidebarView } from './sidebarView.ts'
 import { StatusBar } from './statusBar.ts'
 import { ChatPanel, errorMessage } from './chat/chatPanel.ts'
 import type { SessionStatsView } from './chat/types.ts'
@@ -38,25 +38,14 @@ export function deactivate(): void {
   extension = undefined
 }
 
-const VIEW_TITLES: Record<SidebarView, string | undefined> = {
-  home: undefined,
-  sessions: '会话列表',
-  service: '拉起服务',
-  settings: '设置',
-  plugins: '插件库',
-  presets: '模式列表',
-}
-
-class DshExtension {
-  readonly output: vscode.OutputChannel
+class DshExtension {  readonly output: vscode.OutputChannel
   private readonly context: vscode.ExtensionContext
   private readonly statusBar: StatusBar
   private readonly disposables: vscode.Disposable[] = []
 
   private connection: DshConnection | undefined
   private store: SessionStore | undefined
-  private treeProvider: SessionsTreeProvider | undefined
-  private treeView: vscode.TreeView<unknown> | undefined
+  private sidebar: SidebarWebviewProvider | undefined
   private localServer: LocalServerManager
   private cachedPresets: AgentPresetEntry[] = []
   private currentWorkspaceId: WorkspaceId | undefined
@@ -84,15 +73,15 @@ class DshExtension {
       vscode.commands.registerCommand('dsh.openChat', (sessionId?: SessionId) => this.openChat(sessionId)),
       vscode.commands.registerCommand('dsh.newSession', () => this.newSession()),
       vscode.commands.registerCommand('dsh.refreshSessions', () => this.refreshSessions()),
-      vscode.commands.registerCommand('dsh.openInBrowser', () => this.openInBrowser()),
-      vscode.commands.registerCommand('dsh.cancel', () => this.cancelSelected()),
-      vscode.commands.registerCommand('dsh.renameSession', () => this.renameSelected()),
+      vscode.commands.registerCommand('dsh.openInBrowser', (sessionId?: SessionId) => this.openInBrowser(sessionId)),
+      vscode.commands.registerCommand('dsh.cancel', (sessionId?: SessionId) => this.cancelSelected(sessionId)),
+      vscode.commands.registerCommand('dsh.renameSession', (sessionId?: SessionId) => this.renameSelected(sessionId)),
       vscode.commands.registerCommand('dsh.showOutput', () => this.output.show()),
       // ---- sidebar navigation / settings (#3 / #5) ----
-      vscode.commands.registerCommand('dsh.openSettings', () => this.navigateSidebar('settings')),
+      vscode.commands.registerCommand('dsh.openSettings', () => this.openSettingsSidebar()),
       vscode.commands.registerCommand('dsh.sidebarBack', () => this.navigateSidebar('home')),
       vscode.commands.registerCommand('dsh.sidebarNavigate', (view: SidebarView) => this.navigateSidebar(view)),
-      vscode.commands.registerCommand('dsh.sidebarNavigateSettings', () => this.navigateSidebar('settings')),
+      vscode.commands.registerCommand('dsh.sidebarNavigateSettings', () => this.openSettingsSidebar()),
       vscode.commands.registerCommand('dsh.toggleAllSessions', () => this.toggleAllSessions()),
       vscode.commands.registerCommand('dsh.toggleSetting', (key: string) => this.toggleSetting(key)),
       vscode.commands.registerCommand('dsh.usePreset', (id: string) => this.usePreset(id)),
@@ -107,8 +96,8 @@ class DshExtension {
       { dispose: this.localServer.onChanged(() => this.refreshTree()) },
     )
 
-    // Tree view with the entry-style home provider (issues #3/#5).
-    this.treeProvider = new SessionsTreeProvider({
+    // 卡片式 Webview 侧边栏（issue #3 卡片化：取代旧 TreeView 缩进式层级）。
+    this.sidebar = new SidebarWebviewProvider({
       getStore: () => this.store,
       getConnection: () => this.connection,
       getConnected: () => this.connected,
@@ -118,8 +107,11 @@ class DshExtension {
       getPresets: () => this.cachedPresets,
       getConfigValue: (key) => readConfigValue(key),
     })
-    this.treeView = vscode.window.createTreeView('dsh.sessions', { treeDataProvider: this.treeProvider })
-    this.disposables.push(this.treeView)
+    this.disposables.push(
+      vscode.window.registerWebviewViewProvider(SidebarWebviewProvider.viewType, this.sidebar, {
+        webviewOptions: { retainContextWhenHidden: true },
+      }),
+    )
 
     void this.ensureWorkspaceAttach()
     if (this.config.autoConnect) {
@@ -347,35 +339,30 @@ class DshExtension {
     this.refreshTree()
   }
 
-  // ---- store / tree ----
+  // ---- store / sidebar ----
 
   private refreshTree(): void {
-    this.treeProvider?.refresh()
-    this.updateTreeViewChrome()
+    this.sidebar?.refresh()
   }
 
-  private updateTreeViewChrome(): void {
-    if (this.treeView === undefined) return
-    const view = this.treeProvider?.getCurrentView() ?? 'home'
-    this.treeView.description = view === 'home' ? undefined : VIEW_TITLES[view]
+  private async navigateSidebar(view: SidebarView, focus = false): Promise<void> {
+    this.sidebar?.navigate(view)
+    if (focus) {
+      // 从命令面板/设置入口跳转时确保侧边栏可见。
+      try {
+        await vscode.commands.executeCommand(`${SidebarWebviewProvider.viewType}.focus`)
+      } catch {
+        /* 视图容器不可见时忽略 */
+      }
+    }
   }
 
-  private navigateSidebar(view: SidebarView): void {
-    this.treeProvider?.navigate(view)
-    this.updateTreeViewChrome()
+  private async openSettingsSidebar(): Promise<void> {
+    await this.navigateSidebar('settings', true)
   }
 
   private toggleAllSessions(): void {
-    this.treeProvider?.toggleAllSessions()
-    this.updateTreeViewChrome()
-  }
-
-  private selectedSession(): SessionId | undefined {
-    const selection = this.treeView?.selection
-    if (selection === undefined) return undefined
-    const node = selection as { kind?: string; session?: { sessionId: SessionId } }
-    if (node?.kind === 'session' && node.session) return node.session.sessionId
-    return undefined
+    this.sidebar?.toggleAllSessions()
   }
 
   // ---- workspace auto-attach (#2) ----
@@ -477,11 +464,11 @@ class DshExtension {
     return this.connection
   }
 
-  /** 打开聊天面板。sidebar 会话条目单击时直接传入 sessionId（issue #15）。 */
+  /** 打开聊天面板。sidebar 会话卡片单击时直接传入 sessionId（issue #15）。 */
   private async openChat(sessionIdArg?: SessionId): Promise<void> {
     try {
       const connection = this.requireConnection()
-      let sessionId = sessionIdArg ?? this.selectedSession()
+      let sessionId = sessionIdArg
       if (sessionId === undefined) {
         sessionId = await this.pickSession(connection)
       }
@@ -625,10 +612,10 @@ class DshExtension {
     }
   }
 
-  private async openInBrowser(): Promise<void> {
-    const sessionId = this.selectedSession()
+  private async openInBrowser(sessionIdArg?: SessionId): Promise<void> {
+    const sessionId = sessionIdArg ?? (await this.pickSessionId())
     if (sessionId === undefined) {
-      void vscode.window.showInformationMessage('请先在会话列表中选中一个会话')
+      void vscode.window.showInformationMessage('请先选择要打开的会话')
       return
     }
     if (this.connection === undefined) return
@@ -643,8 +630,8 @@ class DshExtension {
     void vscode.env.openExternal(vscode.Uri.parse(target))
   }
 
-  private async cancelSelected(): Promise<void> {
-    const sessionId = this.selectedSession()
+  private async cancelSelected(sessionIdArg?: SessionId): Promise<void> {
+    const sessionId = sessionIdArg ?? (await this.pickSessionId())
     if (sessionId === undefined) return
     try {
       const connection = this.requireConnection()
@@ -655,10 +642,10 @@ class DshExtension {
     }
   }
 
-  private async renameSelected(): Promise<void> {
-    const sessionId = this.selectedSession()
+  private async renameSelected(sessionIdArg?: SessionId): Promise<void> {
+    const sessionId = sessionIdArg ?? (await this.pickSessionId())
     if (sessionId === undefined) {
-      void vscode.window.showInformationMessage('请先在会话列表中选中一个会话')
+      void vscode.window.showInformationMessage('请先选择要重命名的会话')
       return
     }
     try {
@@ -675,6 +662,24 @@ class DshExtension {
     } catch (error) {
       void vscode.window.showErrorMessage(errorMessage(error))
     }
+  }
+
+  /** 没有显式 sessionId 时快速选择一个会话（无会话则返回 undefined）。 */
+  private async pickSessionId(): Promise<SessionId | undefined> {
+    const entries = this.store?.allSessions ?? []
+    if (entries.length === 0) return undefined
+    const items = entries.slice(0, 50).map((session) => ({
+      label: session.title ?? '新会话',
+      description: `${session.running ? '🔄 ' : ''}${session.agentPreset}`,
+      detail: session.cwd,
+      sessionId: session.sessionId,
+    }))
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: '选择会话',
+      matchOnDescription: true,
+      matchOnDetail: true,
+    })
+    return picked?.sessionId
   }
 
   // ---- settings page (#3) ----
@@ -759,7 +764,7 @@ class DshExtension {
         '去设置',
         '取消',
       )
-      if (answer === '去设置') this.navigateSidebar('settings')
+      if (answer === '去设置') void this.openSettingsSidebar()
       return
     }
     try {

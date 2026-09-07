@@ -238,19 +238,25 @@ export class ChatPanel {
         void this.selectModel(message.provider, message.model)
         break
       case 'approve':
-        void this.context.connection.approve(message.rpcId, this.sessionId, message.approvalId).catch((error) => {
-          this.postOp({ type: 'error', text: `审批应答失败：${errorMessage(error)}` })
-        })
+        void this.context.connection.approve(message.rpcId, this.sessionId, message.approvalId)
+          .then(() => this.postOp({ type: 'approval-resolved', approvalId: message.approvalId, outcome: 'allowed-once' }))
+          .catch((error) => {
+            this.postOp({ type: 'error', text: `审批应答失败：${errorMessage(error)}` })
+          })
         break
       case 'reject':
-        void this.context.connection.reject(message.rpcId, this.sessionId, message.approvalId).catch((error) => {
-          this.postOp({ type: 'error', text: `拒绝应答失败：${errorMessage(error)}` })
-        })
+        void this.context.connection.reject(message.rpcId, this.sessionId, message.approvalId)
+          .then(() => this.postOp({ type: 'approval-resolved', approvalId: message.approvalId, outcome: 'rejected' }))
+          .catch((error) => {
+            this.postOp({ type: 'error', text: `拒绝应答失败：${errorMessage(error)}` })
+          })
         break
       case 'answer':
-        void this.context.connection.answerQuestion(message.rpcId, this.sessionId, message.answers).catch((error) => {
-          this.postOp({ type: 'error', text: `回答提交失败：${errorMessage(error)}` })
-        })
+        void this.context.connection.answerQuestion(message.rpcId, this.sessionId, message.answers)
+          .then(() => this.postOp({ type: 'question-resolved', questionRpcId: message.rpcId, outcome: 'answered' }))
+          .catch((error) => {
+            this.postOp({ type: 'error', text: `回答提交失败：${errorMessage(error)}` })
+          })
         break
       case 'open-in-browser':
         void vscode.env.openExternal(vscode.Uri.parse(sessionWebUrl(this.context.connection.baseUrl, this.sessionId)))

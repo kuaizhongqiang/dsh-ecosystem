@@ -307,6 +307,83 @@ async function clonePinned(repo: string, commit: string, target: string): Promis
   if (head !== commit) throw new Error(`克隆后 HEAD=${head.slice(0, 8)} ≠ 锁定 ${commit.slice(0, 8)}`);
 }
 
+// ---------------------------------------------------------------- 一键更新插件（同步最新源）
+
+/** 生态源仓库最新 HEAD commit（git ls-remote，无需本地检出；用于一键更新检测）。 */
+export async function latestEcosystemCommit(repo: string, proxy?: string): Promise<string> {
+  const out = await node.runGit(['ls-remote', ...node.gitProxyArgs(proxy), repo, 'HEAD']);
+  const m = /^([0-9a-f]{40})\s+HEAD/.exec(out.trim());
+  if (!m) throw new Error(`无法解析插件源 ${repo} 的 HEAD commit（git ls-remote 输出异常）`);
+  return m[1];
+}
+
+/**
+ * 把生态源检出同步到指定 commit（一键更新用；P1-7 锁 commit 语义由同步后的自声明清单重建）。
+ * - 目录缺失 → 全新克隆（复用 clonePinned）；
+ * - 既有检出 → 校验 origin 与目标仓库一致后增量 fetch + checkout（不破坏目录）；
+ * - origin 不符或损坏 → 报错并提示，绝不静默漂移/删除其他检出。
+ */
+export async function syncPluginsSourceTo(repo: string, commit: string, dir: string): Promise<void> {
+  const fsP = await import('node:fs/promises');
+  if (!existsSync(dir)) {
+    log.info(`生态源检出不存在，全新克隆（${repo} @ ${commit.slice(0, 8)}）……`);
+    await clonePinned(repo, commit, dir);
+    return;
+  }
+  if (!existsSync(join(dir, '.git'))) {
+    throw new Error(
+      `插件源目录 ${dir} 存在但不是 git 检出（缺 .git）。请删除该目录后重试，` +
+        `或把 DSH_LAUNCHER_PLUGINS_DIR 指向已检出的 dsh-ecosystem 仓库`,
+    );
+  }
+  const proxy = node.resolveProxy(undefined, config.load()?.proxy);
+  const run = (args: string[]): Promise<string> => node.runGit([...node.gitProxyArgs(proxy), ...args], undefined, dir);
+  let origin = '';
+  try {
+    origin = (await run(['remote', 'get-url', 'origin'])).trim();
+  } catch {
+    log.warn(`插件源检出缺少可用 origin，重建检出……`);
+    await fsP.rm(dir, { recursive: true, force: true });
+    await clonePinned(repo, commit, dir);
+    return;
+  }
+  if (origin !== repo) {
+    throw new Error(`插件源检出 origin=${origin} 与清单仓库 ${repo} 不一致，拒绝漂移；请手动处理 ${dir}`);
+  }
+  await run(['fetch', '-q', '--depth', '1', 'origin', commit]);
+  await run(['checkout', '-q', 'FETCH_HEAD']);
+  const head = (await run(['rev-parse', 'HEAD'])).trim();
+  if (head !== commit) throw new Error(`同步后 HEAD=${head.slice(0, 8)} ≠ 目标 ${commit.slice(0, 8)}`);
+  log.info(`插件源已同步：${head.slice(0, 8)}（${dir}）`);
+}
+
+/**
+ * 读取同步后的伞仓自声明清单（dsh-launcher/ecosystem.json）并做一致性自检：
+ * 清单内 plugins.source.commit 必须等于刚同步到的 commit（清单与源码同源，P1-7）。
+ */
+export function readRepoManifest(dir: string, commit: string): { manifest: EcosystemManifest; file: string; label: string } {
+  const { manifest, file } = readManifestAt(dir);
+  const pinned = manifest.plugins.source.commit;
+  if (pinned !== commit) {
+    throw new Error(`伞仓自声明清单 commit=${pinned.slice(0, 8)} ≠ 同步目标 ${commit.slice(0, 8)}（清单与源码不同步，拒绝安装）`);
+  }
+  return { manifest, file, label: `sync@${commit.slice(0, 8)}` };
+}
+
+/**
+ * 只读伞仓自声明清单（dsh-launcher/ecosystem.json），不做 commit 自检。
+ * 用于"一键更新"第一步：读取仓库 HEAD 的清单，确定其锁定的**插件集提交**
+ * （发布流程在 release 时重新钉插件集，故 HEAD 清单锁定值可早于 HEAD 本身）。
+ */
+export function readManifestAt(dir: string): { manifest: EcosystemManifest; file: string; label: string } {
+  const file = join(dir, 'dsh-launcher', 'ecosystem.json');
+  if (!existsSync(file)) {
+    throw new Error(`同步后的伞仓缺少清单 ${file}（dsh-launcher/ecosystem.json）`);
+  }
+  const manifest = parseManifest(readFileSync(file, 'utf8'), file);
+  return { manifest, file, label: `repo@${manifest.plugins.source.commit.slice(0, 8)}` };
+}
+
 /** 单文件 sha256（hex）。 */
 export function fileSha256(abs: string): string {
   return createHash('sha256').update(readFileSync(abs)).digest('hex');

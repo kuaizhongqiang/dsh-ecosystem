@@ -58,6 +58,12 @@ const mock = {
     await delay(2200);
     return { ok: true };
   },
+  async updateEcosystem(opts) {
+    await delay(300);
+    streamUpdateLogs();
+    await delay(3200);
+    return { ok: true };
+  },
   async getConnections() {
     return {
       ok: true,
@@ -166,51 +172,51 @@ async function refreshStatus() {
   state.installed = s.dsh.installed;
   state.running = s.port.running;
   if (s.node.present) {
-    setValue('node', 'Node.js  ' + s.node.version);
+    setValue('node', s.node.version);
     setDot('node', 'dot-green');
   } else {
-    setValue('node', 'Node.js  未安装', 'red');
+    setValue('node', '未安装');
     setDot('node', 'dot-red');
   }
   if (s.npm.present) {
-    setValue('npm', 'npm  ' + s.npm.version);
+    setValue('npm', s.npm.version);
     setDot('npm', 'dot-green');
   } else {
-    setValue('npm', 'npm  未安装', 'red');
+    setValue('npm', '未安装');
     setDot('npm', 'dot-red');
   }
   if (s.dsh.installed) {
-    setValue('dsh', 'dsh  ' + s.dsh.version + '  已安装', 'green');
+    setValue('dsh', s.dsh.version);
     setDot('dsh', 'dot-green');
   } else {
-    setValue('dsh', 'dsh  未安装', 'red');
+    setValue('dsh', '未安装');
     setDot('dsh', 'dot-red');
   }
   if (s.dsh.installed) {
     if (s.port.running) {
-      setValue('port', '端口  ' + s.port.number + '  运行中', 'green');
+      setValue('port', s.port.number + ' 运行中', 'green');
       setDot('port', 'dot-green');
     } else {
-      setValue('port', '端口  ' + s.port.number + '  未运行', 'dim');
+      setValue('port', s.port.number + ' 未运行', 'dim');
       setDot('port', 'dot-dim');
     }
   } else {
-    setValue('port', '端口  —', 'dim');
+    setValue('port', '—', 'dim');
     setDot('port', 'dot-dim');
   }
   // M5：激活连接为 remote 时，端口行改为连接语义（HTTP ping）
   if (s.connection && s.connection.kind === 'remote') {
-    setValue('port', 'remote  ' + s.connection.id + (s.port.running ? '  可达' : '  不可达'), s.port.running ? 'green' : 'red');
+    setValue('port', s.connection.id + ' ' + (s.port.running ? '可达' : '不可达'), s.port.running ? 'green' : 'red');
     setDot('port', s.port.running ? 'dot-green' : 'dot-red');
   }
   if (s.update.checking) {
-    setValue('update', '更新  正在检查…', 'dim');
+    setValue('update', '正在检查…', 'dim');
     setDot('update', 'dot-dim');
   } else if (s.update.dshAvail || s.update.launcherAvail) {
-    setValue('update', '更新  有新版本可升级', 'brand');
+    setValue('update', '有新版本可升级', 'brand');
     setDot('update', 'dot-brand');
   } else {
-    setValue('update', '更新  已是最新', 'green');
+    setValue('update', '已是最新', 'green');
     setDot('update', 'dot-green');
   }
   return true;
@@ -376,7 +382,7 @@ async function onUpdate() {
 
 /* ---------- 生态（M2） ---------- */
 
-const eco = { busy: false, dry: false, rows: {} };
+const eco = { busy: false, updating: false, dry: false, rows: {} };
 
 function streamEcoLogs() {
   const lines = [
@@ -387,6 +393,24 @@ function streamEcoLogs() {
     ['生态状态已写入 ecosystem-state.json', 'ok'],
   ];
   lines.forEach(([t, k], i) => setTimeout(() => log(t, k), 350 + i * 320));
+}
+
+/* 一键更新插件的模拟日志（真实模式由服务端 SSE 推送，此仅供预览 mock） */
+function streamUpdateLogs() {
+  const lines = [
+    ['一键更新插件开始（GUI 触发）……', ''],
+    ['当前插件源：9a6427e0（默认（内嵌））', ''],
+    ['发现新插件源 148e94cc：同步检出……', ''],
+    ['插件源已同步：148e94cc', 'ok'],
+    ['读取伞仓自声明清单：sync@148e94cc', ''],
+    ['sha256 ✓ dsh-plugins/plugins/stock-dsh-plugin/install.ps1', 'ok'],
+    ['插件 stock 安装完成（v0.2.0）', 'ok'],
+    ['技能安装完成', 'ok'],
+    ['重启 dsh（让新插件与技能生效）……', 'brand'],
+    ['dsh 已重启。', 'ok'],
+    ['一键更新完成。', 'ok'],
+  ];
+  lines.forEach(([t, k], i) => setTimeout(() => log(t, k), 350 + i * 380));
 }
 
 function ecoChip(okFlag) {
@@ -401,12 +425,14 @@ function ecoCheckedIds() {
 }
 
 function renderEcoButtons() {
-  const busy = state.busy || eco.busy;
+  const busy = state.busy || eco.busy || eco.updating;
   $('btnEcoPull').disabled = busy;
   $('btnEcoDry').disabled = busy || ecoCheckedIds().length === 0;
   $('btnEcoRefresh').disabled = busy;
+  $('btnEcoUpdate').disabled = busy;
   $('btnEcoPull').textContent = eco.busy ? '拉齐中…' : (eco.dry ? '校验中…' : '拉齐勾选项');
   $('btnEcoDry').textContent = eco.dry ? '校验中…' : '仅校验（dry-run）';
+  $('btnEcoUpdate').textContent = eco.updating ? '更新中…' : '一键更新插件';
 }
 
 async function refreshEcosystem() {
@@ -510,6 +536,43 @@ async function onEcoPull(dryRun) {
       clearInterval(timer);
       eco.busy = false;
       eco.dry = false;
+      renderEcoButtons();
+    }
+  }, 1500);
+}
+
+/* 一键更新插件：同步最新插件源 → 安装/更新 → 重启 dsh（进度走日志流） */
+async function onEcoUpdate() {
+  if (state.busy || eco.busy || eco.updating) return;
+  if (!window.confirm('一键更新插件将执行：同步最新插件源（git）→ 安装/更新插件与技能 → 重启 dsh。\n继续？')) return;
+  eco.updating = true;
+  renderEcoButtons();
+  log('一键更新插件开始（同步最新插件源 → 安装/更新 → 重启 dsh）……', 'brand');
+  try {
+    const r = await bridge.updateEcosystem({ restart: true });
+    if (!r || r.ok === false) throw new Error((r && r.message) || '更新启动失败');
+    log(r.message || '一键更新已开始（进度见日志）。', 'ok');
+  } catch (e) {
+    log('一键更新启动失败：' + e.message, 'err');
+    eco.updating = false;
+    renderEcoButtons();
+    return;
+  }
+  // 轮询服务端 busy 直到结束（最长 30 分钟：含 git 同步 + 安装 + 重启）
+  const deadline = Date.now() + 30 * 60 * 1000;
+  const timer = setInterval(async () => {
+    try {
+      const d = await bridge.getEcosystem();
+      if (!d || !d.busy || Date.now() > deadline) {
+        clearInterval(timer);
+        eco.updating = false;
+        await refreshEcosystem();
+        await refreshStatus();
+        renderButtons();
+      }
+    } catch (e) {
+      clearInterval(timer);
+      eco.updating = false;
       renderEcoButtons();
     }
   }, 1500);
@@ -673,6 +736,7 @@ function scheduleAutoSize() {
   $('btnEcoRefresh').addEventListener('click', refreshEcosystem);
   $('btnEcoDry').addEventListener('click', () => onEcoPull(true));
   $('btnEcoPull').addEventListener('click', () => onEcoPull(false));
+  $('btnEcoUpdate').addEventListener('click', onEcoUpdate);
   $('connSelect').addEventListener('change', onConnUse);
   log('dsh-launcher 已就绪。', '');
 
@@ -714,6 +778,12 @@ function scheduleAutoSize() {
      move(dir): Promise<{ok}>,
      checkUpdate(): Promise<{dshAvail, launcherAvail, dshLatest, launcherLatest}>,
      browse(): Promise<string|null>,
+     getEcosystem(): Promise<{ok, busy, label, manifest, state, pluginsDir}>,
+     pullEcosystem(opts): Promise<{ok}>,
+     updateEcosystem(opts): Promise<{ok}>,      // 一键更新插件（同步源→安装→重启）
+     getConnections(): Promise<{ok, active, list}>,
+     restartDsh(): Promise<{ok}>,
+     setupFlow(opts): Promise<{ok}>,
      defaultDir: string,
      onLog(fn): void   // 订阅日志流（SSE /api/events），fn(line, kind)
    }

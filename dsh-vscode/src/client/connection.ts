@@ -325,30 +325,29 @@ export class DshConnection {
   }
 
   // ---- responding to forwarded events (approvals / questions) ----
+  //
+  // 应答值走**裸领域值**协议（当前 DSH typert remote 瀑布流把 $events/result
+  // 的 outcome.value 原样喂给等待方）：
+  //   - approval/request  → ApprovalOutcome 纯字符串（'allowed-once' | 'rejected'）
+  //   - user-questions/request → AskUserQuestionAnswer 裸对象 { answers: [...] }
+  // 旧版 {sessionId, answer:{answers}} / {sessionId, approvalId, outcome} 包裹会让
+  // 服务端把整包当答案返回，ask 工具取不到 answers → 提问收到"空答案"（已修复）。
 
   /** Approve a pending tool approval waterfall. `eventId` is the $events eventId. */
-  async approve(eventId: string, sessionId: SessionId, approvalId: string): Promise<void> {
-    await this.respondEvent(eventId, {
-      sessionId,
-      approvalId,
-      outcome: 'allowed-once',
-    })
+  async approve(eventId: string, _sessionId: SessionId, _approvalId: string): Promise<void> {
+    await this.respondEvent(eventId, 'allowed-once')
   }
 
-  async reject(eventId: string, sessionId: SessionId, approvalId: string): Promise<void> {
-    await this.respondEvent(eventId, {
-      sessionId,
-      approvalId,
-      outcome: 'rejected',
-    })
+  async reject(eventId: string, _sessionId: SessionId, _approvalId: string): Promise<void> {
+    await this.respondEvent(eventId, 'rejected')
   }
 
   async answerQuestion(
     eventId: string,
-    sessionId: SessionId,
+    _sessionId: SessionId,
     answers: { id: string; selected: string[]; custom?: string }[],
   ): Promise<void> {
-    await this.respondEvent(eventId, { sessionId, answer: { answers } })
+    await this.respondEvent(eventId, { answers })
   }
 
   private async respondEvent(eventId: string, value: unknown): Promise<void> {

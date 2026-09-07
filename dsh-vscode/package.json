@@ -312,8 +312,9 @@
       "dsh": [
         {
           "id": "dsh.sessions",
-          "name": "会话",
-          "icon": "media/dsh-icon.svg"
+          "name": "DSH",
+          "icon": "media/dsh-icon.svg",
+          "type": "webview"
         }
       ]
     },
@@ -343,33 +344,6 @@
           "command": "dsh.openSettings",
           "when": "view == dsh.sessions",
           "group": "navigation@4"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "dsh.openChat",
-          "when": "view == dsh.sessions && viewItem == dsh-session",
-          "group": "inline@1"
-        },
-        {
-          "command": "dsh.openInBrowser",
-          "when": "view == dsh.sessions && viewItem == dsh-session",
-          "group": "inline@2"
-        },
-        {
-          "command": "dsh.renameSession",
-          "when": "view == dsh.sessions && viewItem == dsh-session",
-          "group": "inline@3"
-        },
-        {
-          "command": "dsh.cancel",
-          "when": "view == dsh.sessions && viewItem == dsh-session",
-          "group": "inline@4"
-        },
-        {
-          "command": "dsh.openChat",
-          "when": "view == dsh.sessions && viewItem == dsh-workspace",
-          "group": "inline@1"
         }
       ],
       "commandPalette": [
