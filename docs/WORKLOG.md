@@ -1,5 +1,25 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-07(dsh-ecosystem v0.8.1 发布 —— launcher 一键更新插件 / 仪表盘 UI / vscode 提问修复与卡片侧边栏)
+
+- **功能(launcher 一键更新插件 M9)**:新端点 `POST /api/ecosystem/update` —— git 同步最新生态源 HEAD →
+  读伞仓自声明清单(锁定的**插件集提交**与仓库 HEAD 解耦:release 才重钉,main 前进不等于插件集变化)→
+  检出对齐插件集 → runPull 安装/更新插件与技能 → 可选 `restartActive` 重启 dsh;新增
+  `ecosystem.latestEcosystemCommit / syncPluginsSourceTo(增量 fetch 不破坏既有检出) / readManifestAt`;
+  UI 生态区「一键更新插件」主按钮,与拉齐 busy 互斥,进度走 SSE 日志。无头冒烟验证全链路
+  (Linux 无法执行 install.ps1,安装段需 Windows 真机)。
+- **UI(launcher v0.9 仪表盘)**:顶部 5 状态磁贴(Node/npm/dsh/端口/更新)+ 运行控制条 + 安装/版本面板 +
+  插件技能面板 + 日志控制台;标题栏内置连接切换 pill;仅消费 tokens.css 设计令牌。
+- **修复(vscode 提问空答案)**:根因 = 应答走旧包裹 `{sessionId, answer:{answers}}`,而当前 DSH typert
+  remote 瀑布流把 `$events/result` outcome.value 原样返回给 ask 工具(期望裸 `{answers}` / 审批裸字符串)
+  → `result.answers` undefined → 空答案。改为裸领域值;提交成功本地翻转提问/审批卡片
+  (questionRpcId 此前恒为空,卡片停留"已提交")。
+- **功能(vscode 侧边栏卡片化 issue#3)**:原生 TreeView 改 WebviewView 卡片侧边栏
+  (`sidebar.ts` → `sidebarView.ts` + `sidebarViewHtml.ts`),会话按工作区分组卡片,图标/色块区分层级不再靠缩进;
+  服务/配置/插件/模式视图全卡片化;命令支持 sessionId 参数(无参 QuickPick 兜底)。
+- 验证:launcher/vscode tsc 通过、vscode vitest 42 用例通过、esbuild 构建通过、无头 launcher 冒烟通过。
+- **发布**:tag `v0.8.1`(main `a061637`),三组件 launcher/vscode/desktop 统一 bump 0.8.0→0.8.1。
+
 ## 2026-09-05(launcher 插件重启编排 seam —— 档 1 hook 落地)
 
 - **问题**:`launcher_restart` 跑在 dsh 进程内,重启会杀掉本进程与进行中的回合/后台任务,自助重启后
