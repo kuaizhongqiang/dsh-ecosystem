@@ -378,7 +378,7 @@ export function sidebarViewHtml(): string {
     if (sv.logs.length > 0) {
       var lg = el('div', 'sec');
       lg.appendChild(headWithCount('日志摘要', ''));
-      lg.appendChild(el('div', 'logbox', esc(sv.logs.join('\n'))));
+      lg.appendChild(el('div', 'logbox', esc(sv.logs.join('\\n'))));
       viewEl.appendChild(lg);
     }
   }
