@@ -297,6 +297,11 @@
         "command": "dsh.stopLocalService",
         "title": "DSH: 停止本地服务",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "dsh.checkUpdate",
+        "title": "DSH: 检查更新（优雅升级）",
+        "icon": "$(cloud-download)"
       }
     ],
     "viewsContainers": {
@@ -365,6 +370,10 @@
         },
         {
           "command": "dsh.openPluginPath",
+          "when": "false"
+        },
+        {
+          "command": "dsh.checkUpdate",
           "when": "false"
         }
       ]

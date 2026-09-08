@@ -21,6 +21,7 @@
   - **进入配置**：设置页（连接模式开关、Cloudflare cookie、本地服务路径、服务地址、行为与数值项），改动即保存生效，断开连接时也可访问；
   - **插件库**：浏览已安装（`DSH_HOME` 下的 skills / tools / presets）与可用（dsh-plugins 合集仓库）插件，点击打开目录；
   - **模式列表**：浏览 agent preset，单击设为新建会话默认。
+  - **优雅升级**：首页「检查更新」卡片（带版本角标）一键检测 Open VSX 最新版；发现新版可直接自动升级（下载 vsix → 静默安装 → 提示重载窗口），网络或安装失败时自动引导到下载页手动安装；不依赖 VS Code 市场更新推送。
 - **聊天面板**（Webview）：
   - 历史消息加载 + 实时流式输出（文本 / 思考过程分开展示，带打字光标）；用户 / 助手消息左右分栏带头像；**消息气泡之间无任何分隔线**（纯背景与间距区分）
   - **模型选择器**：面板头部直接切换会话使用的模型（provider/model）
@@ -102,6 +103,12 @@ pnpm exec vsce package --no-dependencies
 code --install-extension dsh-vscode-0.2.0.vsix
 ```
 
+### 更新（优雅升级）
+
+侧边栏首页的「检查更新」卡片（或命令 `DSH: 检查更新（优雅升级）`）可一键升级：查询 Open VSX 最新版 →
+发现新版自动下载 vsix 并静默安装 → 提示重新加载窗口生效；网络或安装失败时自动引导到 Open VSX 下载页手动安装。
+该功能基于 Open VSX 发布通道，不依赖 VS Code 官方市场的更新推送（本插件未上架微软官方市场）。
+
 ## 配置
 
 | 设置 | 默认 | 说明 |
@@ -145,6 +152,7 @@ code --install-extension dsh-vscode-0.2.0.vsix
 | `DSH: 打开插件路径` | 插件库中点击插件打开其目录 / 文件 | |
 | `DSH: 启动本地服务` | 拉起本地 `dsh web`（需已配置 `dsh.localServerPath`） | |
 | `DSH: 停止本地服务` | 停止本地 `dsh web` 服务进程 | |
+| `DSH: 检查更新（优雅升级）` | 查询 Open VSX 最新版；有新版则一键自动升级，失败时打开下载页 | |
 
 ## 架构
 
@@ -153,7 +161,9 @@ src/
 ├── extension.ts         激活入口：连接生命周期、命令、工作区自动关联、设置与本地服务编排
 ├── config.ts            设置读写（含 remote / token / localServerPath 与自定义请求头）
 ├── statusBar.ts         状态栏
-├── sidebar.ts           侧边栏入口式首页 + 会话 / 服务 / 设置 / 插件 / 模式多视图导航
+├── sidebarView.ts       卡片式侧边栏 Provider：维护当前视图/会话范围并组装快照推给 Webview
+├── sidebarViewHtml.ts   侧边栏 Webview 模板（首页含「检查更新」卡片 + 会话/服务/设置/插件/模式）
+├── updater.ts           优雅升级：Open VSX 查询最新版、版本比较、下载 vsix
 ├── sessionStore.ts      会话/工作区缓存（session.list + host 帧增量）
 ├── localServer.ts       本地 dsh web 服务生命周期（spawn / 就绪轮询 / 终止，路径校验；拉起后写共享 token 文件）
 ├── launchToken.ts       `$DSH_HOME/launch-token.json` 共享启动 token 读写（与 dsh-launcher 共用规范）

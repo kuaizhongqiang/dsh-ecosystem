@@ -30,6 +30,20 @@ export interface SidebarContext {
   getPresets: () => AgentPresetEntry[]
   /** 读取一个 dsh.* 配置项的字符串值（如 'remote' / 'localServerPath'）。 */
   getConfigValue: (key: string) => string | undefined
+  /** 当前扩展版本（package.json version）。 */
+  getVersion: () => string
+  /** 最近一次优雅升级检查的结果。 */
+  getUpdate: () => UpdateStatus
+}
+
+/** 首页"检查更新"卡片的状态。 */
+export interface UpdateStatus {
+  /** 正在向 Open VSX 查询中。 */
+  checking: boolean
+  /** 最近一次检查结论：idle=还没查过 / latest=已是最新 / update=有新版本 / error=查询失败。 */
+  state: 'idle' | 'latest' | 'update' | 'error'
+  /** 检查到的最新版本（state 为 update/latest 时有值）。 */
+  latest?: string
 }
 
 // ---------------------------------------------------------------- 视图模型
@@ -55,6 +69,10 @@ export interface SidebarSnapshot {
     connDetail?: string
     connError: boolean
     entries: { view: SidebarView; title: string; desc: string; badge?: string }[]
+    /** 当前扩展版本（显示在"检查更新"卡片上）。 */
+    version?: string
+    /** 最近一次升级检查结果。 */
+    update?: UpdateStatus
   }
   /** 会话列表卡片 */
   sessions?: {
@@ -199,6 +217,8 @@ function buildHome(ctx: SidebarContext): SidebarSnapshot['home'] {
     connDetail: conn.detail,
     connError: conn.error,
     entries,
+    version: ctx.getVersion(),
+    update: ctx.getUpdate(),
   }
 }
 

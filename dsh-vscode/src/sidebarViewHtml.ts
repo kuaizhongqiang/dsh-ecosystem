@@ -225,6 +225,8 @@ export function sidebarViewHtml(): string {
     json: '<path d="M5 4.5L2.5 8 5 11.5M11 4.5l2.5 3.5L11 11.5M9 3l-2 10"/>',
     folderOpen: '<path d="M2.5 4h4l1.5 1.5h5.5v7h-11z"/><path d="M3.5 9h9"/>',
     wrench: '<path d="M12.5 6.5a4.5 4.5 0 0 1-6 4.2L3 14.2 1.8 13l3.5-3.5a4.5 4.5 0 0 1 4.2-6l-1.7 1.7 2.8 2.8z"/>',
+    up: '<path d="M8 13V3M4 7l4-4 4 4"/>',
+    download: '<path d="M8 3v8M4.5 7.5L8 11l3.5-3.5M3.5 13.5h9"/>',
   };
   function icon(name, size) { return svg(IC[name] || IC.comment, size); }
 
@@ -286,13 +288,53 @@ export function sidebarViewHtml(): string {
       g.appendChild(card);
     });
     viewEl.appendChild(g);
-    viewEl.appendChild(el('div', 'sec'));
+    renderUpdateCard(home);
     var actsRow = el('div', 'btnrow');
     actsRow.appendChild(btn('dsh.newSession', icon('plus', 13) + '新建会话', 'primary'));
     actsRow.appendChild(btn('dsh.refreshSessions', icon('refresh', 13) + '刷新'));
     if (connected) actsRow.appendChild(btn('dsh.disconnect', icon('stop', 13) + '断开'));
     else actsRow.appendChild(btn('dsh.connect', icon('plug', 13) + '连接'));
     viewEl.appendChild(actsRow);
+  }
+
+  // 首页功能入口区底部"检查更新"卡片：展示当前版本与最近一次检查结果，点击触发 dsh.checkUpdate。
+  function renderUpdateCard(home) {
+    if (!home.version) return;
+    var u = home.update || { checking: false, state: 'idle' };
+    var chip = 'up';
+    var chipCls = 'gray';
+    var titleHtml = '';
+    var descHtml = '';
+    var badgeHtml = '';
+    if (u.state === 'update') {
+      chipCls = 'green';
+      chip = 'download';
+      titleHtml = '发现新版本 v' + esc(u.latest);
+      descHtml = '当前 v' + esc(home.version) + '，点击一键升级';
+      badgeHtml = '<span class="badge run">升级</span>';
+    } else if (u.checking) {
+      titleHtml = '正在检查更新…';
+      descHtml = '当前 v' + esc(home.version);
+    } else if (u.state === 'latest') {
+      titleHtml = '检查更新';
+      descHtml = '已是最新版本 v' + esc(home.version);
+      badgeHtml = '<span class="badge done">最新</span>';
+    } else if (u.state === 'error') {
+      titleHtml = '检查更新';
+      descHtml = '上次检查失败，点击重试';
+    } else {
+      titleHtml = '检查更新';
+      descHtml = '当前 v' + esc(home.version) + ' · 点击检查新版';
+    }
+    var card = el('div', 'card row clickable');
+    card.setAttribute('data-cmd', 'dsh.checkUpdate');
+    card.insertAdjacentHTML('beforeend',
+      '<span class="chip ' + chipCls + '">' + icon(chip, 15) + '</span>' +
+      '<span class="grow" style="flex:1;min-width:0">' +
+      '<div class="title" style="font-weight:600">' + titleHtml + '</div>' +
+      '<div class="desc">' + descHtml + '</div></span>');
+    if (badgeHtml) card.insertAdjacentHTML('beforeend', badgeHtml);
+    viewEl.appendChild(card);
   }
 
   function btn(cmd, labelHtml, cls) {

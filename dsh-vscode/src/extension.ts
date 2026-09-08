@@ -5,12 +5,14 @@
  */
 
 import * as vscode from 'vscode'
-import { realpathSync } from 'node:fs'
+import { realpathSync, unlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { DshConnection } from './client/connection.ts'
 import type { DshEvent } from './client/connection.ts'
 import { RpcErrorResult, DshTransportError } from './client/rpc.ts'
 import { SessionStore } from './sessionStore.ts'
-import { SidebarWebviewProvider, type SidebarView } from './sidebarView.ts'
+import { SidebarWebviewProvider, type SidebarView, type UpdateStatus } from './sidebarView.ts'
 import { StatusBar } from './statusBar.ts'
 import { ChatPanel, errorMessage } from './chat/chatPanel.ts'
 import type { SessionStatsView } from './chat/types.ts'
@@ -18,6 +20,7 @@ import { onConfigChanged, readConfig, sessionWebUrl, type DshConfig } from './co
 import { LocalServerManager, validateLocalServerPath } from './localServer.ts'
 import { scanInstalledPlugins, scanAvailablePlugins, dshHome } from './plugins.ts'
 import { launchTokenFilePath, readLaunchToken } from './launchToken.ts'
+import { compareVersions, downloadTo, fetchLatestFromOpenVsx, OPEN_VSX_EXTENSION_URL, type UpdateInfo } from './updater.ts'
 import type { AgentPresetEntry, SessionId, WorkspaceId } from './client/types.ts'
 
 let extension: DshExtension | undefined
@@ -48,6 +51,8 @@ class DshExtension {  readonly output: vscode.OutputChannel
   private sidebar: SidebarWebviewProvider | undefined
   private localServer: LocalServerManager
   private cachedPresets: AgentPresetEntry[] = []
+  /** 优雅升级检查状态（首页"检查更新"卡片的数据源）。 */
+  private updateStatus: UpdateStatus = { checking: false, state: 'idle' }
   private currentWorkspaceId: WorkspaceId | undefined
   private currentWorkspacePath: string | undefined
   private connected = false
@@ -88,6 +93,8 @@ class DshExtension {  readonly output: vscode.OutputChannel
       vscode.commands.registerCommand('dsh.openSettingsJson', () => void vscode.commands.executeCommand('workbench.action.openSettings', 'dsh')),
       vscode.commands.registerCommand('dsh.openDshHome', () => this.openPath(dshHome())),
       vscode.commands.registerCommand('dsh.openPluginPath', (path: string) => this.openPath(path)),
+      // ---- 优雅升级（检查更新 / 自动升级）----
+      vscode.commands.registerCommand('dsh.checkUpdate', () => this.checkUpdate()),
       // ---- local service (#3) ----
       vscode.commands.registerCommand('dsh.startLocalService', () => this.startLocalService()),
       vscode.commands.registerCommand('dsh.stopLocalService', () => this.stopLocalService()),
@@ -106,6 +113,8 @@ class DshExtension {  readonly output: vscode.OutputChannel
       getPlugins: () => [...scanInstalledPlugins(), ...scanAvailablePlugins()],
       getPresets: () => this.cachedPresets,
       getConfigValue: (key) => readConfigValue(key),
+      getVersion: () => this.extensionVersion(),
+      getUpdate: () => this.updateStatus,
     })
     this.disposables.push(
       vscode.window.registerWebviewViewProvider(SidebarWebviewProvider.viewType, this.sidebar, {
@@ -796,6 +805,91 @@ class DshExtension {  readonly output: vscode.OutputChannel
     this.localServer.stop()
     this.output.appendLine('[dsh-vscode] 本地服务已停止')
     this.refreshTree()
+  }
+
+  // ---- 优雅升级（检查更新 → 自动升级 → 失败兜底下载页）----
+
+  private extensionVersion(): string {
+    const version = this.context.extension.packageJSON?.version
+    return typeof version === 'string' && version.length > 0 ? version : '0.0.0'
+  }
+
+  private async checkUpdate(): Promise<void> {
+    if (this.updateStatus.checking) return
+    this.updateStatus = { checking: true, state: 'idle' }
+    this.refreshTree()
+    try {
+      const info = await fetchLatestFromOpenVsx()
+      const current = this.extensionVersion()
+      if (compareVersions(info.latest, current) > 0) {
+        this.updateStatus = { checking: false, state: 'update', latest: info.latest }
+        const choice = await vscode.window.showInformationMessage(
+          `发现 DSH 扩展新版本 v${info.latest}（当前 v${current}），要升级吗？`,
+          { modal: false },
+          '立即升级',
+          '打开下载页',
+        )
+        if (choice === '立即升级') await this.upgradeTo(info)
+        else if (choice === '打开下载页') this.openUpdatePage()
+      } else {
+        this.updateStatus = { checking: false, state: 'latest', latest: info.latest }
+        void vscode.window.showInformationMessage(`DSH 扩展已是最新版本 v${current}`)
+      }
+    } catch (error) {
+      this.updateStatus = { checking: false, state: 'error' }
+      const retry = await vscode.window.showErrorMessage(
+        `检查 DSH 扩展更新失败：${errorMessage(error)}`,
+        { modal: false },
+        '重试',
+        '打开下载页',
+      )
+      if (retry === '重试') void this.checkUpdate()
+      if (retry === '打开下载页') this.openUpdatePage()
+    } finally {
+      this.refreshTree()
+    }
+  }
+
+  /** 自动升级：下载 vsix → 静默安装 → 提示重载窗口；任一步失败引导走下载页兜底。 */
+  private async upgradeTo(info: UpdateInfo): Promise<void> {
+    const fileName = `dsh-vscode-${info.latest}.vsix`
+    const dest = join(tmpdir(), fileName)
+    const message = vscode.window.setStatusBarMessage(`$(cloud-download) 正在下载 DSH 扩展 v${info.latest}…`)
+    try {
+      this.output.appendLine(`[dsh-vscode] 开始下载 ${info.downloadUrl}`)
+      await downloadTo(info.downloadUrl, dest)
+      this.output.appendLine(`[dsh-vscode] 下载完成（${fileName}），开始安装`)
+      await vscode.commands.executeCommand('workbench.extensions.installExtension', vscode.Uri.file(dest))
+      this.output.appendLine(`[dsh-vscode] 扩展已安装 v${info.latest}，等待重载窗口`)
+      this.updateStatus = { checking: false, state: 'latest', latest: info.latest }
+      const reload = await vscode.window.showInformationMessage(
+        `DSH 扩展已升级到 v${info.latest}，重新加载窗口后生效。`,
+        { modal: false },
+        '重新加载窗口',
+      )
+      if (reload === '重新加载窗口') void vscode.commands.executeCommand('workbench.action.reloadWindow')
+    } catch (error) {
+      const text = errorMessage(error)
+      this.output.appendLine(`[dsh-vscode] 自动升级失败: ${text}`)
+      const answer = await vscode.window.showErrorMessage(
+        `DSH 扩展自动升级失败：${text}，可改用下载页手动安装。`,
+        { modal: false },
+        '打开下载页',
+      )
+      if (answer === '打开下载页') this.openUpdatePage()
+    } finally {
+      message.dispose()
+      try {
+        unlinkSync(dest)
+      } catch {
+        // 临时文件清理失败可忽略
+      }
+      this.refreshTree()
+    }
+  }
+
+  private openUpdatePage(): void {
+    void vscode.env.openExternal(vscode.Uri.parse(OPEN_VSX_EXTENSION_URL))
   }
 
   // ---- helpers ----

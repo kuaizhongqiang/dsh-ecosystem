@@ -5,12 +5,13 @@
 | 来源仓 | [kuaizhongqiang/dsh-vscode](https://github.com/kuaizhongqiang/dsh-vscode)(**已归档只读**) |
 | 形态 | **伞仓内目录 `dsh-vscode/`**(monorepo,随伞仓统一提交) |
 | 生态位 | L4 周边(编辑器内使用 dsh 的入口) |
-| 并入 HEAD | `1756889`(并入快照);**当前发布 v0.8.0(Open VSX)**(权威版本见目录内 package.json) |
-| 发布渠道 | Open VSX(手动,需 OVSX_PAT);伞仓 Releases |
+| 并入 HEAD | 随伞仓 monorepo;**当前发布 v0.8.2(Open VSX)**(权威版本见目录内 package.json) |
+| 发布渠道 | Open VSX(伞仓 CI release 自动,需 OVSX_PAT);伞仓 Releases |
 
 ## 角色
 
-VSCode 扩展:会话 / 聊天 / 工具卡片;与 dsh server 通过 `launch-token.json` 共享 token 自动登录,
+VSCode 扩展:会话 / 聊天 / 工具卡片 / **优雅升级**(侧边栏首页「检查更新」一键检测 Open VSX 新版并自动升级);
+与 dsh server 通过 `launch-token.json` 共享 token 自动登录,
 支持 `dsh.remote` / `dsh.serverUrl` / `dsh.token` / `dsh.extraHeaders`(对齐 Cloudflare Access 场景)。
 M0 协议对齐(clearLaunchToken source+pid 双匹配等)已合入(0.3.0 线)。
 

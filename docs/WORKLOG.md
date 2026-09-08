@@ -1,5 +1,21 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-08(dsh-ecosystem v0.8.3 开发中 —— vscode 侧边栏「优雅升级」)
+
+- **功能(vscode 优雅升级,未发布)**:侧边栏首页功能入口区新增「检查更新」卡片(展示当前版本;
+  发现新版时卡片高亮并带「升级」角标),一键检测 **Open VSX** 最新版 → 有新版自动下载 vsix →
+  `workbench.extensions.installExtension` 静默安装 → 提示重新加载窗口生效;网络或安装任一步失败,
+  自动回退打开 Open VSX 下载页手动安装。更新源只依赖 Open VSX API(免鉴权),不依赖 VS Code 官方市场
+  更新推送(本插件未上架微软市场,README 已注明)。
+- 实现:`src/updater.ts`(fetchLatestFromOpenVsx / compareVersions / downloadTo)+ 首页卡片渲染
+  (`sidebarView.ts`/`sidebarViewHtml.ts`,snapshot.home 增 version/update)+ `dsh.checkUpdate` 命令
+  (`extension.ts`,含 upgradeTo/openUpdatePage 兜底);package.json 登记命令并在命令面板隐藏。
+- 验证:tsc 零错误、vitest **47 通过**(新增 updater 5 用例:版本比较 3 + vsix URL 2)、esbuild 构建通过、
+  webview 内联 JS 校验通过。
+- 文档:扩展 README(Open VSX 市场页同源,打包自动随 vsix)补功能/命令表/架构/「更新」小节;
+  伞仓 docs/modules/dsh-vscode.md 与根 README 版本同步。
+- 下一步:真机 F5 冒烟(有新版/无新版两条路径 + 失败兜底)→ bump v0.8.3 → 打 tag 走 CI 全量发布。
+
 ## 2026-09-08(dsh-ecosystem v0.8.2 发布 —— vscode 侧边栏 webview 空白修复)
 
 - **修复(vscode 侧边栏不可用,用户真机反馈)**:v0.8.1 卡片化侧边栏打开后仅显示静态标题 "dsh" 与原生按钮,
