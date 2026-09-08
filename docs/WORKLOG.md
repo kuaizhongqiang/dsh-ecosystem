@@ -1,5 +1,17 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-08(dsh-ecosystem v0.8.2 发布 —— vscode 侧边栏 webview 空白修复)
+
+- **修复(vscode 侧边栏不可用,用户真机反馈)**:v0.8.1 卡片化侧边栏打开后仅显示静态标题 "dsh" 与原生按钮,
+  主内容空白、按钮无反应。根因 = `dsh-vscode/src/sidebarViewHtml.ts` 外层为反引号模板字符串,内层 JS 的
+  `sv.logs.join('\n')` 中 `\n` 在 TS 编译时被**求值为真实换行符** → 渲染出的 HTML 内联 `<script>` 出现跨行
+  字符串字面量 → `SyntaxError: Invalid or unexpected token` → 整个 `<script>` 块解析失败,前端 JS 完全不执行。
+  修复:转义写成 `'\\n'`(模板求值后得到合法 `\n` 换行转义),一行改动(commit c054dfc)。
+- 验证(Linux 无头 VSCode 真机):诊断探针确认 resolveWebviewView→html set→快照推送正常但 probe 无回传;
+  修复后 probe 回传、首页卡片完整渲染(工作区/连接状态/功能列表/操作按钮)、点击会话列表导航消息正常回流;
+  清理探针后回归:tsc 零错误、vitest 42 通过、esbuild 打包通过、伞仓 verify-release OK。
+- **发布**:tag `v0.8.2`(main 基于 c054dfc),三组件 launcher/vscode/desktop 统一 bump 0.8.1→0.8.2。
+
 ## 2026-09-07(dsh-ecosystem v0.8.1 发布 —— launcher 一键更新插件 / 仪表盘 UI / vscode 提问修复与卡片侧边栏)
 
 - **功能(launcher 一键更新插件 M9)**:新端点 `POST /api/ecosystem/update` —— git 同步最新生态源 HEAD →
