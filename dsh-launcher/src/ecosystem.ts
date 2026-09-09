@@ -16,6 +16,10 @@ import * as config from './config.js';
 import * as log from './log.js';
 import * as node from './node.js';
 
+/** 默认清单单一来源：随包发布的 dsh-launcher/ecosystem.json（构建期由 esbuild 内联进
+ *  dist/SEA；dev/verify 经 tsx 直读源文件）。发布重钉见 scripts/pin-ecosystem.mjs。 */
+import bundledEcosystem from '../ecosystem.json' with { type: 'json' };
+
 /** 生态状态文件（D4：生态状态在 launcher 旁，与 launcher.json 同目录）。 */
 export const EcosystemStateFileName = 'ecosystem-state.json';
 
@@ -101,43 +105,11 @@ export interface PullOptions {
 
 // ---------------------------------------------------------------- 默认清单
 
-/** 新集合 7 包(PM4 / §8 11→7):id、包目录(相对生态源检出根=伞仓)、install.ps1 sha256。
- *  monorepo 化(2026-09-04):插件源 = kuaizhongqiang/dsh-ecosystem,dir 加 dsh-plugins/ 前缀。 */
-const PACKAGES: Array<{ id: string; dir: string; installPs1: string }> = [
-  { id: 'dsh-media', dir: 'dsh-plugins/plugins/dsh-media-dsh-plugin', installPs1: 'fc8d4ce29486c03079e071138e9f2fcad809e843c699d22c989b7784fd4d91e3' },
-  { id: 'dsh-deepseek', dir: 'dsh-plugins/plugins/dsh-deepseek-dsh-plugin', installPs1: '64821f594bb58516bce53ad9de2470b36ea1e1b115092b8855e3d45fabe7b59f' },
-  { id: 'dsh-credentials', dir: 'dsh-plugins/plugins/credentials-dsh-plugin', installPs1: 'e4d183d676ee2c2e5e6e9cd2bbb85cd37ec77171588ff4226cd60d7e7563214b' },
-  { id: 'dsh-github', dir: 'dsh-plugins/plugins/github-dsh-plugin', installPs1: 'd69340d34628549cb793fc7600632ceeabdf23f1a3fed09bafb6b0afe0414254' },
-  { id: 'dsh-stock', dir: 'dsh-plugins/plugins/stock-dsh-plugin', installPs1: 'e20fed7cac47e4bb4d976dbc752d5c6dd735fc94c215c4920425ba7fe4731a89' },
-  { id: 'dsh-unity', dir: 'dsh-plugins/plugins/unity-mcp-dsh-plugin', installPs1: 'e76e308719dd22c804276e48584c6d5b3c16ce5a2c5a205f3b598165576e02a5' },
-  { id: 'dsh-launcher', dir: 'dsh-plugins/plugins/dsh-launcher-dsh-plugin', installPs1: '5b317ae4981dae20201efce32fe9c09290c4ae5ad6b6d9292834c663d5bba2fc' },
-];
-
-/**
- * 默认清单（内嵌，随启动器走）：monorepo 化后插件源 = kuaizhongqiang/dsh-ecosystem，
- * 锁定**伞仓 commit**（插件集即该提交下的 dsh-plugins/ 目录）。
- * 更新流程：dsh-plugins 内容变更 → 重算各 install.ps1 sha256 → 同步本对象与 dsh-launcher/ecosystem.json，
- * commit 指向包含该内容的伞仓提交（随 launcher 版本前进）。
- */
-export const DEFAULT_ECOSYSTEM: EcosystemManifest = {
-  version: 1,
-  dsh: { source: 'github', version: 'latest' },
-  plugins: {
-    source: {
-      repo: 'https://github.com/kuaizhongqiang/dsh-ecosystem.git',
-      commit: '9a6427e041d408ace76110a72da8fdbae2ade31f',
-    },
-    packages: PACKAGES.map((p) => ({
-      id: p.id,
-      dir: p.dir,
-      sha256: { 'install.ps1': p.installPs1 },
-    })),
-  },
-  skills: {
-    script: 'dsh-plugins/skills/install-skills.ps1',
-    sha256: '2fc2d4f396b1c5fc1c21437058bf473a107017698c3694511721ba3f7f61e96a',
-  },
-};
+// 默认清单单一事实来源 = 随包 dsh-launcher/ecosystem.json（上方 import 已内联）。
+// 更新/重钉流程见 scripts/pin-ecosystem.mjs（发布前运行，避免 src 与 json 双份漂移）。
+// 注意：不在模块顶层校验（COMMIT_RE/SHA256_RE 声明在下方，TDZ）；loadManifest 默认分支会校验。
+/** 默认生态清单（来自随包 dsh-launcher/ecosystem.json，构建期内联）。 */
+export const DEFAULT_ECOSYSTEM: EcosystemManifest = bundledEcosystem as EcosystemManifest;
 
 // ---------------------------------------------------------------- 加载与校验
 
@@ -467,6 +439,75 @@ export function writeLock(manifest: EcosystemManifest, label: string): void {
 }
 
 /**
+ * 旧布局 lock 识别：monorepo 化（2026-09-04）之前，lock/默认清单的插件源 repo 是
+ * kuaizhongqiang/dsh-plugins.git（无 dsh-launcher/ecosystem.json 自声明清单），
+ * 与 M9/拉齐 不兼容；此类 lock 视为过期，忽略并回退到当前默认（dsh-ecosystem）清单。
+ */
+export function isUsableLock(lock: EcosystemLock | undefined): boolean {
+  if (!lock) return false;
+  const repo = (lock.manifest as { plugins?: { source?: { repo?: unknown } } })?.plugins?.source?.repo;
+  return typeof repo === 'string' && /dsh-ecosystem\.git$/i.test(repo);
+}
+
+/** 读取可用 lock；旧布局 lock 忽略并告警（首次成功 pull/一键更新后自动写入新 lock）。 */
+export function loadUsableLock(): EcosystemLock | undefined {
+  const lock = loadLock();
+  if (lock === undefined) return undefined;
+  if (!isUsableLock(lock)) {
+    log.warn(
+      `忽略旧布局生态 lock（repo=${JSON.stringify(
+        (lock.manifest as { plugins?: { source?: { repo?: unknown } } })?.plugins?.source?.repo,
+      )}）：monorepo 化后已改用 dsh-ecosystem 自声明清单；重新拉齐/一键更新会写入新 lock`,
+    );
+    return undefined;
+  }
+  return lock;
+}
+
+/**
+ * 健壮同步：先检查检出 origin 是否与目标仓库一致；不一致（旧布局 dsh-plugins 检出、
+ * 或损坏）时删除重建，再走 syncPluginsSourceTo。用于 M9 一键更新入口，
+ * 让旧布局/迁移现场也能自愈而不是停留在"origin 不符拒绝漂移"。
+ */
+export async function syncPluginsSourceRobust(repo: string, commit: string, dir: string): Promise<void> {
+  const fsP = await import('node:fs/promises');
+  if (existsSync(join(dir, '.git'))) {
+    let origin = '';
+    try {
+      origin = (await node.runGit(['remote', 'get-url', 'origin'], undefined, dir)).trim();
+    } catch {
+      origin = '';
+    }
+    if (origin !== '' && origin !== repo) {
+      log.warn(`插件源检出 origin=${origin} 与目标 ${repo} 不一致（旧布局/迁移现场），删除重建……`);
+      await fsP.rm(dir, { recursive: true, force: true });
+    }
+  }
+  await syncPluginsSourceTo(repo, commit, dir);
+}
+
+/**
+ * 读伞仓自声明清单；若同步后缺少 dsh-launcher/ecosystem.json（中断、布局不符或检出损坏），
+ * 删除并重建检出到目标 commit 后重试一次，仍缺则抛错给出指引。修复 M2/用户报错路径。
+ */
+export async function readManifestWithRepair(
+  dir: string,
+  repo: string,
+  commit: string,
+): Promise<ReturnType<typeof readManifestAt>> {
+  try {
+    return readManifestAt(dir);
+  } catch (e) {
+    if (!(e as Error).message.includes('缺少清单')) throw e;
+    log.warn(`同步后的伞仓缺少自声明清单（${dir}）：删除并重建检出到 ${commit.slice(0, 8)} 后重试……`);
+    const fsP = await import('node:fs/promises');
+    await fsP.rm(dir, { recursive: true, force: true });
+    await syncPluginsSourceTo(repo, commit, dir);
+    return readManifestAt(dir);
+  }
+}
+
+/**
  * `pull` 主流程：core（缺口时）→ 插件 install.ps1（逐个）→ 技能 install-skills.ps1 → 写状态。
  * 供应链校验通过才执行对应脚本；失败项记录到状态与汇总错误。
  */
@@ -478,7 +519,7 @@ export async function runPull(opts: PullOptions = {}): Promise<void> {
   let label: string;
   let lockUsed = false;
   if (!specExplicit) {
-    const lock = loadLock();
+    const lock = loadUsableLock();
     if (lock) {
       validateManifest(lock.manifest);
       manifest = lock.manifest;

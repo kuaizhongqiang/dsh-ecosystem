@@ -556,8 +556,8 @@ async function handleApi(path: string, req: IncomingMessage, res: ServerResponse
         try {
           log.info('一键更新插件开始（GUI 触发）……');
           const proxy = config.load()?.proxy;
-          // 当前清单：lock 优先（多机收敛），无 lock 用内嵌默认
-          const lock = ecosystem.loadLock();
+          // 当前清单：可用 lock 优先（多机收敛，旧布局 lock 已由 loadUsableLock 忽略），无 lock 用内嵌默认
+          const lock = ecosystem.loadUsableLock();
           const cur = lock
             ? { manifest: lock.manifest, label: `lock（${lock.label}）` }
             : await ecosystem.loadManifest();
@@ -570,8 +570,8 @@ async function handleApi(path: string, req: IncomingMessage, res: ServerResponse
             log.info(`生态源仓库 HEAD（${headCommit.slice(0, 8)}）与当前插件集一致：已是最新` + (restart ? '，跳过重启' : ''));
           } else {
             log.info(`仓库 HEAD ${headCommit.slice(0, 8)}：先同步 HEAD 读取伞仓自声明清单……`);
-            await ecosystem.syncPluginsSourceTo(repo, headCommit, dir);
-            const headManifest = ecosystem.readManifestAt(dir).manifest;
+            await ecosystem.syncPluginsSourceRobust(repo, headCommit, dir);
+            const headManifest = (await ecosystem.readManifestWithRepair(dir, repo, headCommit)).manifest;
             // 伞仓清单锁定的"插件集提交"可能早于 HEAD（发布流程在 release 时重新钉
             // 插件集；main 上的 dsh-plugins 内容若未重新发布则不会漂移）——更新目标
             // 以清单锁定的插件集为准（P1-7：插件内容 sha256 与锁定提交同源）。
