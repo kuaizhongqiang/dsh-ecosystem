@@ -1,5 +1,16 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-09(dsh-ecosystem v0.8.4 发布 —— launcher 一键更新兼容修复)
+
+- **发布**:tag `v0.8.4`(main 基于 `b1a6756` 修复 commit + release prep),三组件 launcher/vscode/desktop 统一 bump 0.8.3→0.8.4。
+- **修复(launcher 一键更新/生态拉齐)**:旧布局(monorepo 化前 dsh-plugins.git 的 lock/检出)与中断/损坏
+  检出现场会报「同步后的伞仓缺少清单 dsh-launcher/ecosystem.json」→ `loadUsableLock` 忽略旧布局 lock
+  并告警迁移、`syncPluginsSourceRobust` 检出 origin 不符自动重建、`readManifestWithRepair` 缺清单自动
+  重建重试;默认清单单一事实来源改为随包 ecosystem.json(构建期内联,消灭 src/json 双份漂移);
+  新增 `scripts/pin-ecosystem.mjs` 发布重钉工具(--dry-run 预览)。verify-release.mjs 同步适配单一来源。
+- 验证:launcher `npm run check`(tsc)与 esbuild bundle 通过;沙盒 T1 旧布局迁移自愈 / T2 全新默认回归 /
+  T3 损坏检出自动重建 全绿。
+
 ## 2026-09-08(dsh-ecosystem v0.8.3 发布 —— vscode 侧边栏「优雅升级」)
 
 - **功能(vscode 优雅升级)**:侧边栏首页功能入口区新增「检查更新」卡片(展示当前版本;

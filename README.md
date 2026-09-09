@@ -29,7 +29,7 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 |---|---|---|---|---|
 | [dsh-launcher](dsh-launcher/) | L0 载体(伞仓核心) | kuaizhongqiang/dsh-launcher | `979cec6` | 0.8.0 |
 | [dsh-plugins](dsh-plugins/) | L3 插件(7 包 + 技能) | kuaizhongqiang/dsh-plugins | `7a1b8a9` | 随伞仓 |
-| [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.8.3 |
+| [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.8.4 |
 | [dsh-desktop](dsh-desktop/) | L4 桌面壳 | kuaizhongqiang/dsh-desktop | `250abfb` | 0.8.0 |
 | deepseek-harness | L2 本体(官方只读) | deepseek-ai/deepseek-harness | 子模块 `47f94385` | — |
 

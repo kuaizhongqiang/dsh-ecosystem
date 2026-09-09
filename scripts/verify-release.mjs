@@ -41,15 +41,12 @@ if (skills?.script) {
   console.log(`  ✓ skills ${skills.script}`);
 }
 
-// 内嵌默认清单同步检查(src/ecosystem.ts 与 ecosystem.json 的 repo+commit 一致)
+// 默认清单单一来源检查：src/ecosystem.ts 必须从随包 ecosystem.json 导入（构建期内联），
+// 不再存在第二份内嵌副本可漂移；repo/commit/sha256 的唯一事实来源即上方校验过的 ecosystem.json。
 const ts = readFileSync(join(root, 'dsh-launcher', 'src', 'ecosystem.ts'), 'utf8');
-for (const [label, want, pat] of [
-  ['repo', manifest.plugins.source.repo, /repo:\s*'([^']+)'/],
-  ['commit', manifest.plugins.source.commit, /commit:\s*'([0-9a-f]{40})'/],
-]) {
-  const m = pat.exec(ts);
-  if (!m || m[1] !== want) fail(`src/ecosystem.ts 内嵌 ${label} 与 ecosystem.json 不同步 (ts=${m?.[1]}, json=${want})`);
-  console.log(`  ✓ 内嵌 ${label} 同步 (${want.slice(0, 12)}…)`);
+if (!/import\s+[A-Za-z0-9_$]+\s+from\s+'\.\.\/ecosystem\.json'\s+with\s+\{\s*type:\s*'json'\s*\}/.test(ts)) {
+  fail('src/ecosystem.ts 未从 ../ecosystem.json 导入默认清单（单一来源约定被破坏）');
 }
+console.log('  ✓ src/ecosystem.ts 默认清单单一来源 = ecosystem.json');
 
 console.log('[verify-release] OK — 伞仓插件源清单一致, 可发布');
