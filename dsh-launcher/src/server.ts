@@ -583,9 +583,10 @@ async function handleApi(path: string, req: IncomingMessage, res: ServerResponse
             } else {
               log.info(`发现新插件集 ${target.slice(0, 8)}：检出对齐……`);
               if (target !== headCommit) await ecosystem.syncPluginsSourceTo(repo, target, dir);
-              const { file, label } = ecosystem.readRepoManifest(dir, target);
-              log.info(`读取伞仓自声明清单：${label}`);
-              await ecosystem.runPull({ manifest: file, pluginsDir: dir, core: false, skills: true, updateLock: true });
+              // 以伞仓 HEAD 自声明清单为准安装（P1-7：sha256 与锁定提交同源）——
+              // 不再要求 target 提交自身的清单自钉（两段式发布里不可能满足）。
+              log.info(`按伞仓 HEAD 声明清单安装/更新（锁定插件集 ${target.slice(0, 8)}，HEAD=${headCommit.slice(0, 8)}）`);
+              await ecosystem.runPull({ manifestObject: headManifest, pluginsDir: dir, core: false, skills: true, updateLock: true });
               log.info('插件与技能已安装/更新完成。');
               if (restart) {
                 log.info('重启 dsh（让新插件与技能生效）……');

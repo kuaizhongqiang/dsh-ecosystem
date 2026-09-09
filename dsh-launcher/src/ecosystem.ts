@@ -83,10 +83,12 @@ export interface EcosystemState {
   manifest: { label: string; pluginsCommit: string };
 }
 
-/** `pull` 选项（M1；M8 增 updateLock/trustPluginsDir）。 */
+/** `pull` 选项（M1；M8 增 updateLock/trustPluginsDir；M9 增 manifestObject）。 */
 export interface PullOptions {
   /** 清单来源：undefined=默认（lock 优先，其次内嵌）；https://…=远程（强制 HTTPS）；其余按本地文件路径。 */
   manifest?: string;
+  /** 直接给定已解析清单对象（M9 一键更新：以伞仓 HEAD 自声明清单为准安装，优先于 manifest 字符串）。 */
+  manifestObject?: EcosystemManifest;
   /** 插件选择：undefined=全部；空数组=不装插件；数组=指定 id 子集。 */
   plugins?: string[] | null;
   /** 是否处理技能（manifest 声明了 skills 才有效）。默认 true。 */
@@ -471,6 +473,11 @@ export function loadUsableLock(): EcosystemLock | undefined {
  */
 export async function syncPluginsSourceRobust(repo: string, commit: string, dir: string): Promise<void> {
   const fsP = await import('node:fs/promises');
+  if (existsSync(dir) && !existsSync(join(dir, '.git'))) {
+    // 目录存在但已非 git 检出（中断/损坏遗留的空壳）→ 删除重建
+    log.warn(`插件源检出 ${dir} 存在但缺 .git（损坏/中断遗留），删除重建……`);
+    await fsP.rm(dir, { recursive: true, force: true });
+  }
   if (existsSync(join(dir, '.git'))) {
     let origin = '';
     try {
@@ -512,13 +519,17 @@ export async function readManifestWithRepair(
  * 供应链校验通过才执行对应脚本；失败项记录到状态与汇总错误。
  */
 export async function runPull(opts: PullOptions = {}): Promise<void> {
-  const { manifest: manifestSpec, plugins: pluginSel, skills = true, core = true, dryRun = false, pluginsDir, updateLock = false, trustPluginsDir = false } = opts;
-  // M8：无显式清单时 lock 优先（多机收敛同一版本组合）；lock 不存在才用默认内嵌
+  const { manifest: manifestSpec, manifestObject, plugins: pluginSel, skills = true, core = true, dryRun = false, pluginsDir, updateLock = false, trustPluginsDir = false } = opts;
+  // 优先级：manifestObject（M9 一键更新：以伞仓 HEAD 自声明清单为准）> 无显式清单时 lock 优先 > 默认内嵌
   const specExplicit = !!manifestSpec && manifestSpec !== 'default';
   let manifest: EcosystemManifest;
   let label: string;
   let lockUsed = false;
-  if (!specExplicit) {
+  if (manifestObject !== undefined) {
+    validateManifest(manifestObject);
+    manifest = manifestObject;
+    label = `sync（HEAD 声明 @${manifest.plugins.source.commit.slice(0, 8)}）`;
+  } else if (!specExplicit) {
     const lock = loadUsableLock();
     if (lock) {
       validateManifest(lock.manifest);

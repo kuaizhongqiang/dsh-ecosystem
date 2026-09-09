@@ -1,5 +1,17 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-09(dsh-ecosystem v0.8.5 发布 —— 一键升级插件真正下发)
+
+- **发布**:tag `v0.8.5`(基于 B 分支交付修复 + 插件集重钉),三组件 bump 0.8.4→0.8.5。
+- **修复(launcher 一键更新 B 分支)**:此前「发现新插件集」分支会要求 target 提交自身的清单自钉
+  (两段式发布不可能满足)→ 从未真正下发过新插件。改为**以伞仓 HEAD 自声明清单为准**安装:
+  `runPull` 新增 `manifestObject`(直接接收 HEAD 清单),目标检出仅做 sha256 供应链校验;
+  `syncPluginsSourceRobust` 补「目录缺 .git(中断遗留)自动重建」。
+- **插件集重钉**:`dsh-launcher/ecosystem.json` 的 plugins.source.commit 9a6427e → 本版(含
+  v0.8.0 后 launcher 插件重启 seam 等真实内容);老机器(0.8.0–0.8.4)一键更新将进入 B 分支
+  **真实验证通过**(沙盒 DELIVERY-TEST:对齐 target → sha256 全过 → 落盘新 lock)。
+- 注意:老版本 launcher(≤0.8.4)的 B 分支仍带旧自检,请先升级 launcher 到 v0.8.5 再一键更新。
+
 ## 2026-09-09(dsh-ecosystem v0.8.4 发布 —— launcher 一键更新兼容修复)
 
 - **发布**:tag `v0.8.4`(main 基于 `b1a6756` 修复 commit + release prep),三组件 launcher/vscode/desktop 统一 bump 0.8.3→0.8.4。
