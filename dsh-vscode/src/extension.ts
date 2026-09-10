@@ -14,6 +14,9 @@ import { RpcErrorResult, DshTransportError } from './client/rpc.ts'
 import { SessionStore } from './sessionStore.ts'
 import { SidebarWebviewProvider, type SidebarView, type UpdateStatus } from './sidebarView.ts'
 import { EmbedWebviewProvider } from './embed/embedView.ts'
+import { probeSeamInfo } from './embed/embedModel.ts'
+import { ConnectionLiveness } from './client/liveness.ts'
+import { checkEmbedCompat } from './client/versionCompat.ts'
 import { StatusBar } from './statusBar.ts'
 import { ChatPanel, errorMessage } from './chat/chatPanel.ts'
 import { formatFileContext, formatSelectionContext } from './chat/editorContext.ts'
@@ -54,6 +57,10 @@ class DshExtension {  readonly output: vscode.OutputChannel
   private embed: EmbedWebviewProvider | undefined
   /** 「DSH 网页」内嵌视图要打开的会话（seam 可用时深链）。 */
   private embedSessionId: SessionId | undefined
+  /** 连接保活状态（#23：断线/重连进度提示）。 */
+  private readonly liveness = new ConnectionLiveness()
+  private livenessTimer: NodeJS.Timeout | undefined
+  private compatWarned = false
   private localServer: LocalServerManager
   private cachedPresets: AgentPresetEntry[] = []
   /** 优雅升级检查状态（首页"检查更新"卡片的数据源）。 */
@@ -154,6 +161,7 @@ class DshExtension {  readonly output: vscode.OutputChannel
   }
 
   dispose(): void {
+    this.stopLivenessTicker()
     ChatPanel.disposeAll()
     this.localServer.dispose()
     this.connection?.dispose()
@@ -329,17 +337,63 @@ class DshExtension {  readonly output: vscode.OutputChannel
     this.refreshTree()
   }
 
+  /** 断线期间每秒刷新状态栏上的重连进度（mux 自身按 reconnectIntervalMs 重试）。 */
+  private startLivenessTicker(): void {
+    if (this.livenessTimer !== undefined) return
+    this.livenessTimer = setInterval(() => {
+      if (this.connected) {
+        this.stopLivenessTicker()
+        return
+      }
+      this.statusBar.setState('connecting', this.liveness.snapshot().text)
+    }, 1000)
+  }
+
+  private stopLivenessTicker(): void {
+    if (this.livenessTimer === undefined) return
+    clearInterval(this.livenessTimer)
+    this.livenessTimer = undefined
+  }
+
+  /** #23：探测服务器 embed seam 并做版本兼容判定（不兼容时显式提示，不静默）。 */
+  private async checkSeamCompat(): Promise<void> {
+    if (this.connection === undefined) return
+    try {
+      const info = await probeSeamInfo(this.connection.baseUrl)
+      if (!info.seam) {
+        this.output.appendLine('[dsh-vscode] 服务器未提供 embed seam：侧栏内嵌将降级为浏览器打开')
+        return
+      }
+      const verdict = checkEmbedCompat(info.version)
+      this.output.appendLine(`[dsh-vscode] ${verdict.message}`)
+      if (verdict.level !== 'ok' && !this.compatWarned) {
+        this.compatWarned = true
+        void vscode.window.showWarningMessage(`DSH 内嵌兼容性：${verdict.message}`)
+      }
+    } catch (error) {
+      this.output.appendLine(`[dsh-vscode] embed capability 探测失败：${errorMessage(error)}`)
+    }
+  }
+
   private handleConnectionEvent(event: DshEvent): void {
     switch (event.kind) {
-      case 'connected':
+      case 'connected': {
         this.connected = true
+        this.liveness.onConnected()
+        this.stopLivenessTicker()
         this.statusBar.setState('connected', '已连接')
+        const recovered = this.liveness.recoveredText
+        if (recovered !== undefined) this.output.appendLine(`[dsh-vscode] ${recovered}`)
         void this.initStore()
         void this.refreshPresets()
+        void this.checkSeamCompat()
         break
+      }
       case 'disconnected':
         this.connected = false
-        this.statusBar.setState('error', '已断开')
+        this.liveness.onDisconnected()
+        this.statusBar.setState('connecting', this.liveness.snapshot().text)
+        this.startLivenessTicker()
         this.output.appendLine(`[dsh-vscode] 事件流断开: ${event.reason}`)
         break
       case 'stream-error':

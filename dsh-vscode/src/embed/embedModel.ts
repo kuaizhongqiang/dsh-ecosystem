@@ -33,7 +33,13 @@ export interface ProbeOptions {
   cache?: boolean
 }
 
-const capabilityCache = new Map<string, Promise<boolean>>()
+export interface SeamInfo {
+  seam: boolean
+  /** Embed-seam protocol version advertised by the server (absent if unknown). */
+  version?: number
+}
+
+const capabilityCache = new Map<string, Promise<SeamInfo>>()
 
 function baseOf(url: string): string {
   return url.replace(/\/+$/, '')
@@ -52,7 +58,7 @@ export function buildBrowserUrl(base: string, token?: string): string {
   return token && token.length > 0 ? `${b}/?token=${encodeURIComponent(token)}` : `${b}/`
 }
 
-async function probeOnce(base: string, opts: ProbeOptions): Promise<boolean> {
+async function probeOnce(base: string, opts: ProbeOptions): Promise<SeamInfo> {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch
   const timeoutMs = opts.timeoutMs ?? 2500
   const controller = new AbortController()
@@ -63,20 +69,22 @@ async function probeOnce(base: string, opts: ProbeOptions): Promise<boolean> {
       signal: controller.signal,
       cache: 'no-store',
     })
-    if (!res.ok) return false
+    if (!res.ok) return { seam: false }
     const ct = res.headers.get('content-type') ?? ''
-    if (!ct.includes('json')) return false
-    const body = (await res.json()) as { seam?: boolean | string; enabled?: boolean | string }
-    return body?.seam === true || body?.seam === 'true' || body?.enabled === true || body?.enabled === 'true'
+    if (!ct.includes('json')) return { seam: false }
+    const body = (await res.json()) as { seam?: boolean | string; enabled?: boolean | string; version?: unknown }
+    const seam = body?.seam === true || body?.seam === 'true' || body?.enabled === true || body?.enabled === 'true'
+    const version = typeof body?.version === 'number' && Number.isFinite(body.version) ? body.version : undefined
+    return version === undefined ? { seam } : { seam, version }
   } catch {
-    return false
+    return { seam: false }
   } finally {
     clearTimeout(timer)
   }
 }
 
-/** 探测服务器是否支持 embed seam（404/超时/非 JSON 一律 false；默认进程内缓存）。 */
-export async function probeSeamCapability(base: string, opts: ProbeOptions = {}): Promise<boolean> {
+/** 探测服务器 embed seam 能力与协议版本（404/超时/非 JSON 一律 seam=false；默认进程内缓存）。 */
+export async function probeSeamInfo(base: string, opts: ProbeOptions = {}): Promise<SeamInfo> {
   const key = baseOf(base)
   if (opts.cache === false) return probeOnce(key, opts)
   const cached = capabilityCache.get(key)
@@ -84,6 +92,11 @@ export async function probeSeamCapability(base: string, opts: ProbeOptions = {})
   const p = probeOnce(key, opts)
   capabilityCache.set(key, p)
   return p
+}
+
+/** 便捷布尔形态（保留原 API；语义 = probeSeamInfo(base).seam）。 */
+export async function probeSeamCapability(base: string, opts: ProbeOptions = {}): Promise<boolean> {
+  return (await probeSeamInfo(base, opts)).seam
 }
 
 /** 清除能力缓存（测试与连接切换后用）。 */
@@ -101,8 +114,8 @@ export async function decideEmbed(input: EmbedTargetInput, opts: ProbeOptions = 
   if (!input.token) {
     return { kind: 'fallback', url: base + '/', browserUrl: base + '/', reason: 'no-token' }
   }
-  const seam = await probeSeamCapability(base, opts)
-  if (seam) {
+  const info = await probeSeamInfo(base, opts)
+  if (info.seam) {
     return {
       kind: 'embed',
       url: buildSeamOpenUrl(base, input.token, input.sessionId),

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import {
+  probeSeamInfo,
   buildBrowserUrl,
   buildSeamOpenUrl,
   decideEmbed,
@@ -35,6 +36,17 @@ describe('buildBrowserUrl', () => {
   })
   it('plain base without token', () => {
     expect(buildBrowserUrl('http://127.0.0.1:3080/')).toBe('http://127.0.0.1:3080/')
+  })
+})
+
+describe('probeSeamInfo', () => {
+  it('parses the advertised protocol version', async () => {
+    const f = vi.fn(async () => jsonResponse({ seam: true, version: 3 }))
+    await expect(probeSeamInfo('http://v:1', { fetchImpl: f as unknown as typeof fetch })).resolves.toEqual({ seam: true, version: 3 })
+  })
+  it('omits a non-numeric version', async () => {
+    const f = vi.fn(async () => jsonResponse({ seam: true, version: '3' }))
+    await expect(probeSeamInfo('http://v:2', { fetchImpl: f as unknown as typeof fetch })).resolves.toEqual({ seam: true })
   })
 })
 
