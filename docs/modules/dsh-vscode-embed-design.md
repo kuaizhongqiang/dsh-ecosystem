@@ -490,3 +490,14 @@ set-cookie: cookieName(authority)=<v>; Max-Age=…; Path=/; HttpOnly;
 - 无 token / 多 token / 非 GET / 非根路径 → 依旧 401（分支不触碰）。
 - loopback vs 远程 https 的 Secure 开关；`Partitioned` 对 Electron 各版本 webview 的兼容矩阵。
 - 真机：VS Code 侧栏 `dsh.web` 视图内嵌对话流式 + 重启 dsh 后 token 轮换重连（#21/#23 验收）。
+
+### 10.4 实现状态（2026-09-10）
+
+- **已实现**于 deepseek-harness 本地分支 `seam/embed-auth`（独立 worktree `/home/kuai/dsh-seam`，commit `de09faa577`；`origin=deepseek-ai/deepseek-harness` 为官方仓、无推送权，故保留本地不推）。
+- 行为与 §10.2 一致，落地细节：
+  - `GET /api/embed/capability` → `200 {"seam":true,"version":1}`（无需鉴权，带 `cache-control: no-store`）；
+  - `GET /api/embed/open?t=<launch>&path=/session/<id>|/` → 校验一次性 token（同时接受 `t` 与 `token`）后 `303` 到白名单路径并下发 embed cookie；已有 cookie 时直接 303 不重复铸造；
+  - `GET /?token=<launch>&embed=1` → `303 /` 且 cookie 带 `SameSite=None`；loopback（127/8、localhost、[::1]）或 `x-forwarded-proto: https` 时加 `Secure`，并加 `Partitioned`（CHIPS）；
+  - 非 embed 请求路径完全不变（仍 `SameSite=Strict`，无 `Secure`/`Partitioned`）；两条新路由为 exact，优先于既有 `/api` prefix。
+- **验证**：connection 包 vitest **169/169**（新增 browser-auth embed 用例 + 真实 HTTP 组合冒烟 `embed-seam.host.spec.ts`：capability、303 属性、cookie 过 Host fence（有 cookie→404 而非 401）、deep-link、重复打开无新 Set-Cookie）；`tsc --noEmit` 干净。
+- **待办**：接入运行实例需重启 `dsh.service`（当前正服务本会话，需择时执行）；扩展侧 `dsh.web` 会经 `/api/embed/capability` 自动切换为真内嵌；随 dsh 版本发布/伞仓 `deepseek-harness` 子模块指针升级时纳入正式版本线。
