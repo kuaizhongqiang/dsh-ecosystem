@@ -1,12 +1,30 @@
 // config.ts —— launcher.json 的读写（与 exe 同目录，便携）。
 // 移植自 Go internal/config。
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isSea } from 'node:sea';
 
 /** dsh web 默认监听端口。 */
 export const DefaultPort = 3080;
+
+/** 单个可折叠块的展开状态（key = 卡片/子块 id，value = 是否展开）。 */
+export type CollapseMap = Record<string, boolean>;
+
+/** 日志区偏好。 */
+export interface UiLogSettings {
+  /** 过滤：all=全部 / warn-err=警告+错误 / err=仅错误。 */
+  errorsOnly?: 'all' | 'warn-err' | 'err';
+  /** 环形缓冲行数上限。 */
+  maxLines?: number;
+}
+
+/** UI 本地状态（#18 展开状态记忆；可选顶层字段，读写都经后端桥）。 */
+export interface UiSettings {
+  collapsed?: CollapseMap;
+  log?: UiLogSettings;
+  layout?: Record<string, unknown>;
+}
 
 export interface Config {
   dshInstallDir: string;
@@ -23,6 +41,18 @@ export interface Config {
   registry?: string;
   registryMirror?: string;
   preferMirror?: boolean;
+  /** UI 本地状态（#18/#19：折叠记忆、日志偏好等；可选）。 */
+  ui?: UiSettings;
+}
+
+const DEFAULT_UI: UiSettings = { collapsed: {}, log: { errorsOnly: 'all', maxLines: 2000 }, layout: {} };
+
+function deepMergeUi(base: UiSettings, patch: Partial<UiSettings>): UiSettings {
+  return {
+    collapsed: { ...(base.collapsed ?? {}), ...(patch.collapsed ?? {}) },
+    log: { ...(base.log ?? {}), ...(patch.log ?? {}) },
+    layout: { ...(base.layout ?? {}), ...(patch.layout ?? {}) },
+  };
 }
 
 /**
@@ -56,11 +86,38 @@ export function load(): Config | null {
   }
 }
 
-/** 把配置写回 launcher.json。 */
+/** 把配置写回 launcher.json（tmp + rename 原子写；rename 失败兜底直接写）。 */
 export function save(c: Config): void {
   const p = configPath();
   mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, JSON.stringify(c, null, 2) + '\n', 'utf8');
+  const body = JSON.stringify(c, null, 2) + '\n';
+  try {
+    const tmp = p + '.tmp-' + process.pid + '-' + Date.now().toString(36);
+    writeFileSync(tmp, body, 'utf8');
+    renameSync(tmp, p);
+  } catch {
+    // 个别环境（如被占用）rename 不可用：兜底直接写，保持行为不变量。
+    writeFileSync(p, body, 'utf8');
+  }
+}
+
+/** 读取 UI 状态；文件缺失或未存 ui 字段时返回默认值（不落盘）。 */
+export function loadUi(): UiSettings {
+  const c = load();
+  return c?.ui ? deepMergeUi(DEFAULT_UI, c.ui) : { ...DEFAULT_UI, collapsed: {}, log: { ...DEFAULT_UI.log } };
+}
+
+/**
+ * 合并保存 UI 状态（load → merge → save，防 config.save() 全量覆盖互相丢字段）。
+ * launcher.json 尚不存在时不落盘（避免伪造安装前配置），仅返回合并结果。
+ */
+export function saveUi(patch: Partial<UiSettings>): UiSettings {
+  const c = load();
+  if (!c) return deepMergeUi(DEFAULT_UI, patch);
+  const next = deepMergeUi(c.ui ?? DEFAULT_UI, patch);
+  c.ui = next;
+  save(c);
+  return next;
 }
 
 /** 是否已记录可用安装目录。 */

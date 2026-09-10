@@ -1,4 +1,4 @@
-/* app.js —— dsh-launcher 界面逻辑
+/* app.js —— dsh-launcher 界面逻辑（v0.9 分区化信息架构 + 折叠 + 概览卡；#17/#18/#19）
    预览模式：默认跑模拟数据（window.launcherBridge 不存在时）。
    真实模式：Node SEA 内嵌 http 服务在页面注入 window.launcherBridge（REST + SSE），
    本文件自动切换。 */
@@ -7,6 +7,16 @@
 
 /* ---------- 模拟桥接层 ---------- */
 
+const mockUi = { collapsed: {}, log: { errorsOnly: 'all', maxLines: 2000 }, layout: {} };
+const mockConns = {
+  active: 'local-3080',
+  fromFile: false,
+  list: [
+    { id: 'local-3080', kind: 'local', name: '本机 dsh', port: 3080, hasToken: false },
+    { id: 'wan-main', kind: 'remote', name: '广域网 dsh', url: 'https://dsh.example.com', hasToken: true },
+  ],
+};
+
 const mock = {
   async getStatus() {
     return {
@@ -14,11 +24,21 @@ const mock = {
       npm:  { present: true, version: '11.3.2' },
       dsh:  { installed: true, version: 'v0.1.0-rc.7' },
       port: { number: 3080, running: state.running },
+      connection: { id: 'local-3080', kind: 'local', name: '本机 dsh', port: 3080, url: '' },
+      components: { vscode: '', desktop: '' },
       update: { checking: false, dshAvail: false, launcherAvail: false },
       defaultDir: 'C:\\Users\\kua\\AppData\\Local\\dsh',
       installedDir: 'C:\\Users\\kua\\AppData\\Local\\dsh',
     };
   },
+  async getUiState() { return JSON.parse(JSON.stringify(mockUi)); },
+  async setUiState(patch) {
+    if (patch.collapsed) mockUi.collapsed = { ...mockUi.collapsed, ...patch.collapsed };
+    if (patch.log) mockUi.log = { ...mockUi.log, ...patch.log };
+    if (patch.layout) mockUi.layout = { ...mockUi.layout, ...patch.layout };
+    return JSON.parse(JSON.stringify(mockUi));
+  },
+  async open() { log('预览模式：打开 UI（模拟）。', 'ok'); return { ok: true }; },
   async start() { await delay(900); return { ok: true }; },
   async stop()  { await delay(700); return { ok: true }; },
   async install(dir, source, version, proxy) {
@@ -42,9 +62,9 @@ const mock = {
         dsh: { source: 'github', version: 'latest' },
         pluginsCommit: '15ffcfd7',
         packages: [
-          { id: 'credentials', dir: 'plugins/credentials-dsh-plugin' },
-          { id: 'stock', dir: 'plugins/stock-dsh-plugin' },
-          { id: 'github', dir: 'plugins/github-dsh-plugin' },
+          { id: 'credentials', dir: 'plugins/credentials-dsh-plugin', installSha: 'a1b2c3d4e5f6', fileCount: 1 },
+          { id: 'stock', dir: 'plugins/stock-dsh-plugin', installSha: '123456789abc', fileCount: 1 },
+          { id: 'github', dir: 'plugins/github-dsh-plugin', installSha: 'fedcba987654', fileCount: 1 },
         ],
         skills: true,
       },
@@ -65,17 +85,15 @@ const mock = {
     return { ok: true };
   },
   async getConnections() {
-    return {
-      ok: true,
-      active: 'local-3080',
-      fromFile: false,
-      list: [
-        { id: 'local-3080', kind: 'local', name: '本机 dsh', port: 3080, hasToken: false },
-        { id: 'wan-main', kind: 'remote', name: '广域网 dsh', url: 'https://dsh.example.com', hasToken: true },
-      ],
-    };
+    return { ok: true, ...mockConns, list: mockConns.list.map((c) => ({ ...c })) };
   },
-  async useConnection(id) { await delay(300); return { ok: true, active: id }; },
+  async useConnection(id) { await delay(300); mockConns.active = id; return { ok: true, active: id }; },
+  async removeConnection(id) {
+    await delay(200);
+    mockConns.list = mockConns.list.filter((c) => c.id !== id);
+    if (mockConns.active === id && mockConns.list.length) mockConns.active = mockConns.list[0].id;
+    return { ok: true };
+  },
   async restartDsh() { await delay(600); return { ok: true }; },
   async setupFlow(opts) {
     await delay(400);
@@ -97,6 +115,11 @@ const state = {
   updating: false,
 };
 
+let lastStatus = null;   // 最近一次 getStatus() 原始数据（概览行/卡片摘要消费）
+let lastEco = null;      // 最近一次 getEcosystem() 数据（chips / 明细消费）
+let uiState = { collapsed: {}, log: { errorsOnly: 'all', maxLines: 2000 }, layout: {} };
+let uiStateLoaded = false;
+
 function delay(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 /* ---------- DOM ---------- */
@@ -114,11 +137,160 @@ const rowEls = {
 };
 const logBox = $('log');
 
-/* ---------- 日志 ---------- */
+/* ---------- UI 状态（#18：折叠/日志记忆，经后端桥持久化） ---------- */
 
-function log(line, kind = '') {
+/** 卡片默认展开态（首帧无记忆时用；dsh 未安装时 install 卡自动展开）。 */
+const CARD_DEFAULTS = {
+  'card-install': false,
+  'card-eco': true,
+  'card-conn': false,
+  'card-log': true,
+  'card-settings': false,
+};
+const CARD_IDS = Object.keys(CARD_DEFAULTS);
+
+let uiSaveTimer = 0;
+function persistUi(delayMs = 300) {
+  clearTimeout(uiSaveTimer);
+  uiSaveTimer = setTimeout(() => {
+    const patch = { collapsed: { ...uiState.collapsed }, log: { ...uiState.log } };
+    if (bridge.setUiState) {
+      bridge.setUiState(patch).catch(() => { /* 预览/无持久化时静默 */ });
+    }
+  }, delayMs);
+}
+
+function cardBodyId(cardId) { return cardId.replace(/^card-/, 'card-body-'); }
+
+function setCardExpanded(cardId, expanded, persist = true) {
+  const head = document.querySelector(`#${cardId} .card-head`);
+  const body = $(cardBodyId(cardId));
+  if (!head || !body) return;
+  head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  body.hidden = !expanded;
+  uiState.collapsed[cardId] = expanded;
+  if (persist) persistUi();
+  scheduleAutoSize();
+}
+
+function toggleCard(cardId) {
+  const head = document.querySelector(`#${cardId} .card-head`);
+  const expanded = head ? head.getAttribute('aria-expanded') !== 'true' : true;
+  setCardExpanded(cardId, expanded);
+}
+
+function expandCardAndJump(cardId) {
+  const card = $(cardId);
+  if (!card) return;
+  const head = card.querySelector('.card-head');
+  const expanded = head ? head.getAttribute('aria-expanded') === 'true' : false;
+  if (!expanded) setCardExpanded(cardId, true);
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** 折叠语义归一：collapsed map 记的是"是否展开"（历史兼容：key 缺省用默认）。 */
+function applyUiState(saved) {
+  if (!saved) return;
+  if (saved.collapsed) uiState.collapsed = { ...saved.collapsed };
+  if (saved.log) uiState.log = { ...(uiState.log || {}), ...saved.log };
+  if (saved.layout) uiState.layout = { ...saved.layout };
+  uiStateLoaded = true;
+  for (const cardId of CARD_IDS) {
+    const has = Object.prototype.hasOwnProperty.call(uiState.collapsed, cardId);
+    // dsh 未安装时强制展开安装卡（除非用户已显式记忆）
+    let expanded = has ? !!uiState.collapsed[cardId] : !!CARD_DEFAULTS[cardId];
+    if (!has && cardId === 'card-install' && state.installed === false) expanded = true;
+    setCardExpanded(cardId, expanded, false);
+  }
+  applyLogPrefs();
+}
+
+function resetLayout() {
+  uiState.collapsed = {};
+  uiState.log = { errorsOnly: 'all', maxLines: 2000 };
+  applyUiState(uiState); // 重新走默认逻辑（含未安装展开安装卡）
+  persistUi(0);
+  log('已恢复默认布局（折叠/日志偏好已重置）。', 'ok');
+}
+
+/* ---------- 日志（#18：buffer + 过滤 + 贴底跟随，SSE 不变） ---------- */
+
+const FILTERS = ['all', 'warn-err', 'err'];
+const FILTER_LABEL = { all: '全部', 'warn-err': '警告+错误', err: '仅错误' };
+
+const logState = {
+  filter: 'all',
+  follow: true,
+  lines: [],           // 环形缓冲（含被过滤行），容量 maxLines
+  domCount: 0,         // 当前 DOM 行数
+  pendingNew: 0,       // 暂停跟随期间新到行数
+};
+
+function errLike(line) { return /error|fail|失败|错误|拒绝/i.test(line); }
+
+function lineMatchesFilter(line, kind) {
+  if (logState.filter === 'all') return true;
+  const isErr = kind === 'err' || errLike(line);
+  if (logState.filter === 'err') return isErr;
+  // warn-err：错误 + 警告
+  return isErr || kind === 'warn';
+}
+
+function logSubText() {
+  const max = uiState.log.maxLines || 2000;
+  const cap = Math.min(logState.lines.length, max);
+  return `${cap} 行` + (logState.filter !== 'all' ? ` · 只看${FILTER_LABEL[logState.filter]}` : '');
+}
+
+function logCountEl() { return $('logCount'); }
+
+function applyLogPrefs() {
+  logState.filter = uiState.log.errorsOnly || 'all';
+  $('logErrors').textContent = '只看错误：' + FILTER_LABEL[logState.filter];
+  $('logErrors').title = '循环：全部 → 警告+错误 → 仅错误（当前：' + FILTER_LABEL[logState.filter] + '）';
+  const max = Math.max(uiState.log.maxLines || 2000, 200);
+  if (logState.lines.length > max) logState.lines.splice(0, logState.lines.length - max);
+  rebuildLogDom();
+}
+
+function atBottom() {
+  return logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 24;
+}
+
+function scrollLogToBottom() {
+  logBox.scrollTop = logBox.scrollHeight;
+  logState.pendingNew = 0;
+  const n = $('logNew');
+  n.hidden = true;
+}
+
+function appendLogLine(line, kind) {
+  const max = Math.max(uiState.log.maxLines || 2000, 200);
+  logState.lines.push({ text: line, kind });
+  if (logState.lines.length > max) {
+    const removed = logState.lines.splice(0, logState.lines.length - max);
+    // 若被移除行已在 DOM 中（可见），整体重绘保证一致性
+    if (removed.some((r) => lineMatchesFilter(r.text, r.kind))) rebuildLogDom();
+  }
+  const visible = lineMatchesFilter(line, kind);
+  if (visible) {
+    appendLogDom(line, kind);
+    const stick = logState.follow || atBottom();
+    if (logState.follow && stick) {
+      logBox.scrollTop = logBox.scrollHeight;
+    } else if (!atBottom()) {
+      logState.pendingNew += 1;
+      const n = $('logNew');
+      n.textContent = logState.pendingNew + ' 条新日志 · 回到底部';
+      n.hidden = false;
+    }
+  }
+  const sub = $('logSub');
+  if (sub) sub.textContent = logSubText();
+}
+
+function appendLogDom(line, kind) {
   const el = document.createElement('div');
-  // 服务端推送的行已带时间戳（2026-08-21 12:00:00.000 [INFO] ...），不再重复加
   const hasTs = /^\[\d{4}-\d{2}-\d{2}/.test(line);
   if (!hasTs) {
     const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -132,9 +304,41 @@ function log(line, kind = '') {
   text.textContent = line;
   el.appendChild(text);
   logBox.appendChild(el);
-  // 限行 + 自动滚动
-  while (logBox.children.length > 300) logBox.removeChild(logBox.firstChild);
-  logBox.scrollTop = logBox.scrollHeight;
+  logState.domCount += 1;
+}
+
+function rebuildLogDom() {
+  logBox.textContent = '';
+  logState.domCount = 0;
+  for (const l of logState.lines) {
+    if (lineMatchesFilter(l.text, l.kind)) appendLogDom(l.text, l.kind);
+  }
+  if (logState.follow) scrollLogToBottom();
+  const sub = $('logSub');
+  if (sub) sub.textContent = logSubText();
+}
+
+/** 对外日志入口（服务端 SSE 与本地行都走这里）。 */
+function log(line, kind = '') {
+  appendLogLine(line, kind);
+}
+
+function clearLog() {
+  logState.lines = [];
+  logBox.textContent = '';
+  logState.domCount = 0;
+  logState.pendingNew = 0;
+  $('logNew').hidden = true;
+  log('日志已清空。', 'dim');
+}
+
+function cycleLogFilter() {
+  const idx = (FILTERS.indexOf(logState.filter) + 1) % FILTERS.length;
+  logState.filter = FILTERS[idx];
+  uiState.log.errorsOnly = logState.filter;
+  $('logErrors').textContent = '只看错误：' + FILTER_LABEL[logState.filter];
+  rebuildLogDom();
+  persistUi();
 }
 
 function streamInstallLogs() {
@@ -159,6 +363,52 @@ function setValue(key, text, cls = '') {
   fields[key].className = 'row-value' + (cls ? ' is-' + cls : '');
 }
 
+/* ---------- 概览行（#19）：连接 + 组件版本 chips ---------- */
+
+function ovChip(text, opts = {}) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'chip' + (opts.jump ? ' chip-link' : '');
+  b.textContent = text;
+  b.title = opts.title || '';
+  if (opts.jump) b.dataset.jump = opts.jump;
+  return b;
+}
+
+function renderOverviewLine() {
+  const connDot = $('connDot');
+  const connName = $('connName');
+  const s = lastStatus;
+  if (s && s.connection) {
+    const c = s.connection;
+    connName.textContent = '连接：' + (c.name || c.id) +
+      (c.kind === 'local' ? '' : '（remote）') +
+      (c.kind === 'remote' ? (s.port.running ? ' · 可达' : ' · 不可达') : '');
+    connDot.className = 'dot ' + (s.port.running ? 'dot-green' : (c.kind === 'remote' ? 'dot-red' : 'dot-dim'));
+    connName.title = c.url || c.id;
+  } else {
+    connName.textContent = '连接：—';
+  }
+  // 组件版本 chips
+  const line = $('chipLine');
+  line.textContent = '';
+  const launcherVer = window.launcherVersion || 'v?';
+  line.appendChild(ovChip('launcher ' + launcherVer, { title: '本启动器版本' }));
+  if (s && s.components) {
+    line.appendChild(ovChip('vscode ' + (s.components.vscode || '—'), { title: s.components.vscode ? '已检测 vscode 扩展版本' : '未检测到 vscode 扩展（安装后显示）' }));
+    line.appendChild(ovChip('desktop ' + (s.components.desktop || '—'), { title: s.components.desktop ? '已检测 desktop 版本' : '未检测到 desktop（安装后显示）' }));
+  }
+  if (lastEco && lastEco.manifest) {
+    const commit = (lastEco.manifest.pluginsCommit || '').slice(0, 8);
+    line.appendChild(ovChip('插件集 ' + commit, {
+      jump: 'card-eco',
+      title: '点此查看插件清单（滚动到生态卡并展开）',
+    }));
+  }
+}
+
+/* ---------- 状态刷新 ---------- */
+
 async function refreshStatus() {
   // 状态刷新永不应把界面卡死：失败只记日志，返回 false 供调用方重试。
   let s;
@@ -168,6 +418,7 @@ async function refreshStatus() {
     log('状态检测失败：' + e.message, 'err');
     return false;
   }
+  lastStatus = s;
   // 同步状态，供按钮启用/文案使用（此前只更新显示、未同步 state）
   state.installed = s.dsh.installed;
   state.running = s.port.running;
@@ -219,6 +470,16 @@ async function refreshStatus() {
     setValue('update', '已是最新', 'green');
     setDot('update', 'dot-green');
   }
+  // #19：概览行 + 分区摘要联动
+  renderOverviewLine();
+  const installSub = $('installSub');
+  if (installSub) {
+    installSub.textContent = s.dsh.installed
+      ? 'dsh ' + (s.dsh.version || 'v?') + (s.installedDir ? ' · ' + s.installedDir : '')
+      : '未安装 —— 请在下方安装后使用「一键部署」';
+  }
+  const dirEl = $('settingsDir');
+  if (dirEl) dirEl.value = s.installedDir || s.defaultDir || '';
   return true;
 }
 
@@ -233,6 +494,10 @@ function renderButtons() {
   $('btnBrowse').disabled = state.busy;
   $('btnUpdate').disabled = state.busy || state.updating;
   $('btnUpdate').textContent = state.updating ? '检查中…' : '检查更新';
+  const q = $('btnQuickUpdate');
+  q.disabled = state.busy || state.updating;
+  $('btnSetup').disabled = state.busy;
+  $('btnOpenUI').disabled = state.busy || !state.installed;
   if (typeof renderEcoButtons === 'function') renderEcoButtons();
 }
 
@@ -264,6 +529,17 @@ async function onStart() {
   setBusy(false);
   await refreshStatus();
   renderButtons();
+}
+
+async function onOpenUI() {
+  log('打开 dsh UI…', 'brand');
+  try {
+    const r = await bridge.open();
+    if (!r.ok) throw new Error(r.message || '打开失败');
+    log('已在默认浏览器打开 dsh UI：' + (r.url || ''), 'ok');
+  } catch (e) {
+    log('打开 UI 失败：' + e.message + '（可先「启动」dsh）', 'err');
+  }
 }
 
 async function onStop() {
@@ -303,6 +579,7 @@ async function onInstall() {
   setBusy(false);
   await refreshStatus();
   renderButtons();
+  applyUiState(uiState); // 安装态变化可能影响默认展开（未安装→展开安装卡）
 }
 
 /** 从 GitHub 拉取可选版本列表填入下拉框。 */
@@ -430,9 +707,39 @@ function renderEcoButtons() {
   $('btnEcoDry').disabled = busy || ecoCheckedIds().length === 0;
   $('btnEcoRefresh').disabled = busy;
   $('btnEcoUpdate').disabled = busy;
+  const q = $('btnQuickUpdate');
+  q.textContent = eco.updating ? '更新中…' : (eco.busy ? '拉齐中…' : '一键更新');
   $('btnEcoPull').textContent = eco.busy ? '拉齐中…' : (eco.dry ? '校验中…' : '拉齐勾选项');
   $('btnEcoDry').textContent = eco.dry ? '校验中…' : '仅校验（dry-run）';
   $('btnEcoUpdate').textContent = eco.updating ? '更新中…' : '一键更新插件';
+}
+
+function renderEcoDetail(d) {
+  // #18：生态明细（id / dir / install.ps1 sha256 前缀 / 声明文件数）——展开卡内可见
+  const box = $('ecoDetail');
+  const pkgs = d.manifest.packages || [];
+  if (!pkgs.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.textContent = '';
+  const title = document.createElement('div');
+  title.className = 'eco-detail-title';
+  title.textContent = '包清单明细（sha256 = install.ps1 前 12 位）';
+  box.appendChild(title);
+  for (const p of pkgs) {
+    const row = document.createElement('div');
+    row.className = 'eco-detail-row';
+    const idSpan = document.createElement('span');
+    idSpan.className = 'eco-detail-id';
+    idSpan.textContent = p.id;
+    const dirSpan = document.createElement('span');
+    dirSpan.className = 'eco-detail-dir';
+    dirSpan.textContent = p.dir || '';
+    const shaSpan = document.createElement('span');
+    shaSpan.className = 'eco-detail-sha';
+    shaSpan.textContent = 'sha256 ' + (p.installSha ? p.installSha + '…' : '—') + ' · ' + (p.fileCount || 0) + ' 文件';
+    row.append(idSpan, dirSpan, shaSpan);
+    box.appendChild(row);
+  }
 }
 
 async function refreshEcosystem() {
@@ -447,6 +754,7 @@ async function refreshEcosystem() {
     log('生态状态读取失败：' + (d && d.message ? d.message : '未知错误'), 'err');
     return;
   }
+  lastEco = d;
   eco.busy = !!d.busy;
   const commit = (d.manifest.pluginsCommit || '').slice(0, 8);
   $('ecoMeta').textContent =
@@ -481,11 +789,13 @@ async function refreshEcosystem() {
     name.textContent = p.id;
     label.appendChild(name);
     label.appendChild(ecoChip(!!(stp && stp.ok)));
-    label.title = p.dir;
+    label.title = (p.dir || '') + (p.installSha ? '\nsha256 ' + p.installSha + '…' : '');
     eco.rows[p.id] = cb;
     box.appendChild(label);
   }
+  renderEcoDetail(d);
   renderEcoButtons();
+  renderOverviewLine();
   scheduleAutoSize();
   return d;
 }
@@ -601,11 +911,11 @@ async function refreshConnections() {
   );
   const has = [...sel.options].some((o) => o.value === active);
   sel.value = has ? active : sel.options.length ? sel.options[0].value : '';
+  renderConnList(d, active);
   scheduleAutoSize();
 }
 
-async function onConnUse() {
-  const id = $('connSelect').value;
+async function onConnUseId(id) {
   if (!id) return;
   log('切换激活连接 → ' + id + ' …', 'brand');
   try {
@@ -616,6 +926,72 @@ async function onConnUse() {
     log('切换连接失败：' + e.message, 'err');
   }
   await refreshStatus();
+  await refreshConnections();
+}
+
+async function onConnRemoveId(id) {
+  if (!window.confirm('删除连接 ' + id + '？')) return;
+  try {
+    const r = await bridge.removeConnection(id);
+    if (!r || r.ok === false) throw new Error((r && r.message) || '删除失败');
+    log('连接已删除：' + id, 'ok');
+  } catch (e) {
+    log('删除连接失败：' + e.message, 'err');
+  }
+  await refreshConnections();
+}
+
+function renderConnList(d, activeId) {
+  const box = $('connList');
+  box.textContent = '';
+  if (!d.list || !d.list.length) {
+    const p = document.createElement('p');
+    p.className = 'eco-state';
+    p.textContent = '（无连接，使用右上角下拉或配置文件新增）';
+    box.appendChild(p);
+    return;
+  }
+  for (const c of d.list) {
+    const row = document.createElement('div');
+    row.className = 'conn-row' + (c.id === activeId ? ' active' : '');
+    const name = document.createElement('span');
+    name.className = 'conn-row-name';
+    name.textContent = (c.name || c.id) + (c.id === activeId ? ' · 当前' : '');
+    const meta = document.createElement('span');
+    meta.className = 'conn-row-meta';
+    meta.textContent = c.id + ' · ' + c.kind +
+      (c.kind === 'local' && c.port ? ':' + c.port : (c.url ? ' · ' + c.url : '')) +
+      (c.hasToken ? ' · token✓' : ' · 无 token');
+    row.appendChild(name);
+    row.appendChild(meta);
+    const actions = document.createElement('span');
+    actions.className = 'conn-row-actions';
+    if (c.id !== activeId) {
+      const use = document.createElement('button');
+      use.className = 'btn btn-ghost btn-sm';
+      use.textContent = '使用';
+      use.addEventListener('click', () => onConnUseId(c.id));
+      actions.appendChild(use);
+    }
+    const del = document.createElement('button');
+    del.className = 'btn btn-ghost btn-sm';
+    del.textContent = '删除';
+    del.addEventListener('click', () => onConnRemoveId(c.id));
+    actions.appendChild(del);
+    row.appendChild(actions);
+    box.appendChild(row);
+  }
+  const sum = $('connSum');
+  if (sum) {
+    const active = d.list.find((c) => c.id === activeId);
+    sum.textContent = active ? (active.name || active.id) + ' · ' + active.kind : '—';
+  }
+}
+
+async function onConnUse() {
+  const id = $('connSelect').value;
+  if (!id) return;
+  await onConnUseId(id);
 }
 
 function onHide() {
@@ -721,10 +1097,30 @@ function scheduleAutoSize() {
   if (window.launcherVersion) {
     $('ver').textContent = window.launcherVersion;
   }
+  // 分区跳转 + 卡片折叠头
+  document.querySelectorAll('.jump-chip').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.jump;
+      if (id) expandCardAndJump(id);
+    });
+  });
+  document.querySelectorAll('.card-head').forEach((head) => {
+    head.addEventListener('click', () => {
+      const card = head.closest('.card');
+      if (card && card.id) toggleCard(card.id);
+    });
+  });
+  $('chipLine').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip-link');
+    if (b && b.dataset.jump) expandCardAndJump(b.dataset.jump);
+  });
+
   // 先挂按钮，保证界面立即可用：状态请求失败也不阻塞交互
   $('btnStart').addEventListener('click', onStart);
   $('btnStop').addEventListener('click', onStop);
   $('btnRestart').addEventListener('click', onRestart);
+  $('btnOpenUI').addEventListener('click', onOpenUI);
+  $('btnQuickUpdate').addEventListener('click', onEcoUpdate);
   $('btnSetup').addEventListener('click', onSetup);
   $('btnInstall').addEventListener('click', onInstall);
   $('btnMove').addEventListener('click', onMove);
@@ -738,7 +1134,44 @@ function scheduleAutoSize() {
   $('btnEcoPull').addEventListener('click', () => onEcoPull(false));
   $('btnEcoUpdate').addEventListener('click', onEcoUpdate);
   $('connSelect').addEventListener('change', onConnUse);
+  // 日志工具条
+  $('logErrors').addEventListener('click', cycleLogFilter);
+  $('logFollow').addEventListener('click', () => {
+    logState.follow = !logState.follow;
+    $('logFollow').setAttribute('aria-pressed', logState.follow ? 'true' : 'false');
+    $('logFollow').textContent = '自动滚动：' + (logState.follow ? '开' : '关');
+    if (logState.follow) scrollLogToBottom();
+    log('自动滚动' + (logState.follow ? '已开启' : '已暂停（可点“回到底部”跟随）') + '。', 'dim');
+  });
+  $('logClear').addEventListener('click', clearLog);
+  $('logNew').addEventListener('click', scrollLogToBottom);
+  $('btnResetLayout').addEventListener('click', resetLayout);
+
+  // 日志滚动位置 → 暂停跟随
+  logBox.addEventListener('scroll', () => {
+    if (atBottom() && !logState.follow) {
+      // 手动回到底部时恢复跟随并清角标
+      logState.follow = true;
+      logState.pendingNew = 0;
+      $('logNew').hidden = true;
+      $('logFollow').setAttribute('aria-pressed', 'true');
+      $('logFollow').textContent = '自动滚动：开';
+    }
+  });
+
   log('dsh-launcher 已就绪。', '');
+
+  // UI 状态（折叠/日志偏好）恢复
+  if (bridge.getUiState) {
+    try {
+      const saved = await bridge.getUiState();
+      applyUiState(saved);
+    } catch (e) {
+      /* 预览/读取失败用默认 */
+    }
+  } else {
+    applyUiState(null);
+  }
 
   // 预填安装目录（失败忽略）
   try {
@@ -770,7 +1203,7 @@ function scheduleAutoSize() {
 /* ---------- 真实后端契约（Node SEA 版，由服务端注入） ----------
    window.launcherVersion: string
    window.launcherBridge = {
-     getStatus(): Promise<{ node, npm, dsh, port, update, defaultDir, installedDir }>,
+     getStatus(): Promise<{ node, npm, dsh, port, connection, components, update, defaultDir, installedDir }>,
      start(): Promise<{ok}>,
      stop(): Promise<{ok}>,
      install(dir, source, version, proxy): Promise<{ok}>,
@@ -782,6 +1215,11 @@ function scheduleAutoSize() {
      pullEcosystem(opts): Promise<{ok}>,
      updateEcosystem(opts): Promise<{ok}>,      // 一键更新插件（同步源→安装→重启）
      getConnections(): Promise<{ok, active, list}>,
+     useConnection(id): Promise<{ok}>,
+     removeConnection(id): Promise<{ok}>,
+     getUiState(): Promise<UiSettings>,         // #18 折叠/日志偏好
+     setUiState(patch): Promise<UiSettings>,
+     open(): Promise<{ok, url}>,                // #19 打开 dsh UI
      restartDsh(): Promise<{ok}>,
      setupFlow(opts): Promise<{ok}>,
      defaultDir: string,

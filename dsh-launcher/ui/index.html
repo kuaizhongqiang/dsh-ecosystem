@@ -36,52 +36,67 @@
 
     <main class="content">
 
-      <!-- 概览：运行状态磁贴 -->
-      <section class="tiles" aria-label="运行状态">
-        <div class="tile" data-key="node">
-          <span class="dot dot-dim" aria-hidden="true"></span>
-          <div class="tile-body">
-            <span class="tile-label">Node.js</span>
-            <span class="row-value" id="node" data-field="node">检测中…</span>
-          </div>
-        </div>
-        <div class="tile" data-key="npm">
-          <span class="dot dot-dim" aria-hidden="true"></span>
-          <div class="tile-body">
-            <span class="tile-label">npm</span>
-            <span class="row-value" id="npm" data-field="npm">检测中…</span>
-          </div>
-        </div>
-        <div class="tile" data-key="dsh">
-          <span class="dot dot-dim" aria-hidden="true"></span>
-          <div class="tile-body">
-            <span class="tile-label">dsh</span>
-            <span class="row-value" id="dsh" data-field="dsh">检测中…</span>
-          </div>
-        </div>
-        <div class="tile" data-key="port">
-          <span class="dot dot-dim" aria-hidden="true"></span>
-          <div class="tile-body">
-            <span class="tile-label">服务端口</span>
-            <span class="row-value" id="port" data-field="port">—</span>
-          </div>
-        </div>
-        <div class="tile tile-update" data-key="update">
-          <span class="dot dot-dim" aria-hidden="true"></span>
-          <div class="tile-body">
-            <span class="tile-label">版本更新</span>
-            <span class="row-value" id="update" data-field="update">检查中…</span>
-          </div>
-        </div>
-      </section>
+      <!-- ═══ 顶部固定区：概览 + 快速动作 + 分区跳转（#17/#19 常驻可达） ═══ -->
+      <div class="ov-sticky" id="ovSticky">
 
-      <!-- 运行控制 -->
-      <section class="panel run-panel" aria-label="运行控制">
-        <div class="run-buttons">
+        <!-- 概览：运行状态磁贴（健康分点） -->
+        <section class="tiles" aria-label="运行状态">
+          <div class="tile" data-key="node">
+            <span class="dot dot-dim" aria-hidden="true"></span>
+            <div class="tile-body">
+              <span class="tile-label">Node.js</span>
+              <span class="row-value" id="node" data-field="node">检测中…</span>
+            </div>
+          </div>
+          <div class="tile" data-key="npm">
+            <span class="dot dot-dim" aria-hidden="true"></span>
+            <div class="tile-body">
+              <span class="tile-label">npm</span>
+              <span class="row-value" id="npm" data-field="npm">检测中…</span>
+            </div>
+          </div>
+          <div class="tile" data-key="dsh">
+            <span class="dot dot-dim" aria-hidden="true"></span>
+            <div class="tile-body">
+              <span class="tile-label">dsh</span>
+              <span class="row-value" id="dsh" data-field="dsh">检测中…</span>
+            </div>
+          </div>
+          <div class="tile" data-key="port">
+            <span class="dot dot-dim" aria-hidden="true"></span>
+            <div class="tile-body">
+              <span class="tile-label">服务端口</span>
+              <span class="row-value" id="port" data-field="port">—</span>
+            </div>
+          </div>
+          <div class="tile tile-update" data-key="update">
+            <span class="dot dot-dim" aria-hidden="true"></span>
+            <div class="tile-body">
+              <span class="tile-label">版本更新</span>
+              <span class="row-value" id="update" data-field="update">检查中…</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 概览行：连接 + 组件版本 chips（#19 聚合；点 chip 跳详情） -->
+        <div class="ov-line">
+          <span class="ov-conn">
+            <span class="dot dot-dim" id="connDot" aria-hidden="true"></span>
+            <span id="connName" class="ov-conn-name">连接：—</span>
+          </span>
+          <span class="ov-sep" aria-hidden="true"></span>
+          <span class="chip-row" id="chipLine" role="list"></span>
+        </div>
+
+        <!-- 快速动作（固定可达） -->
+        <div class="run-buttons ov-actions">
           <button class="btn btn-primary btn-lg" id="btnStart">启动</button>
           <button class="btn btn-sec" id="btnStop" disabled>停止</button>
           <button class="btn btn-sec" id="btnRestart" disabled>重启</button>
           <span class="action-spacer"></span>
+          <button class="btn btn-ghost" id="btnOpenUI" title="在默认浏览器打开当前连接的 dsh UI">打开 UI</button>
+          <button class="btn btn-sec" id="btnQuickUpdate" disabled
+                  title="同步最新插件源 → 安装/更新插件与技能 → 重启 dsh">一键更新</button>
           <button class="btn btn-ghost" id="btnSetup">一键部署</button>
           <button class="btn btn-ghost" id="btnUpdate">检查更新</button>
           <button class="btn btn-ghost" id="btnExit">退出</button>
@@ -91,55 +106,130 @@
           <div class="progress-track"><div class="progress-bar"></div></div>
           <span class="progress-text" id="progressText">安装中…</span>
         </div>
-      </section>
 
-      <!-- dsh 安装与版本 -->
-      <section class="panel" aria-label="dsh 安装">
-        <h2 class="sec-title"><span class="sec-bar"></span>dsh 安装</h2>
-        <div class="form-row">
-          <label class="field-label" for="pathInput">安装目录</label>
-          <input id="pathInput" class="path-input" type="text" spellcheck="false"
-                 value="C:\Users\kua\AppData\Local\dsh">
-          <div class="path-actions">
-            <button class="btn btn-sec" id="btnBrowse">浏览…</button>
-            <button class="btn btn-sec" id="btnInstall">安装</button>
-            <button class="btn btn-sec" id="btnMove">移动</button>
+        <!-- 分区跳转（锚点） -->
+        <nav class="jump" id="jumpBar" aria-label="分区跳转">
+          <span class="jump-title">分区</span>
+          <button class="jump-chip" data-jump="card-install">安装与升级</button>
+          <button class="jump-chip" data-jump="card-eco">生态</button>
+          <button class="jump-chip" data-jump="card-conn">连接</button>
+          <button class="jump-chip" data-jump="card-log">日志</button>
+          <button class="jump-chip" data-jump="card-settings">设置</button>
+        </nav>
+      </div>
+
+      <!-- ═══ 分区卡片（#18 折叠 + 状态记忆） ═══ -->
+
+      <!-- 安装与升级 -->
+      <section class="panel card" id="card-install" data-card="card-install" aria-label="dsh 安装与升级">
+        <button type="button" class="card-head" aria-expanded="true" aria-controls="card-body-install">
+          <span class="sec-bar" aria-hidden="true"></span>
+          <span class="card-title">dsh 安装与升级</span>
+          <span class="card-sub" id="installSub">—</span>
+          <span class="card-chev" aria-hidden="true">▸</span>
+        </button>
+        <div class="card-body" id="card-body-install">
+          <div class="form-row">
+            <label class="field-label" for="pathInput">安装目录</label>
+            <input id="pathInput" class="path-input" type="text" spellcheck="false"
+                   value="C:\Users\kua\AppData\Local\dsh">
+            <div class="path-actions">
+              <button class="btn btn-sec" id="btnBrowse">浏览…</button>
+              <button class="btn btn-sec" id="btnInstall">安装</button>
+              <button class="btn btn-sec" id="btnMove">移动</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="field-label" for="verSelect">dsh 版本</label>
+            <select id="verSelect" class="path-input sel" title="GitHub 源码安装的版本（留空 = 最新 tag）">
+              <option value="">最新（GitHub，推荐）</option>
+            </select>
+            <div class="path-actions">
+              <button class="btn btn-sec" id="btnRefreshTags" title="从 GitHub 拉取可选版本">刷新列表</button>
+            </div>
           </div>
         </div>
-        <div class="form-row">
-          <label class="field-label" for="verSelect">dsh 版本</label>
-          <select id="verSelect" class="path-input sel" title="GitHub 源码安装的版本（留空 = 最新 tag）">
-            <option value="">最新（GitHub，推荐）</option>
-          </select>
-          <div class="path-actions">
-            <button class="btn btn-sec" id="btnRefreshTags" title="从 GitHub 拉取可选版本">刷新列表</button>
+      </section>
+
+      <!-- 生态（插件/技能/清单） -->
+      <section class="panel card" id="card-eco" data-card="card-eco" aria-label="插件与技能">
+        <button type="button" class="card-head" aria-expanded="true" aria-controls="card-body-eco">
+          <span class="sec-bar" aria-hidden="true"></span>
+          <span class="card-title">插件与技能</span>
+          <span class="card-sub" id="ecoMeta">读取中…</span>
+          <span class="card-chev" aria-hidden="true">▸</span>
+        </button>
+        <div class="card-body" id="card-body-eco">
+          <p class="eco-state" id="ecoState">—</p>
+          <div class="eco-pkgs" id="ecoPkgs"></div>
+          <div class="eco-detail" id="ecoDetail" hidden></div>
+          <div class="eco-foot">
+            <label class="eco-chk"><input type="checkbox" id="ecoCore" checked> 含 core（未装时 install）</label>
+            <label class="eco-chk"><input type="checkbox" id="ecoSkills" checked> 含技能</label>
+            <span class="action-spacer"></span>
+            <button class="btn btn-sec btn-sm" id="btnEcoRefresh">刷新</button>
+            <button class="btn btn-sec btn-sm" id="btnEcoDry" disabled>仅校验</button>
+            <button class="btn btn-sec btn-sm" id="btnEcoPull" disabled>拉齐勾选项</button>
+            <button class="btn btn-primary btn-sm" id="btnEcoUpdate" disabled
+                    title="同步最新插件源 → 安装/更新插件与技能 → 重启 dsh">一键更新插件</button>
           </div>
         </div>
       </section>
 
-      <!-- 插件与技能（生态） -->
-      <section class="panel eco-panel" aria-label="插件与技能">
-        <h2 class="sec-title"><span class="sec-bar"></span>插件与技能
-          <span class="sec-note" id="ecoMeta">读取中…</span>
-        </h2>
-        <p class="eco-state" id="ecoState">—</p>
-        <div class="eco-pkgs" id="ecoPkgs"></div>
-        <div class="eco-foot">
-          <label class="eco-chk"><input type="checkbox" id="ecoCore" checked> 含 core（未装时 install）</label>
-          <label class="eco-chk"><input type="checkbox" id="ecoSkills" checked> 含技能</label>
-          <span class="action-spacer"></span>
-          <button class="btn btn-sec btn-sm" id="btnEcoRefresh">刷新</button>
-          <button class="btn btn-sec btn-sm" id="btnEcoDry" disabled>仅校验</button>
-          <button class="btn btn-sec btn-sm" id="btnEcoPull" disabled>拉齐勾选项</button>
-          <button class="btn btn-primary btn-sm" id="btnEcoUpdate" disabled
-                  title="同步最新插件源 → 安装/更新插件与技能 → 重启 dsh">一键更新插件</button>
+      <!-- 连接 -->
+      <section class="panel card" id="card-conn" data-card="card-conn" aria-label="连接">
+        <button type="button" class="card-head" aria-expanded="false" aria-controls="card-body-conn">
+          <span class="sec-bar" aria-hidden="true"></span>
+          <span class="card-title">连接</span>
+          <span class="card-sub" id="connSum">—</span>
+          <span class="card-chev" aria-hidden="true">▸</span>
+        </button>
+        <div class="card-body" id="card-body-conn">
+          <div class="conn-list" id="connList"><p class="eco-state">读取中…</p></div>
+          <p class="eco-state conn-hint">切换也可用右上角下拉；新增/编辑连接见 launcher 配置文件。</p>
         </div>
       </section>
 
-      <!-- 日志控制台 -->
-      <section class="panel log-panel" aria-label="日志">
-        <h2 class="sec-title"><span class="sec-bar sec-bar-log"></span>运行日志</h2>
-        <div class="log" id="log" aria-live="polite"></div>
+      <!-- 运行日志 -->
+      <section class="panel card" id="card-log" data-card="card-log" aria-label="运行日志">
+        <button type="button" class="card-head" aria-expanded="true" aria-controls="card-body-log">
+          <span class="sec-bar sec-bar-log" aria-hidden="true"></span>
+          <span class="card-title">运行日志</span>
+          <span class="card-sub" id="logSub"></span>
+          <span class="card-chev" aria-hidden="true">▸</span>
+        </button>
+        <div class="card-body" id="card-body-log">
+          <div class="log-tools">
+            <button class="btn btn-ghost btn-sm" id="logErrors" title="循环：全部 → 警告+错误 → 仅错误">只看错误：全部</button>
+            <button class="btn btn-ghost btn-sm" id="logFollow" aria-pressed="true" title="自动滚动到底部；上翻后自动暂停">自动滚动：开</button>
+            <button class="btn btn-ghost btn-sm" id="logClear">清空</button>
+            <span class="action-spacer"></span>
+            <span class="log-count" id="logCount"></span>
+            <button class="btn btn-sec btn-sm log-new" id="logNew" hidden>回到底部</button>
+          </div>
+          <div class="log" id="log" aria-live="off"></div>
+        </div>
+      </section>
+
+      <!-- 设置 -->
+      <section class="panel card" id="card-settings" data-card="card-settings" aria-label="设置">
+        <button type="button" class="card-head" aria-expanded="false" aria-controls="card-body-settings">
+          <span class="sec-bar" aria-hidden="true"></span>
+          <span class="card-title">设置</span>
+          <span class="card-sub">安装目录 / 布局</span>
+          <span class="card-chev" aria-hidden="true">▸</span>
+        </button>
+        <div class="card-body" id="card-body-settings">
+          <div class="form-row">
+            <label class="field-label" for="settingsDir">安装目录</label>
+            <input id="settingsDir" class="path-input" type="text" readonly spellcheck="false" placeholder="—"
+                   title="当前 dsh 安装目录（只读）">
+          </div>
+          <div class="run-buttons">
+            <button class="btn btn-sec btn-sm" id="btnResetLayout" title="清空折叠/日志状态记忆，恢复默认展开布局">恢复默认布局</button>
+            <span class="eco-state settings-hint">代理 / 关窗行为等在 launcher.json 配置（GUI 编辑后续版本）。</span>
+          </div>
+        </div>
       </section>
 
     </main>

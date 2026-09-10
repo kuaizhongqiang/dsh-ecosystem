@@ -8,7 +8,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -27,6 +27,7 @@ import * as log from './log.js';
 import * as node from './node.js';
 import * as registration from './registration.js';
 import * as setup from './setup.js';
+import * as tokenFile from './tokenFile.js';
 import * as update from './update.js';
 import { VERSION } from './version.js';
 
@@ -100,6 +101,10 @@ const bridgeScript = `<script>
     updateEcosystem: function (opts) { return api('/api/ecosystem/update', opts || {}); },
     getConnections: function () { return api('/api/connections'); },
     useConnection: function (id) { return api('/api/connections/use', { id: id }); },
+    removeConnection: function (id) { return api('/api/connections/remove', { id: id }); },
+    getUiState: function () { return api('/api/ui-state'); },
+    setUiState: function (patch) { return api('/api/ui-state', patch || {}); },
+    open: function () { return api('/api/open'); },
     restartDsh: function () { return api('/api/dsh/restart?key=${bridgeKey}', {}); },
     setupFlow: function (opts) { return api('/api/setup', opts || {}); },
     defaultDir: ${JSON.stringify(defaultInstallDir())},
@@ -191,6 +196,65 @@ async function safeNpm(): Promise<{ present: boolean; version: string }> {
   }
 }
 
+/** 读 dsh 写的 launch-token.json（供 /api/open 直开带 token 的 UI 地址）。 */
+function readLaunchTokenRecord(): { url?: string; port?: number } | null {
+  try {
+    const raw = readFileSync(tokenFile.launchTokenFilePath(), 'utf8');
+    const d = JSON.parse(raw) as { url?: string; port?: number };
+    return d && typeof d === 'object' ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 尽力探测已装组件版本（#19 概览卡）。
+ * - vscode：扫用户 .vscode* 扩展目录中本产品（publisher kuaizhongqiang / 名含 dsh 的扩展）的版本；
+ * - desktop：暂无可靠落点（发行/安装形态未定），返回 ''（前端显示 —）。
+ * 探测失败一律返回 ''，绝不抛错卡状态。
+ */
+function detectComponentVersions(): { vscode: string; desktop: string } {
+  const home = process.env.USERPROFILE || process.env.HOME || homedir();
+  let vscode = '';
+  for (const base of ['.vscode', '.vscode-insiders', '.vscode-server']) {
+    try {
+      const extRoot = join(home, base, 'extensions');
+      if (!existsSync(extRoot)) continue;
+      for (const entry of readdirSync(extRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const pkgPath = join(extRoot, entry.name, 'package.json');
+        if (!existsSync(pkgPath)) continue;
+        let pkg: { publisher?: string; name?: string; version?: string } | null = null;
+        try {
+          pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+        } catch {
+          continue;
+        }
+        const isDsh =
+          (typeof pkg?.publisher === 'string' && /kuaizhongqiang|dsh/i.test(pkg.publisher)) ||
+          (typeof pkg?.name === 'string' && /^dsh[-_]/.test(pkg.name)) ||
+          /^kuaizhongqiang\.dsh/i.test(entry.name);
+        if (!isDsh || typeof pkg?.version !== 'string') continue;
+        if (!vscode || pkg.version > vscode) vscode = pkg.version;
+      }
+    } catch {
+      /* 忽略单个扫描失败 */
+    }
+  }
+  return { vscode, desktop: '' };
+}
+
+function openDefaultBrowser(target: string): void {
+  // 与托盘 openActiveBrowser 同语义；SEA/浏览器版没有 electron shell，用平台默认打开。
+  const cmd: [string, string[]] =
+    process.platform === 'win32' ? ['cmd', ['/c', 'start', '', target]] :
+    process.platform === 'darwin' ? ['open', [target]] :
+    ['xdg-open', [target]];
+  execFile(cmd[0], cmd[1], { windowsHide: true }, (e: Error | null) => {
+    if (e) log.warn(`打开浏览器失败：${errMessage(e)}`);
+  });
+}
+
 async function statusPayload(): Promise<Record<string, unknown>> {
   const cfg = config.load();
   const installed = cfg !== null && config.isInstalled(cfg) && launch.installDirExists(cfg);
@@ -228,6 +292,7 @@ async function statusPayload(): Promise<Record<string, unknown>> {
     dsh: { installed, version: dshVer ? 'v' + dshVer.replace(/^dsh-/, '').replace(/^v/, '') : '' },
     port: { number: conn.kind === 'local' ? conn.port ?? cfg?.port ?? config.DefaultPort : cfg?.port ?? config.DefaultPort, running },
     connection: { id: conn.id, kind: conn.kind, name: conn.name ?? conn.id, port: conn.port, url: conn.url },
+    components: detectComponentVersions(),
     update: { ...updateState },
     defaultDir: defaultInstallDir(),
     installedDir: installed && cfg ? cfg.dshInstallDir : '',
@@ -303,6 +368,41 @@ async function handleApi(path: string, req: IncomingMessage, res: ServerResponse
   switch (path) {
     case '/api/status': {
       json(res, 200, await statusPayload());
+      return;
+    }
+    case '/api/ui-state': {
+      // #18：UI 折叠/日志状态记忆（GET 读；POST 以 patch 合并后写，防全量覆盖互相丢字段）
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        const patch = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+        json(res, 200, config.saveUi(patch as config.UiSettings));
+        return;
+      }
+      json(res, 200, config.loadUi());
+      return;
+    }
+    case '/api/open': {
+      // #19：概览「打开 dsh UI」——与托盘 openActiveBrowser 同目标语义
+      const cfg = config.load();
+      if (!cfg || !config.isInstalled(cfg)) {
+        json(res, 400, { ok: false, message: '未安装 dsh：请先安装' });
+        return;
+      }
+      const { conn } = connections.resolveActive(cfg);
+      if (conn.kind === 'remote' && conn.url) {
+        const target =
+          typeof (connections as { buildRemoteTarget?: (c: unknown) => string }).buildRemoteTarget === 'function'
+            ? (connections as { buildRemoteTarget: (c: unknown) => string }).buildRemoteTarget(conn)
+            : conn.url;
+        openDefaultBrowser(target);
+        json(res, 200, { ok: true, url: target });
+        return;
+      }
+      const port = conn.port ?? cfg.port;
+      const shared = readLaunchTokenRecord();
+      const target = shared && shared.port === port && shared.url ? shared.url : `http://127.0.0.1:${port}/`;
+      openDefaultBrowser(target);
+      json(res, 200, { ok: true, url: target });
       return;
     }
     case '/api/start': {
@@ -499,7 +599,13 @@ async function handleApi(path: string, req: IncomingMessage, res: ServerResponse
           manifest: {
             dsh: manifest.dsh,
             pluginsCommit: manifest.plugins.source.commit,
-            packages: manifest.plugins.packages.map((p) => ({ id: p.id, dir: p.dir })),
+            packages: manifest.plugins.packages.map((p) => ({
+              id: p.id,
+              dir: p.dir,
+              // #18：包级明细（install.ps1 sha256 前缀 + 声明文件数），供生态折叠卡展示
+              installSha: p.sha256 && p.sha256['install.ps1'] ? p.sha256['install.ps1'].slice(0, 12) : '',
+              fileCount: p.sha256 ? Object.keys(p.sha256).length : 0,
+            })),
             skills: !!manifest.skills,
           },
           state,
