@@ -447,3 +447,46 @@ HEAD /              → 401，无 X-Frame-Options / CSP 头
 
 > 注：本提案涉及 dsh server 版本发布与伞仓子模块指针（已列待办），超出 dsh-vscode 单仓闭环范围，
 > 需先经团队确认（本地 dev 版本 vs 已发布版本线）。状态：**待评审**。
+
+---
+
+## §10 seam 参考补丁（已定位到行，待整合发布）
+
+> 依据版本：`/home/kuai/deepseek-harness`（dsh-v0.1.5-alpha.1 基线）。
+> 目标文件：`packages/client/connection/src/browser-auth.ts`
+
+### 10.1 现状锚点（证据）
+
+- `sessionCookie()`（browser-auth.ts:122）：`name=value; Max-Age; Path=/; HttpOnly; SameSite=Strict`——固定 Strict。
+- `authorizeIndex()`（:243-283）：`GET /?token=<launch>` 且 pathname='/'、单 token、method GET → 铸 cookie 并 `303 → /`（:256-268）；随后 `isAuthenticated()` 按 **Host authority** 校验签名 cookie。
+- 无 X-Frame-Options / frame-ancestors CSP 头 → 服务端本身允许 iframe 承载；阻塞只在 **SameSite=Strict**（跨站 webview 不带 cookie）。
+
+### 10.2 补丁要点（embed=1 显式开启，默认行为零变化）
+
+在 token 交换分支增加 embed 模式：
+
+```ts
+// query: ?token=<launch>&embed=1
+const embed = url.searchParams.get('embed') === '1'
+const sameSite = embed ? 'None' : 'Strict'
+// http://127.0.0.1 属 potentially-trustworthy：Chrome 允许 Secure+None over http(loopback)
+const secure = embed && (authorityIsLocalhost(authority) || reqIsHttps(req))
+const partition = embed ? '; Partitioned' : ''
+set-cookie: cookieName(authority)=<v>; Max-Age=…; Path=/; HttpOnly;
+            SameSite=${sameSite}${secure ? '; Secure' : ''}${partition}
+```
+
+要点：
+1. **仅 `embed=1` 时放宽**：常规浏览器/桌面/远程链路仍 SameSite=Strict（不新增攻击面）。
+2. `Secure`：仅在 https 或 loopback（127.0.0.1/localhost）时附加，满足 SameSite=None 约束。
+3. `Partitioned`（CHIPS）：覆盖 Chromium 系第三方 cookie 阻断；VS Code webview（Electron/Chromium）走 Partitioned 后同分区内可带 cookie。
+4. Cookie 仍 **authority 绑定 + 签名 + HttpOnly + 过期**；token 只在根路径交换一次（与现有语义一致）。
+5. 扩展侧已有 `/api/embed/capability` 探测（见 §9 + dsh-vscode `src/embed/embedModel.ts`），服务器实现后可返回 `{seam:true}`；配合 once 语义（同 token 再次 embed=1 仍按 cookie 校验）。
+
+### 10.3 验证与回归清单
+
+- 常规浏览器 `/?token=` 登录 → cookie 仍 Strict（非 embed 分支不变）。
+- iframe（vscode-webview:// 顶层）embed=1 → 200 index + 后续子资源带 cookie（Chromium + Safari 真机）。
+- 无 token / 多 token / 非 GET / 非根路径 → 依旧 401（分支不触碰）。
+- loopback vs 远程 https 的 Secure 开关；`Partitioned` 对 Electron 各版本 webview 的兼容矩阵。
+- 真机：VS Code 侧栏 `dsh.web` 视图内嵌对话流式 + 重启 dsh 后 token 轮换重连（#21/#23 验收）。
