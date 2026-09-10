@@ -303,6 +303,16 @@
         "command": "dsh.checkUpdate",
         "title": "DSH: 检查更新（优雅升级）",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "dsh.askAboutSelection",
+        "title": "DSH：附选中代码提问",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.askAboutFile",
+        "title": "DSH：附当前文件提问",
+        "category": "DSH"
       }
     ],
     "viewsContainers": {
@@ -381,6 +391,18 @@
         {
           "command": "dsh.checkUpdate",
           "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "dsh.askAboutSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@9"
+        },
+        {
+          "command": "dsh.askAboutFile",
+          "when": "editorTextFocus",
+          "group": "navigation@10"
         }
       ]
     },

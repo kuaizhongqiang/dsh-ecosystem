@@ -16,6 +16,7 @@ import { SidebarWebviewProvider, type SidebarView, type UpdateStatus } from './s
 import { EmbedWebviewProvider } from './embed/embedView.ts'
 import { StatusBar } from './statusBar.ts'
 import { ChatPanel, errorMessage } from './chat/chatPanel.ts'
+import { formatFileContext, formatSelectionContext } from './chat/editorContext.ts'
 import type { SessionStatsView } from './chat/types.ts'
 import { onConfigChanged, readConfig, sessionWebUrl, type DshConfig } from './config.ts'
 import { LocalServerManager, validateLocalServerPath } from './localServer.ts'
@@ -84,6 +85,9 @@ class DshExtension {  readonly output: vscode.OutputChannel
       vscode.commands.registerCommand('dsh.refreshSessions', () => this.refreshSessions()),
       vscode.commands.registerCommand('dsh.openInBrowser', (sessionId?: SessionId) => this.openInBrowser(sessionId)),
       vscode.commands.registerCommand('dsh.openEmbed', (sessionId?: SessionId) => this.openEmbed(sessionId)),
+      // ---- 编辑器上下文注入 (#23) ----
+      vscode.commands.registerCommand('dsh.askAboutSelection', () => this.askWithEditorContext('selection')),
+      vscode.commands.registerCommand('dsh.askAboutFile', () => this.askWithEditorContext('file')),
       vscode.commands.registerCommand('dsh.cancel', (sessionId?: SessionId) => this.cancelSelected(sessionId)),
       vscode.commands.registerCommand('dsh.renameSession', (sessionId?: SessionId) => this.renameSelected(sessionId)),
       vscode.commands.registerCommand('dsh.showOutput', () => this.output.show()),
@@ -510,8 +514,8 @@ class DshExtension {  readonly output: vscode.OutputChannel
     }
   }
 
-  private openChatPanel(sessionId: SessionId): void {
-    if (this.connection === undefined) return
+  private openChatPanel(sessionId: SessionId): ChatPanel | undefined {
+    if (this.connection === undefined) return undefined
     const session = this.store?.getSession(sessionId)
     const panel = ChatPanel.openOrFocus({
       extensionUri: this.context.extensionUri,
@@ -533,7 +537,60 @@ class DshExtension {  readonly output: vscode.OutputChannel
         }
       },
     })
-    void panel
+    return panel
+  }
+
+  /**
+   * #23：把当前选中代码 / 当前文件作为上下文附给 dsh —— 弹一个输入框收集问题，
+   * 然后把「格式化上下文 + 问题」作为一条 prompt 发给当前（或新建的）会话。
+   */
+  private async askWithEditorContext(kind: 'selection' | 'file'): Promise<void> {
+    try {
+      const editor = vscode.window.activeTextEditor
+      if (editor === undefined) {
+        void vscode.window.showInformationMessage('请先打开一个文件。')
+        return
+      }
+      const doc = editor.document
+      const relative = vscode.workspace.asRelativePath(doc.uri, false)
+      const common = {
+        fileName: doc.fileName,
+        relativePath: relative === doc.fileName ? undefined : relative,
+        languageId: doc.languageId,
+      }
+      let context: string
+      let label: string
+      if (kind === 'selection') {
+        if (editor.selection.isEmpty) {
+          void vscode.window.showInformationMessage('请先选中一段代码，再使用「附选中代码提问」。')
+          return
+        }
+        context = formatSelectionContext({
+          ...common,
+          text: doc.getText(editor.selection),
+          startLine: editor.selection.start.line + 1,
+          endLine: editor.selection.end.line + 1,
+        })
+        label = '选中代码'
+      } else {
+        context = formatFileContext({ ...common, text: doc.getText(), totalLines: doc.lineCount })
+        label = '当前文件'
+      }
+      const question = await vscode.window.showInputBox({
+        title: `针对${label}提问（上下文将随问题一起发送）`,
+        prompt: `${common.relativePath ?? doc.fileName}`,
+        placeHolder: '例如：这段逻辑有哪些边界风险？',
+        ignoreFocusOut: true,
+      })
+      if (question === undefined || question.trim().length === 0) return
+      const sessionId = this.store?.allSessions[0]?.sessionId ?? (await this.createSessionAndOpen())
+      if (sessionId === undefined) return
+      const panel = this.openChatPanel(sessionId)
+      panel?.sendUserText(`${context}\n\n${question.trim()}`)
+      this.output.appendLine(`[dsh-vscode] 已注入${label}上下文（${question.length} 字问题）→ ${sessionId}`)
+    } catch (error) {
+      void vscode.window.showErrorMessage(errorMessage(error))
+    }
   }
 
   private async pickSession(connection: DshConnection): Promise<SessionId | undefined> {

@@ -376,6 +376,11 @@ export class ChatPanel {
     }
   }
 
+  /** Send a user prompt from a host-side command (issue #23 editor-context injection). */
+  sendUserText(text: string): void {
+    void this.sendPrompt(text)
+  }
+
   private async sendPrompt(text: string, images: PromptImage[] = []): Promise<void> {
     try {
       // 默认插话（steer，与 DSH Web 一致）；可在 dsh.promptMode 切换为排队（queue）。
