@@ -29,7 +29,8 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onStartupFinished",
-    "onView:dsh.sessions"
+    "onView:dsh.sessions",
+    "onView:dsh.web"
   ],
   "contributes": {
     "configuration": {
@@ -319,6 +320,11 @@
           "id": "dsh.sessions",
           "name": "DSH",
           "icon": "media/dsh-icon.svg",
+          "type": "webview"
+        },
+        {
+          "id": "dsh.web",
+          "name": "DSH 网页",
           "type": "webview"
         }
       ]

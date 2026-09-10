@@ -13,6 +13,7 @@ import type { DshEvent } from './client/connection.ts'
 import { RpcErrorResult, DshTransportError } from './client/rpc.ts'
 import { SessionStore } from './sessionStore.ts'
 import { SidebarWebviewProvider, type SidebarView, type UpdateStatus } from './sidebarView.ts'
+import { EmbedWebviewProvider } from './embed/embedView.ts'
 import { StatusBar } from './statusBar.ts'
 import { ChatPanel, errorMessage } from './chat/chatPanel.ts'
 import type { SessionStatsView } from './chat/types.ts'
@@ -49,6 +50,9 @@ class DshExtension {  readonly output: vscode.OutputChannel
   private connection: DshConnection | undefined
   private store: SessionStore | undefined
   private sidebar: SidebarWebviewProvider | undefined
+  private embed: EmbedWebviewProvider | undefined
+  /** 「DSH 网页」内嵌视图要打开的会话（seam 可用时深链）。 */
+  private embedSessionId: SessionId | undefined
   private localServer: LocalServerManager
   private cachedPresets: AgentPresetEntry[] = []
   /** 优雅升级检查状态（首页"检查更新"卡片的数据源）。 */
@@ -79,6 +83,7 @@ class DshExtension {  readonly output: vscode.OutputChannel
       vscode.commands.registerCommand('dsh.newSession', () => this.newSession()),
       vscode.commands.registerCommand('dsh.refreshSessions', () => this.refreshSessions()),
       vscode.commands.registerCommand('dsh.openInBrowser', (sessionId?: SessionId) => this.openInBrowser(sessionId)),
+      vscode.commands.registerCommand('dsh.openEmbed', (sessionId?: SessionId) => this.openEmbed(sessionId)),
       vscode.commands.registerCommand('dsh.cancel', (sessionId?: SessionId) => this.cancelSelected(sessionId)),
       vscode.commands.registerCommand('dsh.renameSession', (sessionId?: SessionId) => this.renameSelected(sessionId)),
       vscode.commands.registerCommand('dsh.showOutput', () => this.output.show()),
@@ -118,6 +123,22 @@ class DshExtension {  readonly output: vscode.OutputChannel
     })
     this.disposables.push(
       vscode.window.registerWebviewViewProvider(SidebarWebviewProvider.viewType, this.sidebar, {
+        webviewOptions: { retainContextWhenHidden: true },
+      }),
+    )
+
+    // 「DSH 网页」内嵌视图（milestone #2 #21：薄壳 + iframe 复用 dsh web，
+    // seam 探测见 embed/embedModel.ts；seam 缺失时降级为浏览器打开）。
+    this.embed = new EmbedWebviewProvider({
+      getTarget: () => ({
+        base: this.connection?.baseUrl ?? this.config.serverUrl,
+        token: this.resolveLaunchToken(),
+        sessionId: this.embedSessionId,
+      }),
+      openExternal: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+    })
+    this.disposables.push(
+      vscode.window.registerWebviewViewProvider(EmbedWebviewProvider.viewType, this.embed, {
         webviewOptions: { retainContextWhenHidden: true },
       }),
     )
@@ -228,6 +249,7 @@ class DshExtension {  readonly output: vscode.OutputChannel
       await this.refreshPresets()
       await this.ensureWorkspaceAttach()
       this.refreshTree()
+      this.embed?.refresh()
     } catch (error) {
       this.connection?.dispose()
       this.connection = undefined
@@ -637,6 +659,25 @@ class DshExtension {  readonly output: vscode.OutputChannel
       ? `${base}/?token=${encodeURIComponent(token)}`
       : sessionWebUrl(base, sessionId)
     void vscode.env.openExternal(vscode.Uri.parse(target))
+  }
+
+  /** 在侧栏「DSH 网页」视图中内嵌打开（seam 可用时）/ 降级浏览器打开（#21）。 */
+  private async openEmbed(sessionIdArg?: SessionId): Promise<void> {
+    if (sessionIdArg !== undefined) {
+      this.embedSessionId = sessionIdArg
+    } else {
+      this.embedSessionId = undefined
+    }
+    if (!this.connection) {
+      void vscode.window.showInformationMessage('请先连接 DSH，再打开「DSH 网页」视图。')
+      return
+    }
+    try {
+      await vscode.commands.executeCommand('dsh.web.focus')
+    } catch {
+      // 视图尚未渲染：provider 在 resolve 后自会拉取最新目标
+    }
+    this.embed?.refresh()
   }
 
   private async cancelSelected(sessionIdArg?: SessionId): Promise<void> {
