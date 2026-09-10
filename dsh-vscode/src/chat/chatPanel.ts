@@ -9,6 +9,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'n
 import { basename, join } from 'node:path'
 import type { DshConnection, DshEvent } from '../client/connection.ts'
 import { ChatModel } from './chatModel.ts'
+import { NestedSessions } from './nestedSessions.ts'
 import type { FileCandidate, HostToWebviewOp, PromptImage, SessionStatsView, WebviewToHostRequest } from './types.ts'
 import { computeCostCny, sessionWebUrl, type PricingTable } from '../config.ts'
 
@@ -16,6 +17,8 @@ export interface ChatPanelContext {
   extensionUri: vscode.Uri
   connection: DshConnection
   sessionId: string
+  /** 父会话所在工作区——嵌套子会话沿用（issue #22）。 */
+  workspaceId?: string
   title?: string
   cwd?: string
   running: boolean
@@ -52,6 +55,8 @@ export class ChatPanel {
   readonly panel: vscode.WebviewPanel
   private readonly context: ChatPanelContext
   private readonly model: ChatModel
+  /** 聊天中聊天：本面板里的嵌套子会话集合（issue #22）。 */
+  private readonly nested: NestedSessions
   private readonly disposables: vscode.Disposable[] = []
   private disposed = false
   private webviewReady = false
@@ -84,6 +89,25 @@ export class ChatPanel {
       sessionId: context.sessionId,
       onOp: (op) => this.postOp(op),
       maxToolResultChars: context.maxToolResultChars,
+    })
+    this.nested = new NestedSessions({
+      createSession: async () => {
+        const created = await context.connection.createSession(
+          context.workspaceId !== undefined ? { workspaceId: context.workspaceId } : {},
+        )
+        return created.sessionId
+      },
+      createModel: (sessionId, onOp) => new ChatModel({
+        connection: context.connection,
+        sessionId,
+        onOp,
+        maxToolResultChars: context.maxToolResultChars,
+      }),
+      emit: (op) => this.postOp(op),
+      prompt: (sessionId, text) => {
+        const mode = vscode.workspace.getConfiguration('dsh').get<'steer' | 'queue'>('promptMode', 'steer')
+        return context.connection.prompt(sessionId, text, mode)
+      },
     })
 
     const offConnection = context.connection.onEvent((event) => this.handleConnectionEvent(event))
@@ -122,6 +146,7 @@ export class ChatPanel {
     if (this.disposed) return
     this.disposed = true
     ChatPanel.open.delete(this.sessionId)
+    this.nested.disposeAll()
     this.model.dispose()
     for (const disposable of this.disposables) disposable.dispose()
   }
@@ -228,6 +253,19 @@ export class ChatPanel {
         break
       case 'prompt':
         void this.sendPrompt(message.text, message.images)
+        break
+      // ---- 聊天中聊天：嵌套子会话（issue #22） ----
+      case 'nested-create':
+        void this.nested.create()
+        break
+      case 'nested-prompt':
+        void this.nested.prompt(message.nestedId, message.text)
+        break
+      case 'nested-toggle':
+        this.nested.toggle(message.nestedId, message.collapsed)
+        break
+      case 'nested-close':
+        this.nested.close(message.nestedId)
         break
       case 'cancel':
         void this.context.connection.cancel(this.sessionId).catch((error) => {

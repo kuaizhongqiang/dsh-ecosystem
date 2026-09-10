@@ -306,3 +306,55 @@ describe('webview tool cards (issue #12)', () => {
     expect(card?.classList.contains('open')).toBe(true)
   })
 })
+
+describe('webview nested sessions (issue #22)', () => {
+  function withCard(h: WebviewHarness, nestedId = 'nest-1'): void {
+    h.send({ type: 'connection', connected: true })
+    h.send({ type: 'init', sessionId: 's1', title: 'T', running: false, showReasoning: false, messages: [] })
+    h.send({ type: 'nested-init', nestedId, collapsed: false })
+  }
+
+  it('renders a nested card, streams/finalizes text, collapses and removes it', () => {
+    const h = setup()
+    withCard(h)
+    expect(h.count('.nested-card')).toBe(1)
+
+    h.send({ type: 'append-message', nestedId: 'nest-1', message: { id: 'u1', role: 'user', text: '子问题', toolCalls: [], time: 1 } })
+    expect(h.window.document.querySelector('.nested-card .nested-msg.user .nested-text')?.textContent).toContain('子问题')
+
+    h.send({ type: 'stream-text', nestedId: 'nest-1', id: 'a1', text: '**回答**' })
+    const assistant = h.window.document.querySelector('.nested-card .nested-msg.assistant .nested-text')
+    expect(assistant?.innerHTML).toContain('<strong>')
+
+    h.send({ type: 'running', nestedId: 'nest-1', running: true })
+    expect(h.window.document.querySelector('.nested-card .nested-status')?.textContent).toContain('运行中')
+    h.send({ type: 'running', nestedId: 'nest-1', running: false })
+    expect(h.window.document.querySelector('.nested-card .nested-status')?.textContent).toBe('')
+
+    h.send({ type: 'finalize-message', nestedId: 'nest-1', id: 'a1', message: { id: 'a1', role: 'assistant', text: '回答完成', toolCalls: [], time: 2 } })
+    expect(h.window.document.querySelectorAll('.nested-card .nested-msg.assistant').length).toBe(1)
+    expect(h.window.document.querySelector('.nested-card .nested-msg.assistant .nested-text')?.textContent).toContain('回答完成')
+
+    h.send({ type: 'nested-collapsed', nestedId: 'nest-1', collapsed: true })
+    expect(h.window.document.querySelector('.nested-card')?.className).toContain('collapsed')
+
+    h.send({ type: 'nested-remove', nestedId: 'nest-1' })
+    expect(h.count('.nested-card')).toBe(0)
+  })
+
+  it('posts nested-create / nested-prompt / nested-toggle / nested-close requests', () => {
+    const h = setup()
+    withCard(h)
+    const doc = h.window.document
+    const ta = doc.querySelector('.nested-card textarea') as HTMLTextAreaElement
+    ta.value = '独立提问'
+    ;(doc.querySelector('.nested-card .nested-send') as HTMLButtonElement).click()
+    expect(h.sent).toContainEqual({ type: 'nested-prompt', nestedId: 'nest-1', text: '独立提问' })
+    ;(doc.querySelector('.nested-card .nested-toggle') as HTMLButtonElement).click()
+    expect(h.sent).toContainEqual({ type: 'nested-toggle', nestedId: 'nest-1', collapsed: true })
+    ;(doc.querySelector('.nested-card .nested-close') as HTMLButtonElement).click()
+    expect(h.sent).toContainEqual({ type: 'nested-close', nestedId: 'nest-1' })
+    ;(doc.getElementById('btn-nested') as HTMLButtonElement).click()
+    expect(h.sent).toContainEqual({ type: 'nested-create' })
+  })
+})

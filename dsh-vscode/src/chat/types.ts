@@ -83,31 +83,38 @@ export interface PromptImage {
 export type HostToWebviewOp =
   | { type: 'init'; sessionId: string; title?: string; cwd?: string; running: boolean; messages: RenderMessage[]; showReasoning: boolean; todos?: TodoEntry[]; goal?: GoalView | null }
   | { type: 'connection'; connected: boolean }
-  | { type: 'running'; running: boolean }
+  | { type: 'running'; running: boolean; nestedId?: string }
   | { type: 'models'; current: { provider: string; model: string; reasoningEffort?: string } | null; routable: boolean; groups: SessionModels['groups']; failures: SessionModels['failures'] }
-  | { type: 'stats'; stats: SessionStatsView }
-  | { type: 'append-message'; message: RenderMessage }
-  | { type: 'stream-text'; id: string; text: string }
-  | { type: 'stream-reasoning'; id: string; text: string }
-  | { type: 'finalize-message'; id: string; message: RenderMessage }
-  | { type: 'tool-call'; messageId?: string; tool: RenderToolCall }
-  | { type: 'tool-result'; callId: string; result: string; isError?: boolean }
+  | { type: 'stats'; stats: SessionStatsView; nestedId?: string }
+  | { type: 'append-message'; message: RenderMessage; nestedId?: string }
+  | { type: 'stream-text'; id: string; text: string; nestedId?: string }
+  | { type: 'stream-reasoning'; id: string; text: string; nestedId?: string }
+  | { type: 'finalize-message'; id: string; message: RenderMessage; nestedId?: string }
+  | { type: 'tool-call'; messageId?: string; tool: RenderToolCall; nestedId?: string }
+  | { type: 'tool-result'; callId: string; result: string; isError?: boolean; nestedId?: string }
   | { type: 'todos'; todos: TodoEntry[] }
   | { type: 'goal'; goal: GoalView | null }
   | { type: 'approval'; rpcId: string; approvalId: string; toolName: string; reason?: string }
   | { type: 'approval-resolved'; approvalId: string; outcome: string }
   | { type: 'question'; rpcId: string; questions: QuestionItem[] }
   | { type: 'question-resolved'; questionRpcId: string; outcome: string }
-  | { type: 'turn-end'; turn: number; reasonKind: string }
+  | { type: 'turn-end'; turn: number; reasonKind: string; nestedId?: string }
   | { type: 'title'; title: string }
   | { type: 'status'; text: string }
-  | { type: 'error'; text: string }
+  | { type: 'error'; text: string; nestedId?: string }
+  | { type: 'nested-init'; nestedId: string; title?: string; collapsed: boolean }
+  | { type: 'nested-remove'; nestedId: string }
+  | { type: 'nested-collapsed'; nestedId: string; collapsed: boolean }
   | { type: 'file-candidates'; candidates: FileCandidate[] }
   | { type: 'file-read-result'; path: string; name: string; mediaType: string; data: string; error?: string }
   | { type: 'audio-saved'; name: string; path: string; error?: string }
 
 export type WebviewToHostRequest =
   | { type: 'ready' }
+  | { type: 'nested-create' }
+  | { type: 'nested-prompt'; nestedId: string; text: string }
+  | { type: 'nested-toggle'; nestedId: string; collapsed: boolean }
+  | { type: 'nested-close'; nestedId: string }
   | { type: 'prompt'; text: string; images?: PromptImage[] }
   | { type: 'cancel' }
   | { type: 'approve'; rpcId: string; approvalId: string }

@@ -521,6 +521,7 @@ class DshExtension {  readonly output: vscode.OutputChannel
       extensionUri: this.context.extensionUri,
       connection: this.connection,
       sessionId,
+      workspaceId: this.currentWorkspaceId,
       title: session?.title,
       cwd: session?.cwd,
       running: session?.running ?? false,

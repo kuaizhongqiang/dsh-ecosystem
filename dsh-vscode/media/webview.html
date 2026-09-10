@@ -345,6 +345,37 @@
   .stats-bar .stat.alert { color: var(--error); }
   .stats-bar .stats-empty { color: var(--muted); }
   #hint { font-size: 10.5px; color: var(--muted); padding: 0 12px 6px; }
+
+  /* ---- 聊天中聊天：嵌套子会话卡片（#22） ---- */
+  .nested-wrap { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 2px; }
+  .nested-card {
+    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,.35));
+    border-left: 3px solid var(--vscode-textLink-foreground, #4d93f8);
+    border-radius: 8px; background: rgba(128,128,128,.06); padding: 6px 8px;
+  }
+  .nested-head { display: flex; align-items: center; gap: 6px; }
+  .nested-title { font-size: 12px; font-weight: 600; opacity: .9; }
+  .nested-head .badge-mini { font-size: 10px; opacity: .6; }
+  .nested-head button {
+    margin-left: 0; background: transparent; border: none; color: inherit;
+    cursor: pointer; font-size: 12px; opacity: .7; padding: 0 4px;
+  }
+  .nested-head .nested-close { margin-left: auto; }
+  .nested-body { margin-top: 4px; }
+  .nested-card.collapsed .nested-body { display: none; }
+  .nested-msgs { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+  .nested-msg { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .nested-msg.user { opacity: .92; }
+  .nested-msg .nested-role { font-size: 10px; opacity: .6; margin-right: 6px; }
+  .nested-status { font-size: 11px; opacity: .6; min-height: 14px; margin-top: 3px; }
+  .nested-composer { display: flex; gap: 6px; margin-top: 5px; }
+  .nested-composer textarea {
+    flex: 1; resize: vertical; min-height: 26px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, rgba(128,128,128,.35));
+    border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px;
+  }
+  .nested-composer button { padding: 4px 10px; }
 </style>
 </head>
 <body>
@@ -358,6 +389,7 @@
       </select>
     </label>
     <button id="btn-open-browser" title="在浏览器打开该会话">$(globe) 浏览器</button>
+    <button id="btn-nested" title="插入一个可独立对话的子会话（聊天中聊天）">＋ 子会话</button>
   </header>
   <div id="session-overview"></div>
   <div id="messages">
@@ -894,13 +926,150 @@
   }
 
   // ---- ops from the host ----
+  // ---- 聊天中聊天：嵌套子会话（#22）----
+  var nestedWrap = null;
+  var nestedCards = {};
+  function ensureNestedWrap() {
+    if (!nestedWrap) {
+      nestedWrap = el('div', 'nested-wrap');
+      messagesEl.appendChild(nestedWrap);
+    }
+    return nestedWrap;
+  }
+  function nestedBubbleEl(card, msg) {
+    var row = el('div', 'nested-msg ' + msg.role);
+    var role = el('span', 'nested-role', msg.role === 'user' ? '你' : '子会话');
+    var text = el('span', 'nested-text', msg.role === 'user' ? escapeHtml(msg.text || '') : renderMarkdown(msg.text || ''));
+    row.appendChild(role);
+    row.appendChild(text);
+    card.list.appendChild(row);
+    card.bubbles[msg.id] = { row: row, text: text, role: msg.role, raw: msg.text || '' };
+    card.list.scrollTop = card.list.scrollHeight;
+    return card.bubbles[msg.id];
+  }
+  function createNestedCard(id, title) {
+    removeEmptyState();
+    var wrap = el('div', 'nested-card');
+    var head = el('div', 'nested-head');
+    var toggle = el('button', 'nested-toggle', '▾');
+    toggle.title = '折叠/展开子会话';
+    var titleEl = el('span', 'nested-title', escapeHtml(title || '子会话'));
+    var close = el('button', 'nested-close', '×');
+    close.title = '关闭这个子会话';
+    head.appendChild(toggle); head.appendChild(titleEl); head.appendChild(close);
+    var body = el('div', 'nested-body');
+    var list = el('div', 'nested-msgs');
+    var status = el('div', 'nested-status', '');
+    var composer = el('div', 'nested-composer');
+    var ta = document.createElement('textarea');
+    ta.rows = 1;
+    ta.placeholder = '在子会话中独立提问…（Enter 发送，Shift+Enter 换行）';
+    var send = el('button', 'nested-send', '发送');
+    send.disabled = !connectionOpened;
+    composer.appendChild(ta); composer.appendChild(send);
+    body.appendChild(list); body.appendChild(status); body.appendChild(composer);
+    wrap.appendChild(head); wrap.appendChild(body);
+    ensureNestedWrap().appendChild(wrap);
+    var card = { el: wrap, list: list, status: status, ta: ta, send: send, collapsed: false, running: false, bubbles: {} };
+    nestedCards[id] = card;
+    function submit() {
+      var text = ta.value.trim();
+      if (!text) return;
+      ta.value = '';
+      card.status.textContent = '发送中…';
+      post({ type: 'nested-prompt', nestedId: id, text: text });
+    }
+    send.addEventListener('click', submit);
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+    });
+    toggle.addEventListener('click', function () {
+      var next = !card.collapsed;
+      post({ type: 'nested-toggle', nestedId: id, collapsed: next });
+    });
+    close.addEventListener('click', function () { post({ type: 'nested-close', nestedId: id }); });
+    card.setCollapsed = function (collapsed) {
+      card.collapsed = collapsed;
+      card.el.classList.toggle('collapsed', collapsed);
+      toggle.textContent = collapsed ? '▸' : '▾';
+    };
+    card.setRunning = function (running) {
+      card.running = running;
+      send.disabled = running || !connectionOpened;
+      card.status.textContent = running ? '子会话运行中…' : '';
+    };
+    card.appendMessage = function (msg) {
+      var existing = card.bubbles[msg.id];
+      if (existing) existing.row.remove();
+      var bubble = nestedBubbleEl(card, msg);
+      if (msg.role !== 'user' && msg.text) bubble.text.innerHTML = renderMarkdown(msg.text);
+      return bubble;
+    };
+    card.setCollapsed(false);
+    return card;
+  }
+  function handleNestedOp(op) {
+    var id = op.nestedId;
+    if (op.type === 'nested-init') {
+      if (!nestedCards[id]) createNestedCard(id, op.title);
+      nestedCards[id].setCollapsed(!!op.collapsed);
+      return;
+    }
+    if (op.type === 'nested-remove') {
+      var card = nestedCards[id];
+      if (card) card.el.remove();
+      delete nestedCards[id];
+      return;
+    }
+    if (op.type === 'nested-collapsed') {
+      if (nestedCards[id]) nestedCards[id].setCollapsed(!!op.collapsed);
+      return;
+    }
+    var c = nestedCards[id];
+    if (!c) return;
+    switch (op.type) {
+      case 'append-message':
+        c.appendMessage(op.message);
+        break;
+      case 'stream-text': {
+        var b = c.bubbles[op.id];
+        if (!b) b = c.appendMessage({ id: op.id, role: 'assistant', text: '', time: Date.now() });
+        b.raw = (b.raw || '') + op.text;
+        b.text.innerHTML = renderMarkdown(b.raw);
+        c.list.scrollTop = c.list.scrollHeight;
+        break;
+      }
+      case 'finalize-message': {
+        var b2 = c.bubbles[op.message.id];
+        if (b2) b2.row.remove();
+        c.appendMessage(op.message);
+        break;
+      }
+      case 'running':
+        c.setRunning(!!op.running);
+        break;
+      case 'error':
+        c.status.textContent = '⚠ ' + (op.text || '子会话错误');
+        break;
+      default:
+        break;
+    }
+  }
+
   function handleOp(op) {
+    if (op && op.nestedId) {
+      handleNestedOp(op);
+      return;
+    }
     switch (op.type) {
       case 'connection': {
         connectionOpened = op.connected;
         if (!connectionOpened) sessionRunning = false;
         updateBadge();
         updateInputState();
+        for (var nk in nestedCards) {
+          if (!nestedCards[nk].running) nestedCards[nk].send.disabled = !connectionOpened;
+        }
         break;
       }
       case 'running': {
@@ -1502,6 +1671,7 @@
   sendBtn.addEventListener('click', send);
   cancelBtn.addEventListener('click', function () { post({ type: 'cancel' }); });
   document.getElementById('btn-open-browser').addEventListener('click', function () { post({ type: 'open-in-browser' }); });
+  document.getElementById('btn-nested').addEventListener('click', function () { post({ type: 'nested-create' }); });
   modelSelect.addEventListener('change', function () {
     var value = modelSelect.value;
     if (!value) return;
