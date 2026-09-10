@@ -31,3 +31,16 @@ M0 协议对齐(clearLaunchToken source+pid 双匹配等)已合入(0.3.0 线)。
 - **手动发布**:本地打包 vsix → `ovsx publish`(Open VSX,需 OVSX_PAT)/ 上传伞仓 Releases;
   原仓 ci/release workflow(含 Open VSX 自动发布)已随归档停摆(见 [RELEASING.md](../RELEASING.md))。
 - M5/M6 若改动 token/连接语义,需回归验证扩展的 token 跟随路径。
+
+## 内嵌 dsh web / 聊天中聊天 / 保活（milestone #2，#20–#23）
+
+设计与决策记录见 [`dsh-vscode-embed-design.md`](dsh-vscode-embed-design.md)（含 seam 提案 §9、参考补丁 §10、真产品+真机验证 §10.5）。
+
+- **承载/认证（#20/#21）**：侧栏新增 `dsh.web` 视图（`src/embed/`），薄壳 + iframe 复用 dsh web。
+  认证依赖 dsh server 的 **embed seam**（`GET /api/embed/capability` → `{seam,version}`；`GET /api/embed/open?t=&path=` 一次性 token → 303 + embed cookie：`SameSite=None`，loopback/https 加 `Secure`，加 `Partitioned`）。seam 缺失或版本不兼容时**降级为「在浏览器打开」**（绝不空白页）。
+  命令：`DSH：打开内嵌网页（侧栏）`（`ctrl+alt+e`）、`DSH: 在浏览器打开`。seam 本体实现位于 deepseek-harness `seam/embed-auth` 分支（capability/open/BrowserAuth）。
+- **聊天中聊天（#22）**：会话内可插入**独立子会话卡片**（`src/chat/nestedSessions.ts` + `media/webview.html`），子会话=独立 dsh 会话（沿用父工作区、不共享执行上下文），支持流式文本、折叠、关闭、多开。
+- **编辑器上下文注入（#23）**：`src/chat/editorContext.ts` + 右键命令 `DSH：附选中代码提问` / `DSH：附当前文件提问`（有界上下文块 + 问题一起发送）。
+- **保活与兼容（#23）**：`src/client/liveness.ts` 断线计时/重连提示（状态栏 `连接断开，重连中 · Ns`，恢复提示），`src/client/versionCompat.ts` 基于 capability 的 seam 版本矩阵（ok/warn/unsupported）。
+- **验证索引**：connection 包（harness）169/169 + 真产品 seam e2e；扩展 `vitest` 88 passed（含 webview 渲染/嵌套/上下文/保活/兼容）、typecheck、esbuild、`vsce package`；真 VS Code 侧栏内嵌截图 `docs/evidence/embed-sidebar-vscode-1/2.png`。
+- **待真机**：真实桌面/远程桌面里的人工打字流式验收与双窗口并发一致性观察（纯 Xvfb 下 Electron 不接收合成键盘事件，已记录）。
