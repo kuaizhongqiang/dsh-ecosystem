@@ -412,3 +412,38 @@ HEAD /              → 401，无 X-Frame-Options / CSP 头
 
 *本文件为决策草稿，未合入主线；事实部分基于指定版本源码与上述探测，若目标 dsh 版本变动请以
 新版本源码复核 F1/F4/F5。*
+
+---
+
+## §9 前置依赖实现提案：dsh server「embed 认证 seam」（#21 先决）
+
+> 结论先行：不新增 server seam 前，#21 只能给出「引导在浏览器打开」的降级形态，
+> #22/#23 的会话内嵌无法成立。seam 属于 **dsh server（deepseek-harness）** 侧改动，
+> 建议按最小面落地并做版本门控，避免影响现有浏览器/桌面/远程客户端。
+
+### 9.1 目标形态
+
+- VS Code WebviewView / 聊天内嵌 iframe 的顶层文档 = `vscode-webview://…`（跨站、无 3rd-party cookie 可用）。
+- 因此 seam 的目标不是「复用浏览器 cookie」，而是给 **webview 携带的宿主身份**（launch-token /
+  vscode 已持有的 session token）一次性的 **302 → Set-Cookie(同站可带) 或 URL 授权**：
+  1. 扩展用既有的 launch-token（`launch-token.json`，扩展与 launcher 共享）请求 seam 端点；
+  2. seam 校验后把请求 302 到 `/<session|ui>/…` 并种下 **受限 cookie（`SameSite=None; Secure?` 或 Path 限定 + HttpOnly）**，或直接下发一次性 embed URL（内嵌 token query，短 TTL、一次性）；
+  3. iframe 内 dsh web 用该 cookie/URL 正常 boot（`__DSH_BOOT__` 与 `/plugins` 均为同源资源，不受影响）。
+
+### 9.2 候选 seam 面（按改动最小排序）
+
+| 方案 | 形态 | 优点 | 缺点 |
+|---|---|---|---|
+| S1 query-token 直开 | 扩展把 `?token=<one-time>` 拼到 `/{sessionId}` 深链，server 校验后 302 登录 | 改动集中在认证入口；深链天然可用 | 一次性 token 需 server 签发/回收；URL 可能落日志 |
+| S2 同源代理 cookie 注入 | server 新增 `/api/embed/login`：POST launch-token → 302 + Set-Cookie(HttpOnly, SameSite=None, Secure=由部署决定) | 与浏览器登录一致、后续子资源自动带 cookie | 需处理 None+Secure 在 http(127.0.0.1) 下不可用 → 本地回退 SameSite=Lax + top-level 语义问题；严格讲仍需 iframe 内 first-party 导航才带 |
+| **S3 推荐：内嵌页同源 gateway** | 扩展 WebviewView 首页由扩展本地 serve（`webview.asWebviewUri` 同源资源），页面内 `fetch`（非 iframe）直连 dsh REST（同现有 RPC），只在「需要完整 dsh web UI」时 iframe seam URL | 复用现有 RPC 通道实现 90% 侧栏功能；iframe 仅作「整页 UI」增强，可版本门控降级 | 不是「iframe 全量复用」字面形态，需在 #21/#22/#23 内定义「哪些能力走 RPC、哪些走 iframe」 |
+
+### 9.3 建议排期（待用户/维护者拍板后执行）
+
+1. 先在本地 harness（`/home/kuai/deepseek-harness`，v0.1.5-alpha.1 基线）实现 S1（one-time embed token + 深链 302），冒烟；
+2. 同步伞仓 `deepseek-harness` 子模块指针（当前 rc.7，记忆待办）后随下一 dsh 版本发布；
+3. 扩展侧实现 feature-detect：探测 seam 存在（`GET /api/embed/capability`）→ 有则 iframe 全量复用，无则 RPC 会话视图 + 浏览器打开降级；
+4. #22「聊天中聊天」基于 seam 后同一套 iframe 宿主多实例（每条消息一张内嵌卡）。
+
+> 注：本提案涉及 dsh server 版本发布与伞仓子模块指针（已列待办），超出 dsh-vscode 单仓闭环范围，
+> 需先经团队确认（本地 dev 版本 vs 已发布版本线）。状态：**待评审**。
