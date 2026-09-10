@@ -313,6 +313,11 @@
         "command": "dsh.askAboutFile",
         "title": "DSH：附当前文件提问",
         "category": "DSH"
+      },
+      {
+        "command": "dsh.openEmbed",
+        "title": "DSH：打开内嵌网页（侧栏）",
+        "category": "DSH"
       }
     ],
     "viewsContainers": {
@@ -411,6 +416,11 @@
         "command": "dsh.openChat",
         "key": "ctrl+alt+d",
         "mac": "cmd+alt+d"
+      },
+      {
+        "command": "dsh.openEmbed",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e"
       }
     ]
   },
