@@ -1,0 +1,22 @@
+{
+  "name": "agent-memory-codegraph",
+  "version": "1.0.0",
+  "description": "MCP stdio server exposing the MemoryCore/MemoryKnowledge code-graph channel (code_search/code_callers/code_callees/code_impact/code_explore/code_node/code_files/code_graph_list). Local enhancement layer for dsh agent-memory (milestone #3).",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node mcp-tests.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "agent-memory",
+    "code-graph",
+    "mcp",
+    "memorycore"
+  ],
+  "license": "UNLICENSED"
+}

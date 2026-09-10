@@ -1,0 +1,20 @@
+# cordis.patch.yml 样例 —— 新增 agent-memory code-graph MCP 通道
+# 拷贝到 ~/.dsh/profiles/web/cordis.patch.yml 的 insert 列表（或用插件区同目录管理）。
+# 身份/隔离沿用与 mcp-agent-memory 相同的三元组 env；额外只加 KNOWLEDGE_ENDPOINT。
+# 回滚 = 删除本块；不影响上游 mcp-agent-memory 的 recall/store/search。
+# 注意 args 里的绝对路径要指向 profile 内复制后的 index.mjs（Windows 请用对应用户路径）。
+- insert:
+    - id: mcp-agent-memory-codegraph
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: agent-memory-codegraph
+        transport: stdio
+        command: node
+        args: ['/home/kuai/.dsh/profiles/web/plugins/agent-memory-codegraph/index.mjs']
+        env:
+          KNOWLEDGE_ENDPOINT: 'http://127.0.0.1:8421'
+          SERVICE_ID: default
+          TEAM_ID: team-w7eai9w6kc
+          USER_ID: usr-w7easao7jg
+          AGENT_ID: agt-k4p9q8w7zm
+        toolCallTimeoutMs: 30000
