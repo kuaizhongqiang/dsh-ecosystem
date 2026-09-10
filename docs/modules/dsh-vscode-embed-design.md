@@ -501,3 +501,19 @@ set-cookie: cookieName(authority)=<v>; Max-Age=…; Path=/; HttpOnly;
   - 非 embed 请求路径完全不变（仍 `SameSite=Strict`，无 `Secure`/`Partitioned`）；两条新路由为 exact，优先于既有 `/api` prefix。
 - **验证**：connection 包 vitest **169/169**（新增 browser-auth embed 用例 + 真实 HTTP 组合冒烟 `embed-seam.host.spec.ts`：capability、303 属性、cookie 过 Host fence（有 cookie→404 而非 401）、deep-link、重复打开无新 Set-Cookie）；`tsc --noEmit` 干净。
 - **待办**：接入运行实例需重启 `dsh.service`（当前正服务本会话，需择时执行）；扩展侧 `dsh.web` 会经 `/api/embed/capability` 自动切换为真内嵌；随 dsh 版本发布/伞仓 `deepseek-harness` 子模块指针升级时纳入正式版本线。
+
+### 10.5 真产品 + 真 VS Code 内嵌验证（2026-09-10）
+
+- **真产品 seam 端到端**（worktree 全量构建后的独立实例 `:3099`，`DSH_HOME=/tmp/dsh-3099`）：
+  | 步骤 | 结果 |
+  |---|---|
+  | `GET /api/embed/capability` | `200 {"seam":true,"version":1}` |
+  | `GET /?token=…&embed=1` | `303 /` + `HttpOnly SameSite=None Secure Partitioned` |
+  | 带 cookie `GET /` | `200`，index 注入 `__DSH_BOOT__` |
+  | `GET /api/embed/open?t=…&path=/session/s1` | `303 /session/s1` + embed 属性 |
+  | 普通 `GET /?token=…`（非 embed） | `303` + `HttpOnly SameSite=Strict`（无回归） |
+  | 负向：路径穿越 / 错 token / 匿名 API | `401` / `401` / `401`（带 cookie 的 API 请求过 fence 后 `404`） |
+- **VS Code 真内嵌**（dsh-testing VSCode-linux + Xvfb `:97`，扩展经 `--extensionDevelopmentPath` 加载，`dsh.serverUrl=http://127.0.0.1:3099`）：
+  - 触发 `dsh.openEmbed`（快捷键 `ctrl+alt+e` / 命令面板）后，侧栏「DSH 网页」视图**渲染出真实 dsh web UI**（可见 dsh「内测声明」页面与页面样式），工具栏显示「在浏览器打开 / 刷新」。
+  - 截图证据：`docs/evidence/embed-sidebar-vscode-1.png`、`docs/evidence/embed-sidebar-vscode-2.png`。
+- **尚待补**：在 3099 实例配置模型凭据后，完成「侧栏发起对话 → 流式回复」与「重启 dsh 后 token 轮换重连」（#21/#23 的交互验收）；live `dsh.service`（3080）仍跑旧代码，seam 生效需择时重启。
