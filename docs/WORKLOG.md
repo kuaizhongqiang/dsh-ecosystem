@@ -1,5 +1,13 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-11(dsh-ecosystem v0.9.2 发布 —— 代理支持无令牌服务器)
+
+- **问题**:0.9.1 的本地代理强制要求 launch-token;连无认证(或仅靠 extraHeaders)的 dsh 时会报「代理启动失败(令牌缺失)」。
+- **修复**:token 可选 + 复用连接层会话 cookie(`DshConnection.cookieHeader`);启动后预检根路径,401/403 明确提示
+  `auth-required`(引导填 `dsh.token` 或改用启动器),网络失败提示 `unreachable`;超大请求体改为流式透传(不再截断)。
+- **验证**:代理单测 8 项;vitest 96 passed;typecheck/build ✓。
+- **发布**:tag `v0.9.2`,CI 五 job 全绿,Open VSX 已上架 0.9.2,Release 资产齐全。
+
 ## 2026-09-11(dsh-ecosystem v0.9.1 发布 —— 无 seam dsh 的本地兼容内嵌)
 
 - **背景**:0.9.0 在连官方发布版 dsh(无 embed seam)的机器上只能降级「浏览器打开」。
