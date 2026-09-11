@@ -37,7 +37,7 @@ M0 协议对齐(clearLaunchToken source+pid 双匹配等)已合入(0.3.0 线)。
 设计与决策记录见 [`dsh-vscode-embed-design.md`](dsh-vscode-embed-design.md)（含 seam 提案 §9、参考补丁 §10、真产品+真机验证 §10.5）。
 
 - **承载/认证（#20/#21）**：侧栏新增 `dsh.web` 视图（`src/embed/`），薄壳 + iframe 复用 dsh web。
-  认证依赖 dsh server 的 **embed seam**（`GET /api/embed/capability` → `{seam,version}`；`GET /api/embed/open?t=&path=` 一次性 token → 303 + embed cookie：`SameSite=None`，loopback/https 加 `Secure`，加 `Partitioned`）。seam 缺失或版本不兼容时**降级为「在浏览器打开」**（绝不空白页）。
+  认证优先走 dsh server 的 **embed seam**（`GET /api/embed/capability` → `{seam,version}`；`GET /api/embed/open?t=&path=` 一次性 token → 303 + embed cookie：`SameSite=None`，loopback/https 加 `Secure`，加 `Partitioned`）；**服务器没有 seam（例如官方发布版 dsh）时自动改用扩展侧本机反向代理**（`src/embed/embedProxy.ts`：把 launch-token 换成上游 cookie 后转发 HTTP/WebSocket，iframe 指向 `http://127.0.0.1:<port>/`），代理也失败才降级「在浏览器打开」（绝不空白页）。
   命令：`DSH：打开内嵌网页（侧栏）`（`ctrl+alt+e`）、`DSH: 在浏览器打开`。seam 本体实现位于 deepseek-harness `seam/embed-auth` 分支（capability/open/BrowserAuth）。
 - **聊天中聊天（#22）**：会话内可插入**独立子会话卡片**（`src/chat/nestedSessions.ts` + `media/webview.html`），子会话=独立 dsh 会话（沿用父工作区、不共享执行上下文），支持流式文本、折叠、关闭、多开。
 - **编辑器上下文注入（#23）**：`src/chat/editorContext.ts` + 右键命令 `DSH：附选中代码提问` / `DSH：附当前文件提问`（有界上下文块 + 问题一起发送）。

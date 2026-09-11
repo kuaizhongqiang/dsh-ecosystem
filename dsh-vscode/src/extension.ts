@@ -15,6 +15,7 @@ import { SessionStore } from './sessionStore.ts'
 import { SidebarWebviewProvider, type SidebarView, type UpdateStatus } from './sidebarView.ts'
 import { EmbedWebviewProvider } from './embed/embedView.ts'
 import { probeSeamInfo } from './embed/embedModel.ts'
+import { EmbedProxy, type EmbedProxyHandle } from './embed/embedProxy.ts'
 import { ConnectionLiveness } from './client/liveness.ts'
 import { checkEmbedCompat } from './client/versionCompat.ts'
 import { StatusBar } from './statusBar.ts'
@@ -61,6 +62,8 @@ class DshExtension {  readonly output: vscode.OutputChannel
   private readonly liveness = new ConnectionLiveness()
   private livenessTimer: NodeJS.Timeout | undefined
   private compatWarned = false
+  /** 扩展侧本机 embed 代理（无 seam 的服务器也支持内嵌），按 upstream 复用。 */
+  private readonly embedProxies = new Map<string, EmbedProxyHandle>()
   private localServer: LocalServerManager
   private cachedPresets: AgentPresetEntry[] = []
   /** 优雅升级检查状态（首页"检查更新"卡片的数据源）。 */
@@ -147,6 +150,7 @@ class DshExtension {  readonly output: vscode.OutputChannel
         sessionId: this.embedSessionId,
       }),
       openExternal: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+      setupProxy: (target) => this.setupEmbedProxy(target),
     })
     this.disposables.push(
       vscode.window.registerWebviewViewProvider(EmbedWebviewProvider.viewType, this.embed, {
@@ -161,6 +165,8 @@ class DshExtension {  readonly output: vscode.OutputChannel
   }
 
   dispose(): void {
+    for (const handle of this.embedProxies.values()) handle.stop()
+    this.embedProxies.clear()
     this.stopLivenessTicker()
     ChatPanel.disposeAll()
     this.localServer.dispose()
@@ -353,6 +359,27 @@ class DshExtension {  readonly output: vscode.OutputChannel
     if (this.livenessTimer === undefined) return
     clearInterval(this.livenessTimer)
     this.livenessTimer = undefined
+  }
+
+  /** 启动（或复用）扩展侧本机代理，用于没有 embed seam 的服务器。 */
+  private async setupEmbedProxy(target: { base: string; token?: string }): Promise<{ origin: string } | undefined> {
+    if (target.token === undefined || target.token === '') return undefined
+    const existing = this.embedProxies.get(target.base)
+    if (existing !== undefined) return { origin: existing.origin }
+    try {
+      const proxy = new EmbedProxy({
+        baseUrl: target.base,
+        token: target.token,
+        extraHeaders: this.config.extraHeaders,
+      })
+      const handle = await proxy.start()
+      this.embedProxies.set(target.base, handle)
+      this.output.appendLine(`[dsh-vscode] embed 代理已启动 ${handle.origin} → ${target.base}（服务器无 seam 时的本地兼容路径）`)
+      return { origin: handle.origin }
+    } catch (error) {
+      this.output.appendLine(`[dsh-vscode] embed 代理启动失败：${errorMessage(error)}`)
+      return undefined
+    }
   }
 
   /** #23：探测服务器 embed seam 并做版本兼容判定（不兼容时显式提示，不静默）。 */

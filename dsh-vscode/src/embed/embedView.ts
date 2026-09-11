@@ -17,6 +17,11 @@ export interface EmbedViewDeps {
   getTarget: () => EmbedTargetInput
   /** 打开默认浏览器的回调（由宿主注入，便于测试）。 */
   openExternal: (url: string) => void
+  /**
+   * 可选的扩展侧本机代理：服务器没有 embed seam 时，用它把 iframe 指向
+   * 一个带 cookie 转发的 127.0.0.1 源（对任意 dsh 版本可用）。
+   */
+  setupProxy?: (target: EmbedTargetInput) => Promise<{ origin: string } | undefined>
 }
 
 export class EmbedWebviewProvider implements vscode.WebviewViewProvider {
@@ -56,16 +61,24 @@ export class EmbedWebviewProvider implements vscode.WebviewViewProvider {
       const input = this.deps.getTarget()
       const decision = await decideEmbed(input, { cache: !force })
       this.decision = decision
-      this.post(
-        decision.kind === 'embed'
-          ? { type: 'load', url: decision.url }
-          : {
-              type: 'fallback',
-              reason: decision.reason,
-              url: decision.url,
-              browserUrl: decision.browserUrl,
-            },
-      )
+      if (decision.kind === 'embed') {
+        this.post({ type: 'load', url: decision.url })
+      } else if (this.deps.setupProxy !== undefined && input.token !== undefined && input.token !== '') {
+        // 无 seam（服务器版本旧）→ 走扩展本机代理，仍可内嵌。
+        const proxied = await this.deps.setupProxy(input)
+        this.post(
+          proxied !== undefined
+            ? { type: 'load', url: `${proxied.origin}/` }
+            : { type: 'fallback', reason: 'proxy-failed', url: decision.url, browserUrl: decision.browserUrl },
+        )
+      } else {
+        this.post({
+          type: 'fallback',
+          reason: decision.reason,
+          url: decision.url,
+          browserUrl: decision.browserUrl,
+        })
+      }
       this.post({ type: 'busy', busy: false })
     } catch (e) {
       this.post({

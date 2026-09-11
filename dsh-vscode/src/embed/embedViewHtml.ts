@@ -99,6 +99,7 @@ export const embedViewHtml = (): string => `<!DOCTYPE html>
       'no-token': '当前连接没有可用令牌（launch-token）。',
       'no-seam': '当前 dsh server 版本未提供 embed 认证 seam（/api/embed/capability）。内嵌需要 dsh server 端 seam 支持。',
       unreachable: '尚未连接 dsh server，或无法访问。',
+      'proxy-failed': '扩展内置代理启动失败（令牌缺失或服务器不可达），可改用浏览器打开。',
     };
     $('reasonText').textContent = reasons[data.reason] || '未知原因。';
     status.textContent = '降级：在浏览器打开';
