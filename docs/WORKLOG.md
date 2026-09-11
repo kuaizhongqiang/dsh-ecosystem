@@ -22,7 +22,12 @@
 - **验证**:vitest 全量 12 文件 114 passed;typecheck ✓;build ✓;`check-webview-js` ✓。
   真机反算(会话 `session-055ae4eb…`,首事件 9/9 20:55 北京、跨 9/10 12:00 调价):旧实现 ¥0.4511 → 新实现 ¥0.2255,
   与「每步按当时价档」的理想值 ¥0.2255 完全一致(该口径与限制已写进 README 已知限制)。
-- **状态**:待用户真机审核费用 chip 显示后再发布(未打 tag)。
+- **发布**:tag `v0.9.3`(全量),CI run [34575316996](https://github.com/kuaizhongqiang/dsh-ecosystem/actions/runs/34575316996) 五 job 全绿
+  (Init / launcher / desktop / **vscode+Open VSX** / plugins 校验);Release 资产齐全
+  (launcher portable+setup、desktop setup+blockmap+latest.yml、`dsh-vscode-0.9.3.vsix`);
+  Open VSX 已上架 0.9.3(扩展内置「检查更新」可直接升级)。
+- **决策记录**(用户委托):计费精度取「分段价目 + 整段按会话最早事件时间取档」(不逐时分摊,已知限制已入 README);
+  旧模型名口径取**官方公告**(旧名路由 V4.1 Flash 并按 Flash 价)。
 
 ## 2026-09-11(dsh-ecosystem v0.9.2 发布 —— 代理支持无令牌服务器)
 
