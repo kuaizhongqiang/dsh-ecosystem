@@ -2,7 +2,7 @@
   "name": "dsh-vscode",
   "displayName": "DSH - DeepSeek Harness",
   "description": "在 VSCode 中连接 DeepSeek Harness（DSH）实例：会话列表、流式聊天、工具调用、审批与提问处理。",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "publisher": "kuaizhongqiang",
   "license": "MIT",
   "icon": "media/dsh-icon.png",
@@ -126,70 +126,163 @@
         "dsh.pricing": {
           "type": "object",
           "default": {
-            "deepseek-v4-flash": {
-              "input": 3,
-              "cacheHit": 0.1,
-              "output": 9,
-              "offPeak": {
-                "input": 1.5,
-                "cacheHit": 0.05,
-                "output": 4.5
+            "deepseek-flash": [
+              {
+                "effectiveFrom": "2026-09-10 12:00",
+                "peak": {
+                  "input": 2,
+                  "cacheHit": 0.04,
+                  "output": 8
+                },
+                "offPeak": {
+                  "input": 1,
+                  "cacheHit": 0.02,
+                  "output": 4
+                }
               }
-            },
-            "deepseek-v4-pro": {
-              "input": 9,
-              "cacheHit": 0.3,
-              "output": 27,
-              "offPeak": {
-                "input": 4.5,
-                "cacheHit": 0.15,
-                "output": 13.5
+            ],
+            "deepseek-v4-flash": [
+              {
+                "effectiveFrom": "2026-08-17 00:00",
+                "peak": {
+                  "input": 3,
+                  "cacheHit": 0.1,
+                  "output": 9
+                },
+                "offPeak": {
+                  "input": 1.5,
+                  "cacheHit": 0.05,
+                  "output": 4.5
+                }
+              },
+              {
+                "effectiveFrom": "2026-09-10 12:00",
+                "peak": {
+                  "input": 2,
+                  "cacheHit": 0.04,
+                  "output": 8
+                },
+                "offPeak": {
+                  "input": 1,
+                  "cacheHit": 0.02,
+                  "output": 4
+                }
               }
-            },
-            "mimo-v2.5": {
-              "input": 1,
-              "cacheHit": 0.02,
-              "output": 2
-            },
-            "mimo-v2.5-pro": {
-              "input": 3,
-              "cacheHit": 0.025,
-              "output": 6
-            }
+            ],
+            "deepseek-v4-flash-vision-exp": [
+              {
+                "effectiveFrom": "2026-08-21 00:00",
+                "peak": {
+                  "input": 3,
+                  "cacheHit": 0.1,
+                  "output": 9
+                },
+                "offPeak": {
+                  "input": 1.5,
+                  "cacheHit": 0.05,
+                  "output": 4.5
+                }
+              },
+              {
+                "effectiveFrom": "2026-09-10 12:00",
+                "peak": {
+                  "input": 2,
+                  "cacheHit": 0.04,
+                  "output": 8
+                },
+                "offPeak": {
+                  "input": 1,
+                  "cacheHit": 0.02,
+                  "output": 4
+                }
+              }
+            ],
+            "deepseek-v4-pro": [
+              {
+                "effectiveFrom": "2026-08-17 00:00",
+                "peak": {
+                  "input": 9,
+                  "cacheHit": 0.3,
+                  "output": 27
+                },
+                "offPeak": {
+                  "input": 4.5,
+                  "cacheHit": 0.15,
+                  "output": 13.5
+                }
+              }
+            ],
+            "mimo-v2.5": [
+              {
+                "input": 1,
+                "cacheHit": 0.02,
+                "output": 2
+              }
+            ],
+            "mimo-v2.5-pro": [
+              {
+                "input": 3,
+                "cacheHit": 0.025,
+                "output": 6
+              }
+            ]
           },
           "additionalProperties": {
-            "type": "object",
-            "properties": {
-              "input": {
-                "type": "number",
-                "description": "输入（缓存未命中）每百万 tokens 价格（¥）"
-              },
-              "cacheHit": {
-                "type": "number",
-                "description": "输入（缓存命中）每百万 tokens 价格（¥）"
-              },
-              "output": {
-                "type": "number",
-                "description": "输出每百万 tokens 价格（¥）"
-              },
-              "offPeak": {
-                "type": "object",
-                "description": "空闲时段价格（DeepSeek 峰谷定价；北京时间 9-12、14-18 为高峰，其余为空闲）",
-                "properties": {
-                  "input": {
-                    "type": "number"
-                  },
-                  "cacheHit": {
-                    "type": "number"
-                  },
-                  "output": {
-                    "type": "number"
+            "type": "array",
+            "description": "该模型的价目历史：按 effectiveFrom 升序的价目段数组（也可用旧版扁平写法 { input, cacheHit, output, offPeak }，视为一段无生效期的价目）。",
+            "items": {
+              "type": "object",
+              "properties": {
+                "effectiveFrom": {
+                  "type": "string",
+                  "description": "生效时点（北京时间 'YYYY-MM-DD HH:mm'，含）。缺省 = 该模型最早一段，永远兜底。"
+                },
+                "input": {
+                  "type": "number",
+                  "description": "输入（缓存未命中）每百万 tokens 价格（¥）；无峰谷时兼作全时段价（等价于 peak.input）"
+                },
+                "cacheHit": {
+                  "type": "number",
+                  "description": "输入（缓存命中）每百万 tokens 价格（¥）"
+                },
+                "output": {
+                  "type": "number",
+                  "description": "输出每百万 tokens 价格（¥）"
+                },
+                "peak": {
+                  "type": "object",
+                  "description": "高峰时段价（三项齐备才生效）",
+                  "properties": {
+                    "input": {
+                      "type": "number"
+                    },
+                    "cacheHit": {
+                      "type": "number"
+                    },
+                    "output": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "offPeak": {
+                  "type": "object",
+                  "description": "空闲时段价（DeepSeek 峰谷定价：北京时间为高峰 = 周一至周五 9-12、14-18；其余时段含周末全天为空闲）",
+                  "properties": {
+                    "input": {
+                      "type": "number"
+                    },
+                    "cacheHit": {
+                      "type": "number"
+                    },
+                    "output": {
+                      "type": "number"
+                    }
                   }
                 }
               }
             }
           },
-          "description": "用量栏费用估算的价格表：按模型 id 的每百万 tokens 单价（人民币 ¥）。默认内置 DeepSeek 官方峰谷价（2026-08-17 生效）与小米 MiMo 价，官方调价后可在此覆盖。"
+          "description": "用量栏费用估算的价格表：按模型 id 的每百万 tokens 单价（人民币 ¥）。默认内置 DeepSeek 官方峰谷价历史（2026-08-17 起峰谷定价、2026-09-10 12:00 起 V4.1 Flash 降价；高峰时段为北京时间周一至周五 9-12、14-18）与小米 MiMo 价；计费基准时点为会话最早事件时间。官方调价后可在此覆盖。"
         }
       }
     },

@@ -1,5 +1,29 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-11(dsh-vscode 0.9.3 —— 费用估算改按官方调价历史 + 峰谷时段)
+
+- **问题**(用户报):用量栏「累计费用 ¥」没跟上官方调价,且峰谷判档不看星期;实测当下(9/11 周五 15:22)费用 chip **根本不显示**。
+  三处根因:①峰谷规则按「9-12、14-18」判档但**未排除周末** —— 官方口径是「周一至周五 …,其余为空闲时段」,周六周日被按峰价翻倍;
+  ②价表键仍是 `deepseek-v4-flash`,而 2026-09-10 12:00 起官方模型名改 `deepseek-flash`(本机 `~/.dsh/settings.yaml` 已切),
+  查表未命中 → `estimateCostCny` 返回 undefined;③费率过期(Flash 现行峰价 2/0.04/8,旧条目 3/0.1/9)且无生效期概念,
+  历史会话无法按当时价目复算。
+- **数据基线**(官方文档,2026-09-11 核对):2026-08-17 00:00 起首次峰谷定价(闲时 = 峰价 50%);
+  2026-09-10 12:00 起 V4.1 Flash 上线并降价:flash 2/0.04/8、pro 9/0.3/27 未变;
+  旧名 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 按公告路由到 V4.1 Flash 并按 Flash 价计费。
+  **2026-09-14 12:00 的 `deepseek-v4-pro` 路由变更按用户要求暂不编码**,仅在价表注释与 README 留待办(到点加一段即可)。
+- **改动**:
+  1. 新增纯计算层 `dsh-vscode/src/pricing.ts`(不 import vscode):峰谷时段(周一至周五 + 周末全天闲时)、
+     `pricingAt`(按 `effectiveFrom` 选段 + 峰/闲选档 + 最长前缀别名回落)、`computeCostCny`、默认价目历史表;`config.ts` 转出保持旧 import 路径。
+  2. `dsh.pricing` 支持分段写法 `[{ effectiveFrom, peak, offPeak }]`,旧扁平写法兼容为「一段无生效期」;`chatPanel` 改为 `pricingAt(...)` 取档。
+  3. **计费基准时点**改为会话最早事件时间(`ChatModel` 新增 `onSessionEvent` 回调 → `chatPanel.noteSessionStart`),
+     打开面板的当刻不再影响口径(旧实现按当刻取档,跨 12:00/18:00 或跨调价日会把整段重算)。
+  4. 单测 `src/pricing.test.ts` 20 项(时段边界/周末/调价切换/别名/折算/官方价表 offPeak=peak÷2);
+     `package.json` 默认值同步 + 版本 0.9.2→0.9.3;README 与设置项描述同步。
+- **验证**:vitest 全量 12 文件 114 passed;typecheck ✓;build ✓;`check-webview-js` ✓。
+  真机反算(会话 `session-055ae4eb…`,首事件 9/9 20:55 北京、跨 9/10 12:00 调价):旧实现 ¥0.4511 → 新实现 ¥0.2255,
+  与「每步按当时价档」的理想值 ¥0.2255 完全一致(该口径与限制已写进 README 已知限制)。
+- **状态**:待用户真机审核费用 chip 显示后再发布(未打 tag)。
+
 ## 2026-09-11(dsh-ecosystem v0.9.2 发布 —— 代理支持无令牌服务器)
 
 - **问题**:0.9.1 的本地代理强制要求 launch-token;连无认证(或仅靠 extraHeaders)的 dsh 时会报「代理启动失败(令牌缺失)」。

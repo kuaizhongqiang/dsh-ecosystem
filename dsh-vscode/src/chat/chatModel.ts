@@ -22,6 +22,11 @@ export interface ChatModelOptions {
   connection: DshConnection
   sessionId: SessionId
   onOp: (op: HostToWebviewOp) => void
+  /**
+   * 每条会话事件（历史 + 实时）到达时回调其事件时间——宿主用它取会话计费基准时点，
+   * 让价格档位与调价生效期按会话自身时间取，而不是按打开面板的当刻。
+   */
+  onSessionEvent?: (at: Date) => void
   /** Tool-result truncation cap before shipping to the webview (default 4000). */
   maxToolResultChars?: number
 }
@@ -43,6 +48,7 @@ export class ChatModel {
   private readonly connection: DshConnection
   private readonly sessionId: SessionId
   private readonly onOp: (op: HostToWebviewOp) => void
+  private readonly onSessionEvent: ((at: Date) => void) | undefined
   private readonly maxToolResultChars: number
   private readonly messages: RenderMessage[] = []
   private readonly toolCalls = new Map<string, RenderToolCall>()
@@ -59,6 +65,7 @@ export class ChatModel {
     this.connection = options.connection
     this.sessionId = options.sessionId
     this.onOp = options.onOp
+    this.onSessionEvent = options.onSessionEvent
     this.maxToolResultChars = options.maxToolResultChars ?? MAX_TOOL_RESULT_CHARS
     // Follow the durable session log first so nothing falls into the
     // history/live gap. The follow stream delivers a snapshot then live frames.
@@ -116,6 +123,9 @@ export class ChatModel {
     if (this.disposed) return
     if (event.seq <= this.maxSeq && this.loaded) return
     if (event.seq > this.maxSeq) this.maxSeq = event.seq
+    if (this.onSessionEvent !== undefined && typeof event.time === 'number') {
+      this.onSessionEvent(new Date(event.time))
+    }
     switch (event.type) {
       case 'user/message':
         this.handleUserMessage(event as unknown as UserMessageEvent)

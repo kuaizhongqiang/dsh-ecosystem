@@ -11,7 +11,7 @@ import type { DshConnection, DshEvent } from '../client/connection.ts'
 import { ChatModel } from './chatModel.ts'
 import { NestedSessions } from './nestedSessions.ts'
 import type { FileCandidate, HostToWebviewOp, PromptImage, SessionStatsView, WebviewToHostRequest } from './types.ts'
-import { computeCostCny, sessionWebUrl, type PricingTable } from '../config.ts'
+import { computeCostCny, pricingAt, sessionWebUrl, type PricingTable } from '../config.ts'
 
 export interface ChatPanelContext {
   extensionUri: vscode.Uri
@@ -65,6 +65,11 @@ export class ChatPanel {
   private running: boolean
   private stats: SessionStatsView = {}
   private currentModel: { provider: string; model: string; reasoningEffort?: string } | undefined
+  /**
+   * 计费基准时点：会话最早一条事件的毫秒时间戳。峰谷档与调价生效期都按它取，
+   * 这样打开面板的当刻不影响口径（否则跨 12:00/18:00 或跨调价日后整段会被重算）。
+   */
+  private sessionStartAt: Date | undefined
 
   private constructor(context: ChatPanelContext) {
     this.context = context
@@ -88,6 +93,7 @@ export class ChatPanel {
       connection: context.connection,
       sessionId: context.sessionId,
       onOp: (op) => this.postOp(op),
+      onSessionEvent: (at) => this.noteSessionStart(at),
       maxToolResultChars: context.maxToolResultChars,
     })
     this.nested = new NestedSessions({
@@ -449,11 +455,23 @@ export class ChatPanel {
     }
   }
 
+  /**
+   * 记录会话最早事件时间作为计费基准。历史与实时事件都从这里过；
+   * 基准一旦落定就回调一次，让已经到达的 tokenUsage 投影按正确口径重估。
+   */
+  private noteSessionStart(at: Date): void {
+    if (this.sessionStartAt !== undefined || Number.isNaN(at.getTime())) return
+    this.sessionStartAt = at
+    this.stats = this.refreshCost(this.stats)
+    this.postOp({ type: 'stats', stats: this.stats })
+  }
+
   /** 按当前会话模型官方价估算累计费用（¥）；模型/价格未知时不显示。 */
   private estimateCostCny(stats: SessionStatsView): number | undefined {
-    const price = this.currentModel !== undefined
-      ? this.context.pricing?.[this.currentModel.model]
-      : undefined
+    const modelId = this.currentModel?.model
+    if (modelId === undefined) return undefined
+    // 计费基准时点：会话最早事件时间；会话尚无事件时退回当下。
+    const price = pricingAt(this.context.pricing, modelId, this.sessionStartAt ?? new Date())
     if (price === undefined) return undefined
     const uncachedInput = stats.uncachedInputTokens ?? 0
     const cacheRead = stats.cacheReadTokens ?? 0

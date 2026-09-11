@@ -1,4 +1,25 @@
 import * as vscode from 'vscode'
+import {
+  DEFAULT_PRICING,
+  type ModelPricing,
+  type PricePeriod,
+  type PriceTier,
+  type PricingTable,
+} from './pricing.ts'
+
+// 纯计算层（默认价格表/时段判定/取价/费用折算）在 pricing.ts；这里连同默认价格表一起转出，
+// 保持既有 import 路径（`./config.ts`）不变。
+export {
+  beijingClock,
+  beijingStamp,
+  computeCostCny,
+  DEFAULT_PRICING,
+  DEEPSEEK_PEAK_WINDOWS,
+  isDeepSeekPeakHour,
+  pricingAt,
+  pricingPeriodAt,
+} from './pricing.ts'
+export type { ModelPricing, PricePeriod, PriceTier, PricingTable } from './pricing.ts'
 
 const SERVER_URL = 'dsh.serverUrl'
 const AUTO_CONNECT = 'dsh.autoConnect'
@@ -18,37 +39,6 @@ const PRICING = 'dsh.pricing'
 const LAUNCH_TOKEN_FOLLOW = 'dsh.launchTokenFollow'
 
 export type PromptMode = 'steer' | 'queue'
-
-/**
- * 每百万 tokens 单价（人民币 ¥）。DeepSeek 官方 2026-08-17 起采用峰谷定价：
- * 高峰时段为北京时间 9:00-12:00、14:00-18:00，其余为空闲时段（offPeak 为峰价一半）。
- * 小米 MiMo 为固定价。价格随官方调整，用户可在 dsh.pricing 设置里覆盖。
- */
-export interface ModelPrice {
-  /** 输入（缓存未命中）¥/1M tokens。 */
-  input: number
-  /** 输入（缓存命中）¥/1M tokens。 */
-  cacheHit: number
-  /** 输出 ¥/1M tokens。 */
-  output: number
-  /** 空闲时段价格（DeepSeek 峰谷定价；缺省表示无峰谷）。 */
-  offPeak?: { input: number; cacheHit: number; output: number }
-}
-
-export type PricingTable = Record<string, ModelPrice>
-
-export const DEFAULT_PRICING: PricingTable = {
-  'deepseek-v4-flash': {
-    input: 3.0, cacheHit: 0.1, output: 9.0,
-    offPeak: { input: 1.5, cacheHit: 0.05, output: 4.5 },
-  },
-  'deepseek-v4-pro': {
-    input: 9.0, cacheHit: 0.3, output: 27.0,
-    offPeak: { input: 4.5, cacheHit: 0.15, output: 13.5 },
-  },
-  'mimo-v2.5': { input: 1.0, cacheHit: 0.02, output: 2.0 },
-  'mimo-v2.5-pro': { input: 3.0, cacheHit: 0.025, output: 6.0 },
-}
 
 export interface DshConfig {
   serverUrl: string
@@ -73,7 +63,7 @@ export interface DshConfig {
   launchTokenFollow: boolean
   /** 发送消息的模式：'steer' = 插话（立即处理，默认，与 DSH Web 一致），'queue' = 排队（等当前回合结束）。 */
   promptMode: PromptMode
-  /** 按模型 id 的每百万 token 单价表（¥，用于用量栏费用估算）。 */
+  /** 按模型 id 的每百万 token 单价历史（¥，用于用量栏费用估算）。 */
   pricing: PricingTable
 }
 
@@ -109,29 +99,65 @@ function readPromptMode(config: vscode.WorkspaceConfiguration): PromptMode {
   return value === 'queue' ? 'queue' : 'steer'
 }
 
-/** 读取价格表：与默认表浅合并（用户覆盖某个模型或某档价格时保留其余默认值）。 */
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/** 读一档单价；三项缺一不可，否则整档丢弃。 */
+function readTier(raw: unknown): PriceTier | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const e = raw as Record<string, unknown>
+  const input = finiteNumber(e.input)
+  const cacheHit = finiteNumber(e.cacheHit)
+  const output = finiteNumber(e.output)
+  if (input === undefined || cacheHit === undefined || output === undefined) return undefined
+  return { input, cacheHit, output }
+}
+
+/**
+ * 读取价格表：与默认表合并（用户覆盖某个模型时整段替换该模型的价目历史）。
+ * 支持两种写法：
+ *   1) 分段写法（推荐）：`{ "<model>": [{ effectiveFrom, peak, offPeak }] }`，可表达官方调价历史与峰谷时段
+ *      （高峰 = 北京时间周一至周五 9-12、14-18，其余含周末为空闲）；
+ *   2) 扁平写法（旧版兼容）：`{ "<model>": { input, cacheHit, output, offPeak? } }`，
+ *      视为一段无生效期的价目，峰档取顶层三项、闲档取 offPeak。
+ */
 function readPricing(config: vscode.WorkspaceConfiguration): PricingTable {
   const raw = config.get<Record<string, unknown>>(key(PRICING), {})
   const out: PricingTable = { ...DEFAULT_PRICING }
   for (const [modelId, entry] of Object.entries(raw)) {
-    if (typeof entry !== 'object' || entry === null) continue
-    const e = entry as Record<string, unknown>
-    const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
-    const input = num(e.input)
-    const cacheHit = num(e.cacheHit)
-    const output = num(e.output)
-    if (input === undefined || cacheHit === undefined || output === undefined) continue
-    const price: ModelPrice = { input, cacheHit, output }
-    const off = e.offPeak
-    if (typeof off === 'object' && off !== null) {
-      const oi = num((off as Record<string, unknown>).input)
-      const oh = num((off as Record<string, unknown>).cacheHit)
-      const oo = num((off as Record<string, unknown>).output)
-      if (oi !== undefined && oh !== undefined && oo !== undefined) price.offPeak = { input: oi, cacheHit: oh, output: oo }
-    }
-    out[modelId] = price
+    const periods = Array.isArray(entry) ? readPeriods(entry) : readLegacyPeriod(entry)
+    if (periods === undefined || periods.length === 0) continue
+    out[modelId] = periods
   }
   return out
+}
+
+function readPeriods(entries: unknown[]): ModelPricing | undefined {
+  const periods: ModelPricing = []
+  for (const entry of entries) {
+    const peak = readTier(entry)
+    if (peak === undefined) continue
+    const e = entry as Record<string, unknown>
+    const offPeak = e.offPeak === undefined ? undefined : readTier(e.offPeak)
+    if (e.offPeak !== undefined && offPeak === undefined) continue
+    const effectiveFrom = typeof e.effectiveFrom === 'string' && e.effectiveFrom.length > 0 ? e.effectiveFrom : undefined
+    const period: PricePeriod = { input: peak.input, cacheHit: peak.cacheHit, output: peak.output }
+    if (effectiveFrom !== undefined) period.effectiveFrom = effectiveFrom
+    period.peak = peak
+    if (offPeak !== undefined) period.offPeak = offPeak
+    periods.push(period)
+  }
+  return periods.length > 0 ? periods : undefined
+}
+
+function readLegacyPeriod(entry: unknown): ModelPricing | undefined {
+  const peak = readTier(entry)
+  if (peak === undefined) return undefined
+  const offPeak = readTier((entry as Record<string, unknown>).offPeak)
+  const period: PricePeriod = { input: peak.input, cacheHit: peak.cacheHit, output: peak.output, peak }
+  if (offPeak !== undefined) period.offPeak = offPeak
+  return [period]
 }
 
 function readExtraHeaders(config: vscode.WorkspaceConfiguration): Record<string, string> {
@@ -153,27 +179,5 @@ export function onConfigChanged(listener: () => void): vscode.Disposable {
 
 /** The DSH web GUI URL for a session (the same origin as the API). */
 export function sessionWebUrl(serverUrl: string, sessionId: string): string {
-  const base = serverUrl.replace(/\/+$/, '')
-  return `${base}/session/${encodeURIComponent(sessionId)}`
-}
-
-/** 是否处于 DeepSeek 高峰时段（北京时间 9:00-12:00、14:00-18:00）。 */
-export function isDeepSeekPeakHour(now: Date = new Date()): boolean {
-  const bj = new Date(now.getTime() + 8 * 3600 * 1000)
-  const h = bj.getUTCHours()
-  return (h >= 9 && h < 12) || (h >= 14 && h < 18)
-}
-
-/** 按某模型单价估算费用（¥）。tokens 为累计 token 数；DeepSeek 峰谷价按当前北京时间取档。 */
-export function computeCostCny(
-  tokens: { uncachedInput: number; cacheRead: number; cacheWrite: number; output: number },
-  price: ModelPrice,
-): number {
-  const p = price.offPeak !== undefined && !isDeepSeekPeakHour() ? price.offPeak : price
-  return (
-    (tokens.uncachedInput / 1e6) * p.input +
-    (tokens.cacheWrite / 1e6) * p.input +
-    (tokens.cacheRead / 1e6) * p.cacheHit +
-    (tokens.output / 1e6) * p.output
-  )
+  return `${serverUrl.replace(/\/+$/, '')}/session/${encodeURIComponent(sessionId)}`
 }
