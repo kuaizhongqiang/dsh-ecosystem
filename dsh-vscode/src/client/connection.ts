@@ -96,6 +96,15 @@ export class DshConnection {
     return this.mux !== undefined && this.mux.connected
   }
 
+  /**
+   * Browser-session cookie obtained during connect (empty when the server
+   * requires none). The embed proxy reuses it so iframe traffic authenticates
+   * exactly like the extension's own API calls.
+   */
+  get cookieHeader(): string {
+    return this.authCookie
+  }
+
   onEvent(listener: DshEventListener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)

@@ -27,14 +27,18 @@ import { authenticateWithToken } from '../client/auth.ts'
 export interface EmbedProxyOptions {
   /** Upstream dsh base URL, e.g. `http://127.0.0.1:3080`. */
   baseUrl: string
-  /** Launch token used for the cookie exchange. */
-  token: string
+  /** Launch token used for the cookie exchange (empty = server needs none). */
+  token?: string
   /** Extra headers for the exchange and upstream requests. */
   extraHeaders?: Record<string, string>
   /** Bind port (default 0 = OS-assigned). */
   port?: number
   /** Injectable token→cookie exchange (tests). */
   exchange?: (baseUrl: string, token: string, extraHeaders: Record<string, string>) => Promise<string>
+  /** Seed cookie (e.g. the connection's own browser-session cookie). */
+  cookie?: string
+  /** Bodies larger than this are streamed through instead of buffered (no 401 retry). */
+  maxRetryBodyBytes?: number
 }
 
 export interface EmbedProxyHandle {
@@ -59,6 +63,8 @@ export class EmbedProxy {
   private readonly token: string
   private readonly extraHeaders: Record<string, string>
   private readonly exchange: (baseUrl: string, token: string, extraHeaders: Record<string, string>) => Promise<string>
+  private readonly seedCookie: string
+  private readonly maxRetryBodyBytes: number
   private readonly desiredPort: number
   private server: Server | undefined
   private cookie = ''
@@ -66,8 +72,10 @@ export class EmbedProxy {
 
   constructor(options: EmbedProxyOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '')
-    this.token = options.token
+    this.token = options.token ?? ''
     this.extraHeaders = options.extraHeaders ?? {}
+    this.seedCookie = options.cookie ?? ''
+    this.maxRetryBodyBytes = options.maxRetryBodyBytes ?? MAX_RETRY_BODY_BYTES
     this.desiredPort = options.port ?? 0
     this.exchange = options.exchange ?? (async (base, token, headers) => (await authenticateWithToken(base, token, headers)).cookie)
   }
@@ -75,7 +83,11 @@ export class EmbedProxy {
   /** Start listening; resolves with the iframe origin. */
   async start(): Promise<EmbedProxyHandle> {
     if (this.handle !== undefined) return this.handle
-    this.cookie = await this.exchange(this.baseUrl, this.token, this.extraHeaders)
+    // No token: the server either needs no auth or the caller seeded the
+    // connection's own browser-session cookie; forward as-is.
+    this.cookie = this.token === ''
+      ? this.seedCookie
+      : await this.exchange(this.baseUrl, this.token, this.extraHeaders)
     const server = createServer((req, res) => { void this.forward(req, res) })
     server.on('upgrade', (req, socket, head) => { void this.forwardUpgrade(req, socket as Socket, head) })
     await new Promise<void>((resolve, reject) => {
@@ -142,7 +154,14 @@ export class EmbedProxy {
 
   private async forward(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const retryable = req.method === 'GET' || req.method === 'HEAD'
-    const body = retryable ? Buffer.alloc(0) : await readBody(req, MAX_RETRY_BODY_BYTES)
+    const read = retryable ? { body: Buffer.alloc(0), truncated: false } : await readBody(req, this.maxRetryBodyBytes)
+    if (read.truncated) {
+      // Too large to buffer for a retry: stream the (already partially read)
+      // body through unchanged so uploads are never truncated.
+      this.streamThrough(req, res, read.body)
+      return
+    }
+    const body = read.body
     const attempt = async (): Promise<{ status: number; headers: Record<string, string | string[]>; body: Buffer }> =>
       sendUpstream(this.upstream(), req.method ?? 'GET', req.url ?? '/', this.requestHeaders(req), body)
     try {
@@ -162,6 +181,30 @@ export class EmbedProxy {
       res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
       res.end(`embed proxy upstream error: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+
+  /** Pass a large request straight through (no retry, no truncation). */
+  private streamThrough(req: IncomingMessage, res: ServerResponse, prefix: Buffer): void {
+    const up = this.upstream()
+    const send = up.protocol === 'https:' ? httpsRequest : httpRequest
+    const upstreamReq = send(
+      { hostname: up.hostname, port: up.port, method: req.method ?? 'POST', path: req.url ?? '/', headers: this.requestHeaders(req), setHost: false },
+      (upstreamRes) => {
+        const headers: Record<string, string | string[]> = {}
+        for (const [key, value] of Object.entries(upstreamRes.headers)) {
+          if (value === undefined || STRIPPED_RESPONSE_HEADERS.has(key.toLowerCase())) continue
+          headers[key] = key.toLowerCase() === 'location' && typeof value === 'string' ? this.rewriteLocation(value) : value
+        }
+        res.writeHead(upstreamRes.statusCode ?? 502, headers)
+        upstreamRes.pipe(res)
+      },
+    )
+    upstreamReq.on('error', () => {
+      if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('embed proxy upstream error')
+    })
+    if (prefix.length > 0) upstreamReq.write(prefix)
+    req.pipe(upstreamReq)
   }
 
   private async forwardUpgrade(req: IncomingMessage, clientSocket: Socket, head: Buffer): Promise<void> {
@@ -218,14 +261,34 @@ function sendUpstream(
   })
 }
 
-async function readBody(req: IncomingMessage, cap: number): Promise<Buffer> {
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of req) {
-    const buf = chunk as Buffer
-    size += buf.length
-    if (size > cap) return Buffer.concat(chunks)
-    chunks.push(buf)
-  }
-  return Buffer.concat(chunks)
+/**
+ * Buffer a request body up to `cap`. On overflow the collected prefix is
+ * returned with `truncated: true` and — crucially — the stream is left
+ * un-destroyed so the caller can pipe the remainder through unchanged
+ * (`for await` would destroy it on early return).
+ */
+function readBody(req: IncomingMessage, cap: number): Promise<{ body: Buffer; truncated: boolean }> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    let settled = false
+    const finish = (truncated: boolean): void => {
+      if (settled) return
+      settled = true
+      req.off('data', onData)
+      req.off('end', onEnd)
+      req.off('error', onError)
+      resolve({ body: Buffer.concat(chunks), truncated })
+    }
+    const onData = (chunk: Buffer): void => {
+      size += chunk.length
+      chunks.push(chunk)
+      if (size > cap) finish(true)
+    }
+    const onEnd = (): void => { finish(false) }
+    const onError = (): void => { finish(false) }
+    req.on('data', onData)
+    req.on('end', onEnd)
+    req.on('error', onError)
+  })
 }

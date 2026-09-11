@@ -361,24 +361,43 @@ class DshExtension {  readonly output: vscode.OutputChannel
     this.livenessTimer = undefined
   }
 
-  /** 启动（或复用）扩展侧本机代理，用于没有 embed seam 的服务器。 */
-  private async setupEmbedProxy(target: { base: string; token?: string }): Promise<{ origin: string } | undefined> {
-    if (target.token === undefined || target.token === '') return undefined
+  /**
+   * 启动（或复用）扩展侧本机代理，用于没有 embed seam 的服务器。
+   * 无 token 也会尝试（服务器可能无需认证），并用连接自身的会话 cookie 兜底；
+   * 启动后做一次根路径预检，区分「需要认证」与「不可达」。
+   */
+  private async setupEmbedProxy(
+    target: { base: string; token?: string },
+  ): Promise<{ origin: string } | { error: 'auth-required' | 'unreachable' }> {
+    if (target.base === '') return { error: 'unreachable' }
     const existing = this.embedProxies.get(target.base)
     if (existing !== undefined) return { origin: existing.origin }
     try {
       const proxy = new EmbedProxy({
         baseUrl: target.base,
         token: target.token,
+        cookie: this.connection?.cookieHeader ?? '',
         extraHeaders: this.config.extraHeaders,
       })
       const handle = await proxy.start()
+      try {
+        const res = await fetch(`${handle.origin}/`, { redirect: 'manual' })
+        if (res.status === 401 || res.status === 403) {
+          handle.stop()
+          this.output.appendLine(`[dsh-vscode] embed 代理预检需要认证（HTTP ${String(res.status)}）：未取到可用令牌`)
+          return { error: 'auth-required' }
+        }
+      } catch (error) {
+        handle.stop()
+        this.output.appendLine(`[dsh-vscode] embed 代理预检失败：${errorMessage(error)}`)
+        return { error: 'unreachable' }
+      }
       this.embedProxies.set(target.base, handle)
       this.output.appendLine(`[dsh-vscode] embed 代理已启动 ${handle.origin} → ${target.base}（服务器无 seam 时的本地兼容路径）`)
       return { origin: handle.origin }
     } catch (error) {
       this.output.appendLine(`[dsh-vscode] embed 代理启动失败：${errorMessage(error)}`)
-      return undefined
+      return { error: 'unreachable' }
     }
   }
 

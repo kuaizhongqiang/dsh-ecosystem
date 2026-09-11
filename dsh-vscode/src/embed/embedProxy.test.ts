@@ -124,4 +124,46 @@ describe('EmbedProxy', () => {
     expect(res.status).toBe(200)
     expect(seen).toEqual(['{"a":1}'])
   })
+  it('forwards without a token (open server) and never exchanges', async () => {
+    let exchanged = 0
+    upstream = await startUpstream(() => ({ status: 200, body: 'open' }))
+    proxy = new EmbedProxy({
+      baseUrl: upstream.base,
+      token: '',
+      exchange: async () => { exchanged += 1; return 'unexpected' },
+    })
+    const handle = await proxy.start()
+    const res = await fetch(`${handle.origin}/api/open`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('open')
+    expect(exchanged).toBe(0)
+    expect(upstream.requests.at(-1)!.headers.cookie).toBeUndefined()
+  })
+
+  it('uses the seeded connection cookie when no token is available', async () => {
+    upstream = await startUpstream((cookie) =>
+      cookie === 'dsh-auth-seeded=1' ? { status: 200, body: 'seeded' } : { status: 401, body: 'unauthorized' })
+    proxy = new EmbedProxy({ baseUrl: upstream.base, token: '', cookie: 'dsh-auth-seeded=1' })
+    const handle = await proxy.start()
+    const res = await fetch(`${handle.origin}/api/ping`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('seeded')
+    expect(upstream.requests.at(-1)!.headers.cookie).toBe('dsh-auth-seeded=1')
+  })
+  it('streams oversized request bodies instead of truncating them', async () => {
+    const seen: number[] = []
+    upstream = await startUpstream(() => ({ status: 200, body: 'ok' }))
+    upstream.server.removeAllListeners('request')
+    upstream.server.on('request', (req, res) => {
+      let size = 0
+      req.on('data', (c: Buffer) => { size += c.length })
+      req.on('end', () => { seen.push(size); res.writeHead(200); res.end('ok') })
+    })
+    proxy = new EmbedProxy({ baseUrl: upstream.base, token: '', maxRetryBodyBytes: 64 })
+    const handle = await proxy.start()
+    const payload = 'x'.repeat(512)
+    const res = await fetch(`${handle.origin}/api/upload`, { method: 'POST', body: payload })
+    expect(res.status).toBe(200)
+    expect(seen).toEqual([512])
+  })
 })

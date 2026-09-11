@@ -21,7 +21,7 @@ export interface EmbedViewDeps {
    * 可选的扩展侧本机代理：服务器没有 embed seam 时，用它把 iframe 指向
    * 一个带 cookie 转发的 127.0.0.1 源（对任意 dsh 版本可用）。
    */
-  setupProxy?: (target: EmbedTargetInput) => Promise<{ origin: string } | undefined>
+  setupProxy?: (target: EmbedTargetInput) => Promise<{ origin: string } | { error: 'auth-required' | 'unreachable' }>
 }
 
 export class EmbedWebviewProvider implements vscode.WebviewViewProvider {
@@ -63,13 +63,14 @@ export class EmbedWebviewProvider implements vscode.WebviewViewProvider {
       this.decision = decision
       if (decision.kind === 'embed') {
         this.post({ type: 'load', url: decision.url })
-      } else if (this.deps.setupProxy !== undefined && input.token !== undefined && input.token !== '') {
-        // 无 seam（服务器版本旧）→ 走扩展本机代理，仍可内嵌。
+      } else if (this.deps.setupProxy !== undefined && input.base !== '') {
+        // 无 seam（服务器版本旧）→ 走扩展本机代理；不需要 token 也尝试，
+        // 上游要求认证时给出准确原因而不是笼统失败。
         const proxied = await this.deps.setupProxy(input)
         this.post(
-          proxied !== undefined
+          'origin' in proxied
             ? { type: 'load', url: `${proxied.origin}/` }
-            : { type: 'fallback', reason: 'proxy-failed', url: decision.url, browserUrl: decision.browserUrl },
+            : { type: 'fallback', reason: proxied.error, url: decision.url, browserUrl: decision.browserUrl },
         )
       } else {
         this.post({
