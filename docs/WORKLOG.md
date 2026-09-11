@@ -1,5 +1,19 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-11(dsh-ecosystem v0.9.0 发布 —— M1/M2/M3 三 milestone 交付)
+
+- **发布**:tag `v0.9.0`,三组件 bump 0.8.5→0.9.0;CI 五个 job(init/launcher/desktop/vscode+Open VSX/plugins)全绿;
+  Release 资产:launcher portable+setup、desktop setup+latest.yml+blockmap、vscode vsix;Open VSX 已上架 0.9.0。
+- **M1 launcher UI**:分区化信息架构(顶部固定概览条+分区跳转+折叠卡片)、`/api/ui-state` 展开/日志偏好持久化(原子写)、
+  概览聚合、生态包 sha 明细、连接列表、日志工具条(只看错误/暂停跟随/环形缓冲)、`/api/open`。
+- **M2 dsh-vscode**:侧栏 `dsh.web` 内嵌 dsh web(seam 认证;缺失/版本不兼容时降级浏览器打开)、聊天中聊天(独立子会话卡片)、
+  编辑器上下文注入(选中/当前文件)、断线保活提示、embed seam 版本兼容矩阵。
+  认证 seam 实现在 dsh 本体(本地 `browser-auth`:capability + `/api/embed/open`,embed=1 时 SameSite=None/Partitioned),
+  上游未推;真机:真 VS Code 侧栏渲染 + 扩展生产连接层流式 `STREAM-OK`(920ms)。
+- **M3 agent-memory**:新增 `dsh-plugins/plugins/agent-memory-codegraph-dsh-plugin`(本地增强层 MCP server,8 个 code_* 工具,
+  TEAM_ID 隔离、失败显式报错);profile 注入后线上已生效(code_graph_list/search/callers 实测)。
+- 验证:launcher `tsc`+build;vscode typecheck+vitest 88 passed+build+vsce;connection 包 170/170;`verify-release.mjs` OK。
+
 ## 2026-09-09(dsh-ecosystem v0.8.5 发布 —— 一键升级插件真正下发)
 
 - **发布**:tag `v0.8.5`(基于 B 分支交付修复 + 插件集重钉),三组件 bump 0.8.4→0.8.5。
