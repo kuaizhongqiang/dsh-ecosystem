@@ -1,5 +1,15 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-11(dsh-ecosystem v0.9.1 发布 —— 无 seam dsh 的本地兼容内嵌)
+
+- **背景**:0.9.0 在连官方发布版 dsh(无 embed seam)的机器上只能降级「浏览器打开」。
+- **方案**:扩展侧本机回环代理 `src/embed/embedProxy.ts` —— launch-token 换上游 cookie 后转发
+  HTTP/WebSocket(401 自动刷新重试、绝对 Location 重写、set-cookie/浏览器身份头剥离);
+  seam 缺失且有 token 时自动走代理内嵌,代理失败仍降级浏览器打开。
+- **验证**:代理单测 5 项(cookie/Host/401 重试/Location/相对重定向/POST);vitest 93 passed;
+  真机:代理直连运行中的 dsh 3080 → 首页 200 + `__DSH_BOOT__` 注入。
+- **发布**:tag `v0.9.1`,三组件 bump 0.9.0→0.9.1,CI 五 job 全绿,Open VSX 已发布 0.9.1。
+
 ## 2026-09-11(dsh-ecosystem v0.9.0 发布 —— M1/M2/M3 三 milestone 交付)
 
 - **发布**:tag `v0.9.0`,三组件 bump 0.8.5→0.9.0;CI 五个 job(init/launcher/desktop/vscode+Open VSX/plugins)全绿;
