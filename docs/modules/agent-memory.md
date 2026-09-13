@@ -1,0 +1,81 @@
+# agent-memory — L5 记忆层（伞仓内目录 + L3 插件包）
+
+| 项 | 值 |
+|---|---|
+| 来源仓 | [kuaizhongqiang/TencentAgentMemoryBridge](https://github.com/kuaizhongqiang/TencentAgentMemoryBridge)（并入伞仓后作为上游保留，DSH 侧不再单独维护；无 gh CLI 故未在 GitHub 侧归档） |
+| 形态 | **伞仓内目录 `agent-memory/`**（我们的协议桥源码）+ **L3 插件包 `dsh-plugins/plugins/agent-memory-dsh-plugin/`**（安装器与模板） |
+| 生态位 | L5 记忆层：把第三方记忆引擎接入 DSH 与其它 Agent 平台 |
+| 并入 HEAD | `4080826`（含 1 笔当时未提交的 autostore 修复，已随并入落库） |
+| 当前版本 | 0.3.0（`agent-memory/package.json`） |
+| 引擎 | **第三方上游**：[TencentCloud/TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory)（MIT）。本团队部署验证 ref：分支 `upgrade-v2.0.1`（**本地部署分支，不回推上游**），故不按 submodule 锁基线 |
+
+## 角色：三层职责
+
+```
+DSH / Claude Code / CodeBuddy / OpenClaw
+        │  MCP（stdio）                     │  HTTP
+        ▼                                   ▼
+ mcp-bridge（本仓 packages/mcp-bridge）   bridge-server（本仓 packages/bridge-server）
+        │                                   │
+        └──────────────► TDAI gateway :8420 ◄┘
+                              │
+        ┌─────────────────────┼──────────────────────┐
+        ▼                     ▼                      ▼
+ MemoryCore :8422     MemoryKnowledge :8421    MemoryProxy :8096 / MemoryPanel :8123
+        └──────────── 第三方引擎（TencentDB Agent Memory） ────────────┘
+```
+
+- **引擎（第三方）**：L0 对话 → L1 原子事实 → L2 场景 → L3 画像的沉淀与检索（BM25 + 向量 + RRF，
+  带条数/字符预算/超时约束），由四个服务加 TDAI gateway 组成。
+- **我们的桥（本目录）**：`packages/mcp-bridge`（MCP stdio server，npm 包 `tencent-agent-memory-mcp-bridge`）、
+  `packages/bridge-server`（HTTP 鉴权 + 代理）、`scripts/dsh-memory-autostore.mjs`（DSH 侧自动入库守护）。
+- **接入器（L3 插件包）**：把上述能力装进 DSH web profile（两条 MCP 通道 + autostore 守护 + 引擎单元模板），
+  见 [dsh-plugins/plugins/agent-memory-dsh-plugin](../../dsh-plugins/plugins/agent-memory-dsh-plugin/README.md)
+  与技能 [install-memory](../../dsh-plugins/skills/install-memory/SKILL.md)。
+
+## DSH 侧两条通道
+
+| 通道 | cordis id | 工具 | 语义 |
+|---|---|---|---|
+| 主记忆 | `mcp-agent-memory` | `recall_memory` / `store_memory` / `search_memories` | L1 原子事实（按 `TASK_ID` 隔离）+ L2 场景索引 + L3 画像 |
+| 代码图谱 | `mcp-agent-memory-codegraph` | `code_*` 8 工具（只读） | 仓库资产级检索（符号/调用/文件/影响面），图谱由 MemoryKnowledge auto-sync 维护 |
+
+两者**不复用同一 namespace**：L1 是语义事实检索，code-graph 是确定性代码检索；设计见
+[agent-memory-codegraph.md](agent-memory-codegraph.md)。
+
+## 自动入库（建议即沉淀）
+
+`agent-memory/scripts/dsh-memory-autostore.mjs` 监听 `%DSH_HOME%/sessions`，每个 `turn/end` 把该轮
+user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不自动注入 prompt）。守护模式 10s 轮询；
+游标 `%DSH_HOME%/.dsh-memory-autostore-state.json` 为**机器绑定状态**，在 launcher profile 同步白名单里被显式排除。
+
+> 注意：该脚本**不做密钥脱敏**——会话里粘贴过的明文密钥会被原样提交进记忆库。凭据请勿经聊天传递。
+
+## 数据与红线
+
+- 记忆数据在 `~/.openclaw/memory-tdai/`（L0–L3、场景块、persona）→ **本机数据，永不入仓**。
+- 引擎 LLM key 放 `~/.config/memory-gateway/{llm,embedding}_key.txt`（600），由
+  `templates/engine/start-gateway-full.sh` 读取，避免 systemd 明文。
+- 团队身份（`TEAM_ID` / `AGENT_ID` / `USER_ID` / `USER_KEY`）与桥 `API_KEY` 一律走
+  `cordis.patch.yml` 的 env 占位符，仓库内只保留 `<...>` 模板。
+- `node_modules/`、`dist/`、`.turbo/` 不入库（与上游 `.gitignore` 一致）。
+
+## 验收
+
+1. `systemctl --user status dsh-memory-autostore memory-gateway-full memory-knowledge memory-panel memory-proxy tdai-gateway memory-bridge`。
+2. 重启 dsh web 后，会话出现 `mcp__agent-memory__*`（3）与 `mcp__agent-memory-codegraph__code_*`（8）。
+3. `recall_memory` 能召回既有事实（说明 L1 写入/隔离正确）；`code_graph_list` 能列出本 team 可见索引。
+4. 新聊一轮后 `journalctl --user -u dsh-memory-autostore` 出现增量提交计数。
+
+## 已知限制
+
+- 主记忆通道默认用 npm 上的 `tencent-agent-memory-mcp-bridge@0.4.0`（需公网）；要离线自持需在
+  `agent-memory/` 内构建后把 cordis 条目 `args` 指向本地 `dist/index.js`。
+- 引擎用本地部署分支，升级须人工验证并记录 ref（不随伞仓 tag 自动推进）。
+- Windows 下引擎侧需 WSL2/docker；只有 autostore 有原生计划任务路径。
+
+## 相关文档
+
+- 插件包：[dsh-plugins/plugins/agent-memory-dsh-plugin](../../dsh-plugins/plugins/agent-memory-dsh-plugin/README.md)（安装/卸载/凭证/验收）
+- 代码图谱通道设计：[agent-memory-codegraph.md](agent-memory-codegraph.md)
+- 桥源码：`agent-memory/README.md`、`agent-memory/docs/`（团队版角色模型、MCP 桥 v3、DSH 接入等 7 篇）

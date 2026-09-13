@@ -14,7 +14,7 @@
         "id": "dsh-media",
         "dir": "dsh-plugins/plugins/dsh-media-dsh-plugin",
         "sha256": {
-          "install.ps1": "fc8d4ce29486c03079e071138e9f2fcad809e843c699d22c989b7784fd4d91e3"
+          "install.ps1": "af6852ef2a25ec1a18866a04e1ec58b26fc173f5ad99f6ab7c0fcb9de5bd763e"
         }
       },
       {
@@ -28,7 +28,7 @@
         "id": "dsh-credentials",
         "dir": "dsh-plugins/plugins/credentials-dsh-plugin",
         "sha256": {
-          "install.ps1": "e4d183d676ee2c2e5e6e9cd2bbb85cd37ec77171588ff4226cd60d7e7563214b"
+          "install.ps1": "812643a25e3305034e7c6076581e38c17c9198f01aaf9cb52e64db7c49099f97"
         }
       },
       {
@@ -58,11 +58,18 @@
         "sha256": {
           "install.ps1": "5b317ae4981dae20201efce32fe9c09290c4ae5ad6b6d9292834c663d5bba2fc"
         }
+      },
+      {
+        "id": "agent-memory",
+        "dir": "dsh-plugins/plugins/agent-memory-dsh-plugin",
+        "sha256": {
+          "install.ps1": "584e96d74b787e36565eafd87bb1231c5c62baab58ac7617a5bc33b49c4f543a"
+        }
       }
     ]
   },
   "skills": {
     "script": "dsh-plugins/skills/install-skills.ps1",
-    "sha256": "2fc2d4f396b1c5fc1c21437058bf473a107017698c3694511721ba3f7f61e96a"
+    "sha256": "a3bd073e7e374f2ef83883ea19c6f17fb984d22c44c9e01faa1f350c87d74f00"
   }
 }

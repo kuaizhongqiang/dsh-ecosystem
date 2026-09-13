@@ -1,0 +1,14 @@
+[Unit]
+Description=Memory Proxy (Context Proxy) — :8096
+After=network-online.target memory-gateway-full.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@ENGINE_DIR@/MemoryProxy
+ExecStart=@NODE_BIN@ --import tsx/esm src/index.ts --config config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

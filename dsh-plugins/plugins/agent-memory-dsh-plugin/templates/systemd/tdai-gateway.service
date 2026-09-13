@@ -1,0 +1,17 @@
+[Unit]
+Description=TDAI HTTP Gateway — Memory engine for bridge-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@MEMORY_HOME@
+Environment="TDAI_GATEWAY_PORT=8420"
+Environment="TDAI_GATEWAY_CONFIG=@MEMORY_HOME@/tdai-gateway.json"
+Environment="TDAI_DATA_DIR=@MEMORY_HOME@"
+ExecStart=@NODE_BIN@ --import tsx/esm @TDAI_PKG@/src/gateway/server.ts
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

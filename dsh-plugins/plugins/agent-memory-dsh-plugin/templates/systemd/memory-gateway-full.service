@@ -1,0 +1,13 @@
+[Unit]
+Description=MemoryCore Full Gateway (v3 meta) — :8422
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@ENGINE_DIR@/MemoryCore/start-gateway-full.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

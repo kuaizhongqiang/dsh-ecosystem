@@ -1,5 +1,49 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-13(memory 融入 eco —— L5 记忆层组件 + 第 8 个插件包)
+
+- **背景**(用户:「我要把 memory 融入 eco」):先做全栈盘点,确认 memory 是四层混合体——
+  ① **引擎(第三方)** TencentCloud/TencentDB-Agent-Memory(MIT;MemoryCore :8422 / MemoryKnowledge :8421 /
+  MemoryProxy :8096 / MemoryPanel :8123 + TDAI gateway :8420);② **我们的协议桥**
+  `kuaizhongqiang/TencentAgentMemoryBridge`(MCP 桥 + HTTP 桥 + autostore 脚本);③ **DSH 接入层**
+  (cordis 两条 MCP 实例 + codegraph 包);④ **本机数据** `~/.openclaw/memory-tdai`(126M,L0–L3+场景+画像)。
+  关键事实:引擎检出的 HEAD `03335b9` 提交信息自述「**本地分支,不回推上游**」,且引擎仓内
+  `MemoryCore/start-gateway-full.sh`、`tdai-gateway.full.yaml` 等全是 `??` untracked 本机定制 →
+  **不适合按 submodule 锁基线**(锁的应是上游 commit,我们跑的是本地分支)。
+- **决策**(用户拍板):① 插件包**单包合并**——现有 `agent-memory-codegraph-dsh-plugin` 并入新的
+  `agent-memory-dsh-plugin`(`--only memory,codegraph,autostore,engine`),符合 PLUGIN-SPEC「包内多服务」惯例;
+  ② 引擎不进子模块,以「外部前置 + bootstrap/模板」方式管理;③ 源仓 `TencentAgentMemoryBridge`
+  **不单独处理**(DSH 侧改从伞仓装,原仓不再作为 DSH 依赖;因本会话无 gh CLI,未在 GitHub 侧归档)。
+- **改动**:
+  1. **组件目录 `agent-memory/`**(squash 快照,57 文件/520K;commit message 记来源仓 + 源 HEAD `4080826`):
+     `packages/mcp-bridge`(npm 公开包 `tencent-agent-memory-mcp-bridge@0.4.0`)、`packages/bridge-server`、
+     `scripts/dsh-memory-autostore.mjs`(含并入时那笔未提交修复:YAML 引号剥离 + 守护基线只对新会话建立,
+     避免重启吞掉未提交轮次)、Windows VBS、docs 7 篇、examples、`.claude`/`.codebuddy` 技能。
+     删除嵌套 `.git`;`node_modules/`、`dist/`、`.turbo/` 不入库。
+  2. **插件包 `dsh-plugins/plugins/agent-memory-dsh-plugin/`**:`install.sh`(Linux/macOS,systemd user 单元)与
+     `install.ps1`(Windows,计划任务 + 隐藏 VBS),均支持 `--only/-Only`、`--uninstall/-Uninstall`、`--dry-run`;
+     `cordis.patch.yml` 按 `# >>> agent-memory-dsh-plugin: <id> >>>` 标记块幂等增删;
+     `templates/systemd/*.service`(7 个,`@ENGINE_DIR@/@MEMORY_HOME@/@NODE_BIN@` 占位符化 +
+     bridge 单元里的 `apiKeyHash` 全部替换为 `<sha256(apiKey)>`)、`templates/engine/*`(启动脚本 + gateway yaml 脱敏导出)、
+     `.env.example`、`templates/cordis-patch.example.yml`、README(三层职责/前置/凭证/验收/已知限制)。
+  3. **技能 `skills/install-memory/SKILL.md`**(第 8 个技能)。
+  4. **清单与断言**:`dsh-launcher/ecosystem.json` 增第 8 包 `agent-memory`(install.ps1 sha256,CRLF 口径
+     `584e96d7…`);`verify-pm4.mjs` skills 期望 7→8;`verify-m1.mjs` 1-2「默认清单含 8 个插件包」。
+  5. **文档**:新增 `docs/modules/agent-memory.md`;同步 `README.md`(结构树 + 组件表)、`docs/modules/README.md`、
+     `.AGENT.md`(插件合集 8 包 + 记忆层红线)、`dsh-plugins/README.md`、`dsh-plugins/skills/README.md`、
+     `dsh-plugins/docs/PLUGIN-SPEC.md`(新增「记忆」层)、`docs/ECOSYSTEM-PLAN.md`(L3 计数 + L5 记忆数据)。
+- **验证**:`install.sh` 在临时 profile 上端到端演练——安装(2 条 patch 条目)→ 幂等复跑(2 SKIP)→
+  卸载(0 残留)→ 重复卸载(2 SKIP);`bash -n install.sh`、`node --check codegraph/index.mjs` 通过;
+  `node scripts/verify-release.mjs` **8 包全绿**;launcher `verify:m1` 检查 1–5 **10 ok / 0 FAIL**
+  (第 6 节需 Windows PowerShell,Linux 下 `spawn powershell ENOENT` 属环境限制);
+  `dsh-launcher npm run check`(tsc)通过。
+- **红线执行**:记忆数据 `~/.openclaw/memory-tdai/`、游标 `.dsh-memory-autostore-state*`、
+  引擎 LLM key(`~/.config/memory-gateway/*.txt`)、团队 `USER_KEY`/`API_KEY` **一律不入仓**;
+  仓库内只有 `<...>` 占位符;已 grep 自检吸收目录与模板无 `/home/kuai`、无 key 残留。
+- **遗留/下一步**:主记忆通道默认走 npm 上的 `tencent-agent-memory-mcp-bridge@0.4.0`(要离线自持需在
+  `agent-memory/` 内构建并把 `args` 指向本地 `dist/index.js`);引擎升级须人工验证后记录 ref;
+  Windows 下引擎侧仍需 WSL2/docker;原仓 npm 发布通道保留但 DSH 侧不再依赖。
+
 ## 2026-09-13(股票插件交易层入库 v0.2.0 —— 模拟盘/舆情/建议 + 日周期时间模型)
 
 - **背景**(用户提问「股票插件有改动吗？需要提交一下」):核对发现权威仓已随 2026-09-04 monorepo 化迁入伞仓,

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+.claude/settings.local.json
+.claude/.memory-store-state.json
+.mcp.json
+.codebuddy/.memory-store-state.json
+.codebuddy/skills/*.zip
+.codely-cli/

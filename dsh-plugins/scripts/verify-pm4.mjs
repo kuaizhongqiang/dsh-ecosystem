@@ -1,8 +1,8 @@
-// scripts/verify-pm4.mjs —— PM4 自动验证(skills 11→7 + install-skills 联动)。
+// scripts/verify-pm4.mjs —— PM4 自动验证(skills 11→7;后续追加 install-ue-mcp 与 install-memory → 9 + install-skills 联动)。
 //
 // 覆盖:
-//   1. skills 目录恰为 7 个新集合(install-media/deepseek/launcher/credentials/github/stock/unity-mcp)
-//   2. install-skills.ps1 -DryRun 自动发现 7 个且不含旧名
+//   1. skills 目录恰为 9 个集合(install-media/deepseek/launcher/credentials/github/stock/unity-mcp/ue-mcp/memory)
+//   2. install-skills.ps1 -DryRun 自动发现 9 个且不含旧名
 //   3. 真实安装到临时 DSH_HOME 后技能目录落位
 //   4. 仓库根 README/spec 引用一致(源码级)
 //
@@ -28,10 +28,10 @@ async function main() {
   const home = mkdtempSync(join(base, 'home-'));
   const skillsDir = join(root, 'skills');
 
-  const EXPECT = ['install-media', 'install-deepseek', 'install-launcher', 'install-credentials', 'install-github', 'install-stock', 'install-unity-mcp', 'install-ue-mcp'].sort();
+  const EXPECT = ['install-media', 'install-deepseek', 'install-launcher', 'install-credentials', 'install-github', 'install-stock', 'install-unity-mcp', 'install-ue-mcp', 'install-memory'].sort();
   const OLD = ['install-audio-read', 'install-audio-speak', 'install-video-read', 'install-document-read', 'install-deepseek-balance', 'install-deepseek-recharge']; // install-describe-image 已随图片读取下线删除
 
-  console.log('1. skills 目录 = 8 个新集合');
+  console.log('1. skills 目录 = 9 个集合');
   {
     const dirs = readdirSync(skillsDir, { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join(skillsDir, d.name, 'SKILL.md'))).map((d) => d.name).sort();
     ok(JSON.stringify(dirs) === JSON.stringify(EXPECT), `1-1 目录恰为 8(${dirs.join(', ')})`);

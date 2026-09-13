@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "agent-memory": {
+      "command": "npx",
+      "args": ["tencent-agent-memory-mcp-bridge"],
+      "env": {
+        "MEMORY_ENDPOINT": "https://memory.kuai-private.top",
+        "API_KEY": "<gate-api-key>",
+        "SERVICE_ID": "default",
+        "TEAM_ID": "<team-id>",
+        "AGENT_ID": "<agent-id>",
+        "USER_ID": "<user-id>"
+      }
+    }
+  }
+}

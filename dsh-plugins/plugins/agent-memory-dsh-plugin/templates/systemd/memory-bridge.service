@@ -1,0 +1,18 @@
+[Unit]
+Description=Memory Bridge Server — Auth + proxy to TDAI Gateway
+After=network-online.target tdai-gateway.service
+Wants=network-online.target
+BindsTo=tdai-gateway.service
+
+[Service]
+Type=simple
+WorkingDirectory=@BRIDGE_DIR@
+Environment="PORT=3000"
+Environment="TENCENTDB_URL=http://127.0.0.1:8420"
+Environment="AGENTS=[{\"name\":\"codebuddy\",\"apiKeyHash\":\"<sha256(apiKey)>\",\"allowedEndpoints\":[\"*\"]},{\"name\":\"openclaw\",\"apiKeyHash\":\"<sha256(apiKey)>\",\"allowedEndpoints\":[\"*\"],\"crossDomainRecall\":true},{\"name\":\"claude-code\",\"apiKeyHash\":\"<sha256(apiKey)>\",\"allowedEndpoints\":[\"*\"]},{\"name\":\"deepseek-harness\",\"apiKeyHash\":\"<sha256(apiKey)>\",\"allowedEndpoints\":[\"*\"]},{\"name\":\"dsh-server\",\"apiKeyHash\":\"<sha256(apiKey)>\",\"allowedEndpoints\":[\"*\"]}]"
+ExecStart=@NODE_BIN@ @BRIDGE_DIR@/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

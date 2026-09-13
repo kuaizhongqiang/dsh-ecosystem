@@ -16,9 +16,9 @@
 | L0 载体 | dsh-launcher.exe(内置 Chromium+Node,零依赖) | launcher | 随身携带 |
 | L1 运行时 | Node.js ^22.19 \|\| >=24 | **用户预装(缺口)** | 目标机器 |
 | L2 核心 | dsh(deepseek-harness 构建,GitHub tag / npm 双源) | launcher `install` | 网络拉取 |
-| L3 插件 | dsh-plugins 11 个插件包 + install-* 技能 | **dsh 会话内聊天装(缺口)** | git 子模块随行 |
+| L3 插件 | dsh-plugins 8 个插件包 + install-* 技能 | dsh 会话内聊天装 / launcher 清单拉取 | 伞仓内目录 |
 | L4 周边 | dsh-desktop / dsh-vscode / dsh-remote | 各自 Releases(手动,缺口) | 可选拉取 |
-| L5 个人层 | `%DSH_HOME%`:settings.yaml、profiles、skills、watchlist、stock 等 | **不随行(缺口)** | 漫游包 |
+| L5 个人层 | `%DSH_HOME%`:settings.yaml、profiles、skills、watchlist、stock 等;长期记忆数据在 `~/.openclaw/memory-tdai`(本机,永不入仓) | **不随行(缺口)** | 漫游包 |
 | L6 连接层 | 可连的 dsh 实例:本机(端口可配多组)+ 广域网(dsh-remote 部署) | `launch-token.json` 仅单组记录,launcher 只会启本地 3080(**缺口**) | `%DSH_HOME%\connections.json` |
 
 敏感红线(永不进任何同步/清单流):`.credentials.yaml`、`launch-token.json`、`connections.json`(各组连接 token,见 D5)、`sessions/`。

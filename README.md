@@ -17,9 +17,10 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 ├── .github/workflows/          # release.yml = 全量发布 CI(tag v* 触发)
 ├── README.md / .AGENT.md / .gitmodules / LICENSE
 ├── dsh-launcher/               # L0 载体(安装 + 启动引导器;含插件源清单 ecosystem.json)
-├── dsh-plugins/                # L3 插件合集(7 包 + install-* 技能)
+├── dsh-plugins/                # L3 插件合集(8 包 + install-* 技能)
 ├── dsh-vscode/                 # L4 VSCode 扩展
 ├── dsh-desktop/                # L4 Electron 桌面壳(应用代码在 desktop/ 子目录)
+├── agent-memory/               # L5 记忆层(我们的协议桥源码;记忆引擎为第三方上游)
 └── deepseek-harness/           # ← 唯一 git 子模块(官方只读,按需 --init)
 ```
 
@@ -28,7 +29,8 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 | 目录 | 角色 | 来源仓(归档) | 并入 HEAD | 当前版本 |
 |---|---|---|---|---|
 | [dsh-launcher](dsh-launcher/) | L0 载体(伞仓核心) | kuaizhongqiang/dsh-launcher | `979cec6` | 0.8.0 |
-| [dsh-plugins](dsh-plugins/) | L3 插件(7 包 + 技能) | kuaizhongqiang/dsh-plugins | `7a1b8a9` | 随伞仓 |
+| [dsh-plugins](dsh-plugins/) | L3 插件(8 包 + 技能) | kuaizhongqiang/dsh-plugins | `7a1b8a9` | 随伞仓 |
+| [agent-memory](agent-memory/) | L5 记忆层(协议桥: MCP 桥/HTTP 桥/autostore) | kuaizhongqiang/TencentAgentMemoryBridge | `4080826` | 0.3.0 |
 | [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.8.5 |
 | [dsh-desktop](dsh-desktop/) | L4 桌面壳 | kuaizhongqiang/dsh-desktop | `250abfb` | 0.8.0 |
 | deepseek-harness | L2 本体(官方只读) | deepseek-ai/deepseek-harness | 子模块 `47f94385` | — |

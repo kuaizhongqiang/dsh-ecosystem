@@ -1,0 +1,15 @@
+[Unit]
+Description=Memory Knowledge Service — :8421
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@ENGINE_DIR@/MemoryKnowledge
+Environment="KNOWLEDGE_API_URL=http://localhost:8421"
+ExecStart=@NODE_BIN@ --import tsx/esm src/server.ts
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

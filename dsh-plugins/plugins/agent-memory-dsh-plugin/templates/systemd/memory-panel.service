@@ -1,0 +1,15 @@
+[Unit]
+Description=Memory Panel (Team Memory Control) — :8123
+After=network-online.target memory-gateway-full.service
+Wants=network-online.target
+BindsTo=memory-gateway-full.service
+
+[Service]
+Type=simple
+WorkingDirectory=@ENGINE_DIR@/MemoryPanel
+ExecStart=@NODE_BIN@ dist/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

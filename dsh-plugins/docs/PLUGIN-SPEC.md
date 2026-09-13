@@ -12,6 +12,7 @@
 | 账户 | **dsh-deepseek** | DEEPSEEK_API_KEY;账户运维(balance/recharge) |
 | 域工具 | dsh-github / dsh-stock | 工具数 ≥8(github 8 / stock 22),自成一体 |
 | 桥接 | dsh-unity / **dsh-launcher** | 外部系统桥(unity-mcp / launcher seam) |
+| 记忆 | **agent-memory** | 长期记忆(L0→L3);主记忆 MCP + code-graph MCP + autostore 守护;引擎为第三方上游(自托管),身份三元组走 env |
 
 ## 2. 准入三问(D7/§8)
 

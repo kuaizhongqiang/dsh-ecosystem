@@ -1,0 +1,43 @@
+# cordis.patch.yml 片段示例（agent-memory 两条 MCP 通道）
+# install.sh / install.ps1 会按这两个块自动追加（带 >>> / <<< 标记便于卸载时精确剥离）。
+# 真实值把 <...> 换成你的身份三元组/团队 key（见 ../.env.example）。
+
+# --- 主记忆通道（recall_memory / store_memory / search_memories）-------------
+- insert:
+    - id: mcp-agent-memory
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: agent-memory
+        transport: stdio
+        command: npx
+        args: ['-y', 'tencent-agent-memory-mcp-bridge@0.4.0']
+        env:
+          MEMORY_ENDPOINT: http://127.0.0.1:8422
+          API_KEY: '<bridge api key>'
+          SERVICE_ID: default
+          TEAM_ID: '<TEAM_ID>'
+          AGENT_ID: '<AGENT_ID>'
+          USER_ID: '<USER_ID>'
+          USER_KEY: '<sk-mem-...>'
+          TASK_ID: '<project label task_id>'
+        toolCallTimeoutMs: 30000
+# 离线替代：先在 <伞仓>/agent-memory 里构建（pnpm install && pnpm --filter
+# tencent-agent-memory-mcp-bridge build），然后把 command 改为 node、
+# args 改为 ['<伞仓>/agent-memory/packages/mcp-bridge/dist/index.js']。
+
+# --- 代码图谱通道（code_graph_list / code_search / code_callers / ... 只读）--
+- insert:
+    - id: mcp-agent-memory-codegraph
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: agent-memory-codegraph
+        transport: stdio
+        command: node
+        args: ['<DSH_HOME>/profiles/web/plugins/agent-memory-codegraph/index.mjs']
+        env:
+          KNOWLEDGE_ENDPOINT: 'http://127.0.0.1:8421'
+          SERVICE_ID: default
+          TEAM_ID: '<TEAM_ID>'
+          USER_ID: '<USER_ID>'
+          AGENT_ID: '<AGENT_ID>'
+        toolCallTimeoutMs: 30000

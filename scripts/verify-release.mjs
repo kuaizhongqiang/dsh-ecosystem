@@ -1,7 +1,7 @@
 // verify-release.mjs —— 伞仓发布前校验(monorepo 插件源一致性门)
 // 用途:CI(plugins job)与本机发布前跑;确保:
 //   1) dsh-launcher/ecosystem.json 插件源 = kuaizhongqiang/dsh-ecosystem;
-//   2) 7 包 install.ps1 与 skills 脚本 sha256 与清单一致(dir 前缀 dsh-plugins/);
+//   2) 各包 install.ps1 与 skills 脚本 sha256 与清单一致(dir 前缀 dsh-plugins/);
 //   3) src/ecosystem.ts 内嵌默认清单与 ecosystem.json 同步(repo 与 commit)。
 // 失败 exit 1。无第三方依赖,node >=18 即可跑(仓库根执行)。
 

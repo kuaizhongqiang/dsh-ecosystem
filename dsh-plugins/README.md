@@ -81,6 +81,7 @@ dsh-plugins/
 | [dsh-deepseek](plugins/dsh-deepseek-dsh-plugin/README.md) | DeepSeek 账户合并包：`deepseek_balance` 余额查询（官方 `GET /user/balance`）+ `deepseek_recharge` 充值辅助（打开平台充值页） | `DEEPSEEK_API_KEY` | `install-deepseek` |
 | [credentials](plugins/credentials-dsh-plugin/README.md) | 凭证管理工具：`credentials_list` / `credentials_set` / `credentials_unset` / `credentials_verify` 在对话里管理 `%DSH_HOME%\.credentials.yaml`，走官方 seam、永不暴露 key 值；`requireApproval` 默认关（本部署 approval 策略为 `never`，开了必拒） | 无 | `install-credentials` |
 | [github](plugins/github-dsh-plugin/README.md) | GitHub 仓库管理：`github_repo`/`github_files`/`github_file_write`/`github_issue`/`github_pr`/`github_commit`/`github_search` 8 工具 + `github_sync` 本地工作区同步（clone/pull/commit/push，全局/项目双 scope，token 一次性注入不落盘） | `GITHUB_TOKEN`（可选：匿名只读公开仓库） | `install-github` |
+| [agent-memory](plugins/agent-memory-dsh-plugin/README.md) | 长期记忆接入：主记忆 MCP 通道（`recall_memory`/`store_memory`/`search_memories`）+ 代码图谱只读通道（`code_*` 8 工具）+ 自动入库守护（每轮 `turn/end` 提交进 MemoryCore）；引擎为第三方上游（TencentDB Agent Memory），本包装接入与模板（`--only memory,codegraph,autostore,engine`） | 团队身份三元组 + `USER_KEY`（本机自托管引擎） | `install-memory` |
 
 > 单工具旧包（`audio-read` / `audio-speak` / `video-read` / `document-read` /
 > `deepseek-balance` / `deepseek-recharge`）为 DEPRECATED，只作历史保留，不要新装；
