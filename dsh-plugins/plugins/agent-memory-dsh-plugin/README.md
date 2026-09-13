@@ -69,7 +69,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 
 装完把 config 里的 `<...>` 换成真实值（见 [.env.example](.env.example)），然后**重启 `dsh web`**。
 
-> ⚠️ 本部署**未启用 `cordis-plugin-hmr`**：改插件 JS 或增删条目都必须重启 dsh web。
+> ⚠️ 本部署**未启用 `cordis-plugin-hmr`**；但实测 profile 条目新增/文件覆盖**会被运行中的实例拾取**
+> （有延迟、不确定，见 WORKLOG 2026-09-13 的三条时间线证据），因此**改动后建议重启 dsh web** 以求一致。
 > 另**不要**把 `name:` 写成 `./plugins/xxx/index.js?v=N`——loader 会把查询串当字面路径，
 > 报 `ERR_MODULE_NOT_FOUND` 并让**整棵插件树加载失败**（已实测）。
 

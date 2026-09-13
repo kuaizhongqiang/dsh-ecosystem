@@ -90,9 +90,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
         timeoutMs: 15000
 ```
 
-## 更新代码后必须重启 dsh web
+## 更新代码后建议重启 dsh web
 
-本部署**未启用 `cordis-plugin-hmr`**，loader 不会监听 profile patch 或插件 JS 的变化，因此：
+本部署**未启用 `cordis-plugin-hmr`**；实测 profile 条目/文件的改动**有时**会被运行中的实例拾取
+（有延迟、不确定），所以**最稳的做法仍是重启**：
 
 1. 同步文件到运行时副本：
    `cp dsh-plugins/plugins/stock-dsh-plugin/plugins/stock/index.js %DSH_HOME%\profiles\web\plugins\stock\index.js`

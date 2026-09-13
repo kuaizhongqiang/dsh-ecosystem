@@ -77,7 +77,8 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
   要离线自持需在 `agent-memory/` 内构建后把 `args` 指向本地 `dist/index.js`。
 - native 的进程内入库是 fire-and-forget：引擎不可达时该轮不重试（要回填用守护的 `--backfill`）。
 - **`cordis.patch.yml` 的 `name` 不能写 `?v=N`**：本部署 loader 把查询串当字面路径，
-  实测报 `ERR_MODULE_NOT_FOUND` 并让整棵插件树加载失败（2026-09-13 实测）。改插件后一律重启。
+  实测报 `ERR_MODULE_NOT_FOUND` 并让整棵插件树加载失败（2026-09-13 实测）。改插件后建议重启
+  （实测有时会被热加载，不可依赖）。
 - 引擎用本地部署分支，升级须人工验证并记录 ref（不随伞仓 tag 自动推进）。
 - Windows 下引擎侧需 WSL2/docker；native 插件与 autostore 计划任务可用。
 

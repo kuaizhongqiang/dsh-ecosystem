@@ -41,7 +41,7 @@ cd <伞仓>/dsh-plugins/plugins/agent-memory-dsh-plugin
 
 Windows：`powershell -ExecutionPolicy Bypass -File .\install.ps1 [-Mode mcp] [-Uninstall]`。
 
-## 3. 填凭证并重启（必须重启）
+## 3. 填凭证（建议重启）
 
 把生成的 `cordis.patch.yml` 条目里的 `<...>` 换成真实值（对照 `.env.example`），然后**重启 `dsh web`**：
 
@@ -49,7 +49,7 @@ Windows：`powershell -ExecutionPolicy Bypass -File .\install.ps1 [-Mode mcp] [-
 systemctl --user restart dsh      # 本机部署方式
 ```
 
-> 本部署**未启用 `cordis-plugin-hmr`**，改代码/增删条目都必须重启才生效。
+> 本部署**未启用 `cordis-plugin-hmr`**；实测条目/文件改动有时会被热加载（有延迟、不确定），**建议重启**以求一致。
 > **不要**把 `name:` 写成 `./plugins/agent-memory-native/index.js?v=N`——loader 会把 `?v=N`
 > 当字面路径，报 `ERR_MODULE_NOT_FOUND`，并让**整棵插件树加载失败**（已实测）。
 
