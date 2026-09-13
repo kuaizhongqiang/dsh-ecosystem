@@ -7,7 +7,7 @@
   "plugins": {
     "source": {
       "repo": "https://github.com/kuaizhongqiang/dsh-ecosystem.git",
-      "commit": "ba2be75a4381a75318d34bd52c5a4e151e578a15"
+      "commit": "2e2d61f7f7d6e8df1eb9c793473b9593821150c1"
     },
     "packages": [
       {
@@ -63,7 +63,7 @@
         "id": "agent-memory",
         "dir": "dsh-plugins/plugins/agent-memory-dsh-plugin",
         "sha256": {
-          "install.ps1": "dfff4e64244442d7e08558f2899821a22c9109a0d989b38f62e206ddac78d7fa"
+          "install.ps1": "531001b1c64d9afcc926ebd518dff9a680e5a731eeb5332deca7dcdce53ce5cc"
         }
       }
     ]
