@@ -39,7 +39,7 @@ function makeHome(base, tag) {
 }
 const patch = (home) => readFileSync(join(home, 'profiles', 'web', 'cordis.patch.yml'), 'utf8');
 const count = (text, re) => (text.match(re) || []).length;
-const MEDIA = ['audio-read', 'audio-speak', 'describe-image', 'video-read', 'document-read'];
+const MEDIA = ['audio-read', 'audio-speak', 'video-read', 'document-read'];
 
 async function main() {
   const base = mkdtempSync(join(tmpdir(), 'pm2-verify-'));
@@ -52,14 +52,15 @@ async function main() {
     const home = makeHome(base, 'media');
     let r = ps(media, [], { DSH_HOME: home });
     ok(r.status === 0, `1-1 退出码 0（${r.status}）${r.status !== 0 ? '\n' + (r.stdout + r.stderr).slice(-500) : ''}`);
-    ok(MEDIA.every((s) => existsSync(join(home, 'profiles', 'web', 'plugins', s, 'index.js'))), '1-2 五个服务载荷就位');
+    ok(MEDIA.every((s) => existsSync(join(home, 'profiles', 'web', 'plugins', s, 'index.js'))), '1-2 四个服务载荷就位');
     const p1 = patch(home);
-    ok(count(p1, /tool-(audio-read|audio-speak|describe-image|video-read|document-read)/g) === 5, '1-3 五个 patch 条目');
-    ok(count(p1, /# --- dsh-media: /g) === 5, '1-4 五个 dsh-media 节头');
+    ok(count(p1, /tool-(audio-read|audio-speak|video-read|document-read)/g) === 4, '1-3 四个 patch 条目');
+    ok(count(p1, /# --- dsh-media: /g) === 4, '1-4 四个 dsh-media 节头');
     r = ps(media, [], { DSH_HOME: home });
     ok(r.status === 0, '1-5 重跑退出码 0');
-    ok(count(patch(home), /tool-/g) === 5, '1-6 幂等:重跑后仍 5 条(判重跳过)');
-    ok(existsSync(join(home, 'profiles', 'web', 'patch-apiproxy.mjs')), '1-7 describe-image apiproxy 补丁脚本已复制');
+    ok(count(patch(home), /tool-/g) === 4, '1-6 幂等:重跑后仍 4 条(判重跳过)');
+    ok(existsSync(join(home, 'profiles', 'web', 'validate-patch.mjs')), '1-7 patch 校验器 validate-patch.mjs 已复制');
+    ok(!p1.includes('describe-image'), '1-8 图片读取已下线(无 describe-image 条目)');
   }
 
   console.log('2. -Only 子集');
@@ -81,7 +82,7 @@ async function main() {
     ok(r.status === 0, '3-1 退出码 0');
     ok(!existsSync(join(home, 'profiles', 'web', 'plugins', 'audio-read')) && !existsSync(join(home, 'profiles', 'web', 'plugins', 'video-read')), '3-2 载荷已删');
     const p = patch(home);
-    ok(!p.includes('tool-audio-read') && !p.includes('tool-video-read') && count(p, /tool-/g) === 3, '3-3 对应节已剥离(剩 3)');
+    ok(!p.includes('tool-audio-read') && !p.includes('tool-video-read') && count(p, /tool-/g) === 2, '3-3 对应节已剥离(剩 2)');
   }
 
   console.log('4. dsh-deepseek 全量');

@@ -14,10 +14,13 @@
  * - `credentials_list` / `credentials_verify` never reveal stored values —
  *   they report `configured` / `source` / `writable` only.
  * - `credentials_set` stores a value supplied by the caller. When the
- *   deployment composes an approval service and the call runs under an agent,
- *   the write is gated behind an approval request (`'allowed-once'` is the
- *   only grant). The tool description orders the model never to echo the
- *   value. Note: the value does pass through the conversation once.
+ *   deployment composes an approval service, the call runs under an agent, and
+ *   the session's approval policy is not `'never'`, the write is gated behind
+ *   an approval request (`'allowed-once'` is the only grant). A session whose
+ *   policy is `'never'` can never grant one, so the gate refuses up front with
+ *   an actionable message instead of asking and failing shut. The tool
+ *   description orders the model never to echo the value. Note: the value does
+ *   pass through the conversation once.
  * - `credentials_unset` removes a key through the seam.
  *
  * This plugin is self-contained for the npm dsh install: it depends only on
@@ -101,11 +104,25 @@ export function apply(ctx, config) {
     return []
   }
 
-  /** Ask the approval seam before a write; absent service or agent degrades open. */
+  /**
+   * Ask the approval seam before a write.
+   *
+   * Skips the gate when approval is disabled by config, when no approval
+   * service is composed, or when the call has no agent to route through
+   * (matching the seam's own degrade-open rule). A session pinned to the
+   * `'never'` policy is refused immediately: the seam answers `'rejected'`
+   * without any answerer being consulted, so asking would only produce an
+   * opaque "not approved" failure.
+   */
   const askApproval = async (exec, toolName, reason) => {
     if (!requireApproval) return
     const approval = ctx.get('approval')
     if (approval === undefined || exec.agent === undefined) return
+    if (approval.overrideOf(exec.agent.session) === 'never') {
+      throw new Error(`${toolName}: this session's approval policy is "never", so the write cannot be approved. `
+        + `Set config.requireApproval to false on this plugin (requested change follows), or run the tool in a session `
+        + `whose policy is "ask". Requested change: ${reason}`)
+    }
     const outcome = await approval.request({
       agent: exec.agent,
       toolName,
@@ -211,8 +228,10 @@ export function apply(ctx, config) {
     name: 'credentials_set',
     description: 'Store a credential value under a reference in the managed credentials file (hot-reloaded, no restart '
       + 'needed). The value must come from the user in this conversation; NEVER echo, quote, repeat, or otherwise restate '
-      + 'the value in any later message, and never include it in summaries. In deployments with an approval service the '
-      + 'write is gated behind an approval prompt. Use it when a newly installed plugin needs its API key configured.',
+      + 'the value in any later message, and never include it in summaries. In deployments that compose an approval '
+      + 'service and run with the "ask" policy the write is gated behind an approval prompt; with the "never" policy, '
+      + 'or when the plugin is configured with requireApproval: false, the write proceeds directly. Use it when a newly '
+      + 'installed plugin needs its API key configured.',
     parameters: {
       ref: { type: 'string', required: true, description: 'The credential reference name to store (a POSIX identifier like MIMO_API_KEY).' },
       value: { type: 'string', required: true, description: 'The secret value to store. Never restate this value afterwards.' },

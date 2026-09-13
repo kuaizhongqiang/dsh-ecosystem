@@ -28,13 +28,13 @@ async function main() {
   const home = mkdtempSync(join(base, 'home-'));
   const skillsDir = join(root, 'skills');
 
-  const EXPECT = ['install-media', 'install-deepseek', 'install-launcher', 'install-credentials', 'install-github', 'install-stock', 'install-unity-mcp'].sort();
-  const OLD = ['install-audio-read', 'install-audio-speak', 'install-describe-image', 'install-video-read', 'install-document-read', 'install-deepseek-balance', 'install-deepseek-recharge'];
+  const EXPECT = ['install-media', 'install-deepseek', 'install-launcher', 'install-credentials', 'install-github', 'install-stock', 'install-unity-mcp', 'install-ue-mcp'].sort();
+  const OLD = ['install-audio-read', 'install-audio-speak', 'install-video-read', 'install-document-read', 'install-deepseek-balance', 'install-deepseek-recharge']; // install-describe-image 已随图片读取下线删除
 
-  console.log('1. skills 目录 = 7 个新集合');
+  console.log('1. skills 目录 = 8 个新集合');
   {
     const dirs = readdirSync(skillsDir, { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join(skillsDir, d.name, 'SKILL.md'))).map((d) => d.name).sort();
-    ok(JSON.stringify(dirs) === JSON.stringify(EXPECT), `1-1 目录恰为 7(${dirs.join(', ')})`);
+    ok(JSON.stringify(dirs) === JSON.stringify(EXPECT), `1-1 目录恰为 8(${dirs.join(', ')})`);
   }
 
   console.log('2. install-skills.ps1 自动发现(-DryRun)');
@@ -44,7 +44,7 @@ async function main() {
     });
     const out = (r.stdout ?? '') + (r.stderr ?? '');
     ok(r.status === 0, '2-1 退出码 0');
-    ok(EXPECT.every((s) => out.includes(s)), '2-2 发现全部 7 个');
+    ok(EXPECT.every((s) => out.includes(s)), '2-2 发现全部 8 个');
     ok(!OLD.some((s) => out.includes(s)), '2-3 不含旧技能名');
   }
 
@@ -55,7 +55,7 @@ async function main() {
     });
     ok(r.status === 0, '3-1 退出码 0');
     const got = readdirSync(join(home, 'skills')).sort();
-    ok(JSON.stringify(got) === JSON.stringify(EXPECT), '3-2 %DSH_HOME%\\skills 落位 7 个');
+    ok(JSON.stringify(got) === JSON.stringify(EXPECT), '3-2 %DSH_HOME%\\skills 落位 8 个');
   }
 
   console.log('4. 源码级一致性');

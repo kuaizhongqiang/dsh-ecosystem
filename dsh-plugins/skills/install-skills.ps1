@@ -2,8 +2,8 @@
 #
 # Usage (from the repo root or the skills/ directory):
 #   powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1
-#   powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -Skills install-describe-image
-#   powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -Skills install-unity-mcp,install-describe-image
+#   powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -Skills install-media
+#   powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -Skills install-unity-mcp,install-media
 #   powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -DryRun
 #
 # Idempotent: re-running refreshes the destination copies.
@@ -60,5 +60,5 @@ Write-Host 'Next steps:' -ForegroundColor Cyan
 Write-Host "  1. Skills land in the dsh user root ($destRoot), rank 400; the current or next dsh session"
 Write-Host '     discovers them automatically (hot refresh).'
 Write-Host '  2. Invoke: type /<skill-name> in the chat, or just ask the model,'
-Write-Host '     e.g. "install the describe-image plugin".'
+Write-Host '     e.g. "install the media plugin".'
 Write-Host '  3. To pick a subset later, pass -Skills <name>[,<name>...].'

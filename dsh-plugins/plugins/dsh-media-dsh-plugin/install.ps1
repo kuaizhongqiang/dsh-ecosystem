@@ -1,9 +1,12 @@
-﻿# dsh-media —— 感知类合并包（PM2,路线图 §8 11→7）。
-# 合并自:audio-read / audio-speak / describe-image / video-read / document-read
-# 共享凭证/模式:MIMO_API_KEY(+ vision 端点);「主模型保持 text-only + 外挂感知」。
+# dsh-media —— 感知类合并包（PM2,路线图 §8 11→7）。
+# 合并自:audio-read / audio-speak / video-read / document-read
+# 共享凭证/模式:MIMO_API_KEY;「主模型保持 text-only + 外挂感知」。
+#
+# describe-image 已下线:DeepSeek 主模型自身已支持图片输入(多模态),会话可直接
+# 读图,不再需要「text-only 主模型 + vision 端点代读」这条路径。
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File .\install.ps1                          # 全部 5 个服务
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1                          # 全部 4 个服务
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Only audio-read,video-read
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall -Only audio-read
 #
@@ -18,10 +21,13 @@ $ErrorActionPreference = 'Stop'
 $AllServices = @(
   @{ id = 'audio-read';     files = @('index.js', 'package.json') },
   @{ id = 'audio-speak';    files = @('index.js', 'package.json') },
-  @{ id = 'describe-image'; files = @('index.js', 'package.json'); apiproxy = $true },
   @{ id = 'video-read';     files = @('index.js', 'package.json') },
   @{ id = 'document-read';  files = @('index.js', 'package.json', 'parse_document.py'); python = $true }
 )
+
+# validate-patch.mjs ships next to this script (../scripts) and is also copied
+# into the profile so the check can run from either location.
+$validatorSource = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'scripts\validate-patch.mjs'
 
 # --- 解析 --only -------------------------------------------------------------
 $selected = if ($Only) {
@@ -72,6 +78,23 @@ function Remove-PatchSection([string]$text, [string]$header) {
   return (($out -join "`n").TrimEnd())
 }
 
+# 写后校验:patch 条目的 YAML 若被写坏(例如 config 键被注释吞掉),插件会
+# 静默跑默认值,必须在重启前发现。
+function Test-ProfilePatch {
+  $validator = Join-Path $profileDir 'validate-patch.mjs'
+  if (-not (Test-Path $validator)) { $validator = $validatorSource }
+  if (-not (Test-Path $validator)) {
+    Write-Host "SKIP patch validator not found (looked in profile and $validatorSource)" -ForegroundColor Yellow
+    return
+  }
+  try {
+    node $validator $patchFile
+    if ($LASTEXITCODE -ne 0) { Write-Host 'WARN patch validation found a problem; fix the file before restarting' -ForegroundColor Yellow }
+  } catch {
+    Write-Host "WARN could not validate the patch (node unavailable): $($_.Exception.Message)" -ForegroundColor Yellow
+  }
+}
+
 function Add-PatchEntry([string]$header, [string]$toolId, [string]$svcId) {
   $current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
   if ($current -match [regex]::Escape($toolId)) {
@@ -92,6 +115,7 @@ function Add-PatchEntry([string]$header, [string]$toolId, [string]$svcId) {
   $combined = if ($base) { $base + "`n" + $entryText.TrimStart() } else { $entryText.TrimStart() }
   [System.IO.File]::WriteAllText($patchFile, $combined, (New-Object System.Text.UTF8Encoding($false)))
   Write-Host "OK  profile patch entry added ($toolId) -> $patchFile" -ForegroundColor Green
+  Test-ProfilePatch
 }
 
 # --- Uninstall 分支 -----------------------------------------------------------
@@ -109,11 +133,20 @@ if ($Uninstall) {
     }
   }
   Write-Host ''
+  Test-ProfilePatch
   Write-Host 'dsh-media uninstall done. Restart the web instance to take effect.' -ForegroundColor Cyan
   exit 0
 }
 
 # --- 1. Copy payloads + patch entries ----------------------------------------
+# The validator rides along in the profile so uninstall (and later re-runs) can
+# check the file without the repository checkout present.
+if (Test-Path $validatorSource) {
+  Copy-Item -Path $validatorSource -Destination $profileDir -Force
+  Write-Host 'OK  validate-patch.mjs copied to profile' -ForegroundColor Green
+} else {
+  Write-Host "SKIP patch validator not found at $validatorSource" -ForegroundColor Yellow
+}
 foreach ($svc in $AllServices) {
   $id = $svc.id
   if ($selected -notcontains $id) { continue }
@@ -125,19 +158,6 @@ foreach ($svc in $AllServices) {
   Write-Host "OK  plugin copied -> $pluginDir" -ForegroundColor Green
   Add-PatchEntry $id "tool-$id" $id
 
-  if ($svc.apiproxy) {
-    # describe-image:apiproxy 提示补丁(可重跑;失败仅告警)
-    $patchScript = Join-Path $PSScriptRoot 'patch-apiproxy.mjs'
-    Copy-Item -Path $patchScript -Destination $profileDir -Force
-    Write-Host 'OK  patch-apiproxy.mjs copied to profile' -ForegroundColor Green
-    Push-Location $profileDir
-    try {
-      node .\patch-apiproxy.mjs
-      if ($LASTEXITCODE -ne 0) { Write-Host 'WARN apiproxy patch failed (npm version may differ); see output above' -ForegroundColor Yellow }
-    } finally {
-      Pop-Location
-    }
-  }
   if ($svc.python) {
     # document-read:python 解析依赖探测(可选)
     Write-Host ''
@@ -159,7 +179,8 @@ foreach ($svc in $AllServices) {
 # --- 2. Reminders -------------------------------------------------------------
 Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Cyan
-Write-Host '  1. Make sure MIMO_API_KEY is configured (credentials service or environment variable);'
-Write-Host '     describe-image / document-read also accept a vision endpoint config.'
+Write-Host '  1. Make sure MIMO_API_KEY is configured (credentials service or environment variable).'
 Write-Host '  2. Restart the web instance:  stop it, then run  dsh web  (or  npx @deepseek-ai/dsh web)'
 Write-Host ('  3. Installed services: ' + ($selected -join ', '))
+Write-Host '  Note: image reading is no longer part of this bundle - the main model reads'
+Write-Host '        images natively, so no describe_image tool is installed.'

@@ -9,7 +9,7 @@
 
 - **分层规范与模板**:docs/PLUGIN-SPEC.md(分层/准入三问/install.ps1 规范/SKILL 模板要素) + `_templates/`
 - **合并包已落地**:
-  - plugins/dsh-media-dsh-plugin —— 感知五合一(audio-read/audio-speak/describe-image/video-read/document-read),`-Only` 子集安装
+  - plugins/dsh-media-dsh-plugin —— 感知四合一(audio-read/audio-speak/video-read/document-read),`-Only` 子集安装(图片由主模型原生多模态直读,不再内置 describe_image)
   - plugins/dsh-deepseek-dsh-plugin —— DeepSeek 账户二合一(balance/recharge)
   - plugins/dsh-launcher-dsh-plugin —— launcher 桥接(restart/status/connections/open/check_update,依赖 M5/M6 seam)
 - **迁移**:旧 7 包已标 `DEPRECATED.md`(保留一个版本周期);仓库根 uninstall-old.ps1 清理旧载荷与 patch 节
@@ -21,32 +21,31 @@
 ```
 dsh-plugins/
 ├── plugins/                    插件安装包（自包含，可直接独立安装）
-│   ├── describe-image-dsh-plugin/
+│   ├── dsh-media-dsh-plugin/    感知合并包（音频/语音/视频/文档）
+│   ├── dsh-deepseek-dsh-plugin/ DeepSeek 账户合并包（余额/充值）
+│   ├── dsh-launcher-dsh-plugin/ launcher 桥接（重启/状态/连接）
+│   ├── credentials-dsh-plugin/
 │   ├── unity-mcp-dsh-plugin/
 │   ├── ue-mcp-dsh-plugin/
 │   ├── video-read-dsh-plugin/
 │   ├── audio-read-dsh-plugin/
 │   ├── audio-speak-dsh-plugin/
-│   ├── credentials-dsh-plugin/
 │   ├── stock-dsh-plugin/
 │   ├── deepseek-balance-dsh-plugin/
 │   ├── deepseek-recharge-dsh-plugin/
 │   ├── document-read-dsh-plugin/
 │   └── github-dsh-plugin/
+├── scripts/                    校验工具（validate-patch.mjs 与 verify-pm*.mjs）
 ├── skills/                     安装技能：描述每个插件的安装方法，可选择安装
 │   ├── README.md               技能机制与安装说明
 │   ├── install-skills.ps1      一键把技能装进 %DSH_HOME%\skills（可选子集）
-│   ├── install-describe-image/SKILL.md
+│   ├── install-media/SKILL.md
+│   ├── install-deepseek/SKILL.md
+│   ├── install-launcher/SKILL.md
 │   ├── install-unity-mcp/SKILL.md
 │   ├── install-ue-mcp/SKILL.md
-│   ├── install-video-read/SKILL.md
-│   ├── install-audio-read/SKILL.md
-│   ├── install-audio-speak/SKILL.md
 │   ├── install-credentials/SKILL.md
 │   ├── install-stock/SKILL.md
-│   ├── install-deepseek-balance/SKILL.md
-│   ├── install-deepseek-recharge/SKILL.md
-│   ├── install-document-read/SKILL.md
 │   └── install-github/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
@@ -64,8 +63,8 @@ dsh-plugins/
    powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -Skills install-unity-mcp
    ```
 
-2. **选插件**：在 dsh 会话里输入 `/install-describe-image`，或直接说
-   “安装 describe-image 插件”，Agent 会加载对应技能并按正文一步步执行安装。
+2. **选插件**：在 dsh 会话里输入 `/install-media`，或直接说
+   “安装 video-read 插件”，Agent 会加载对应技能并按正文一步步执行安装。
 
 3. **验证**：重启 `dsh web` 后按各插件 README 的“重启并验证”步骤确认。
 
@@ -76,18 +75,16 @@ dsh-plugins/
 
 | 插件 | 功能 | 额外依赖 | 安装技能 |
 |------|------|----------|----------|
-| [describe-image](plugins/describe-image-dsh-plugin/README.md) | 图片理解工具：主模型保持 text-only，调用 `describe_image` 经 OpenAI 兼容 vision 端点（默认 Xiaomi MiMo `mimo-v2.5`）读图 | `MIMO_API_KEY`（或自建端点） | `install-describe-image` |
+| [dsh-media](plugins/dsh-media-dsh-plugin/README.md) | 感知合并包：`transcribe_audio`/`understand_audio`/`speak_text`/`read_video`/`read_document`（音频 · 语音 · 视频 · 文档）。图片无需工具——主模型原生多模态直读 | `MIMO_API_KEY`（文档内嵌图描述另需 vision 端点） | `install-media` |
 | [unity-mcp](plugins/unity-mcp-dsh-plugin/README.md) | MCP for Unity 桥：模型获得 `mcp__unity__*`（48 个 Unity Editor 工具），自带监督器自动拉起服务器 | Unity 项目 + MCP for Unity 客户端包 + uv/uvx | `install-unity-mcp` |
 | [ue-mcp](plugins/ue-mcp-dsh-plugin/README.md) | UE 内置 Unreal MCP 桥：模型获得 `mcp__unreal__*` 工具（list_toolsets/describe_toolset/call_tool 驱动编辑器场景、Actor、蓝图、PIE 等），自带监督器按配置拉起 `UnrealEditor -ModelContextProtocolStartServer` | UE 5.8+ 工程（已启用 ModelContextProtocol/AllToolsets 插件） | `install-ue-mcp` |
-| [video-read](plugins/video-read-dsh-plugin/README.md) | 视频理解工具：调用 `read_video`（MiMo `mimo-v2.5` 全模态）理解视频，支持本地路径（mp4/mov/avi/wmv）或公网 URL | `MIMO_API_KEY` | `install-video-read` |
-| [audio-read](plugins/audio-read-dsh-plugin/README.md) | 音频读取工具：`transcribe_audio` 语音转写（`mimo-v2.5-asr`，mp3/wav）+ `understand_audio` 音频理解（`mimo-v2.5`，mp3/wav/flac/m4a/ogg） | `MIMO_API_KEY` | `install-audio-read` |
-| [audio-speak](plugins/audio-speak-dsh-plugin/README.md) | 语音合成工具：调用 `speak_text`（MiMo `mimo-v2.5-tts`）合成语音写入本地文件，9 种内置音色、wav/mp3 输出 | `MIMO_API_KEY` | `install-audio-speak` |
-| [credentials](plugins/credentials-dsh-plugin/README.md) | 凭证管理工具：`credentials_list` / `credentials_set` / `credentials_unset` / `credentials_verify` 在对话里管理 `%DSH_HOME%\.credentials.yaml`，走官方 seam、永不暴露 key 值，set 可挂 approval 闸门 | 无 | `install-credentials` |
-| [stock](plugins/stock-dsh-plugin/README.md) | A股「行情→舆情→建议→模拟盘」闭环（**22 工具**）：行情 9（`stock_quote`/`stock_kline`/`stock_indicators` MA/MACD/RSI/KDJ/ATR/`stock_market_overview`/`watchlist_*`/`stock_daily_collect`/`stock_report`）+ 舆情 4（`sentiment_sources`/`_pick`/`_record`/`_list`，仅采信权威白名单源）+ 建议与持仓 4（`advice_calc` 多因子信号分/`position_record` 挂单/`_list`/`_update`）+ 模拟盘 5（`paper_init`/`_account`/`_trade`/`_execute_advice`/`_settle`，挂单次日按实际高低价区间验单）；腾讯公开接口、零密钥 | 无 | `install-stock` |
+| [dsh-deepseek](plugins/dsh-deepseek-dsh-plugin/README.md) | DeepSeek 账户合并包：`deepseek_balance` 余额查询（官方 `GET /user/balance`）+ `deepseek_recharge` 充值辅助（打开平台充值页） | `DEEPSEEK_API_KEY` | `install-deepseek` |
+| [credentials](plugins/credentials-dsh-plugin/README.md) | 凭证管理工具：`credentials_list` / `credentials_set` / `credentials_unset` / `credentials_verify` 在对话里管理 `%DSH_HOME%\.credentials.yaml`，走官方 seam、永不暴露 key 值；`requireApproval` 默认关（本部署 approval 策略为 `never`，开了必拒） | 无 | `install-credentials` |
 | [github](plugins/github-dsh-plugin/README.md) | GitHub 仓库管理：`github_repo`/`github_files`/`github_file_write`/`github_issue`/`github_pr`/`github_commit`/`github_search` 8 工具 + `github_sync` 本地工作区同步（clone/pull/commit/push，全局/项目双 scope，token 一次性注入不落盘） | `GITHUB_TOKEN`（可选：匿名只读公开仓库） | `install-github` |
-| [deepseek-balance](plugins/deepseek-balance-dsh-plugin/README.md) | DeepSeek 余额查询：`deepseek_balance` 走官方 `GET /user/balance` 接口返回总/充值/赠送余额 | `DEEPSEEK_API_KEY` | `install-deepseek-balance` |
-| [deepseek-recharge](plugins/deepseek-recharge-dsh-plugin/README.md) | DeepSeek 充值辅助：`deepseek_recharge` 查余额作上下文并打开平台充值页（官方无充值 API，网页端支付） | `DEEPSEEK_API_KEY` | `install-deepseek-recharge` |
-| [document-read](plugins/document-read-dsh-plugin/README.md) | 文档理解工具：`read_document` 综合读取 Word `.docx/.docm` / Excel `.xlsx` / PDF `.pdf`（本地路径或 URL），提取文字 + 内嵌图片逐张 vision 描述（默认 MiMo），解析由 Python python-docx/openpyxl/PyMuPDF 完成 | `MIMO_API_KEY` + Python 3.9+ 与三个解析库 | `install-document-read` |
+
+> 单工具旧包（`audio-read` / `audio-speak` / `video-read` / `document-read` /
+> `deepseek-balance` / `deepseek-recharge`）为 DEPRECATED，只作历史保留，不要新装；
+> `describe-image` 已**删除**——图片由主模型原生多模态直读，不需要外挂工具。
 
 ## 环境要求（目标电脑）
 

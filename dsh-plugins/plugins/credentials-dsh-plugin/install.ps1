@@ -32,20 +32,62 @@ Copy-Item -Path (Join-Path $PSScriptRoot 'plugins\credentials\index.js') -Destin
 Copy-Item -Path (Join-Path $PSScriptRoot 'plugins\credentials\package.json') -Destination $pluginDir -Force
 Write-Host "OK  plugin copied -> $pluginDir" -ForegroundColor Green
 
+# Validate the whole profile patch once more: a plugin entry whose YAML is
+# malformed must never be left behind silently. The checker ships next to the
+# install scripts as dsh-plugins/scripts/validate-patch.mjs.
+function Test-ProfilePatch {
+  $validator = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'scripts\validate-patch.mjs'
+  if (-not (Test-Path $validator)) {
+    Write-Host "SKIP patch validator not found at $validator" -ForegroundColor Yellow
+    return
+  }
+  try {
+    node $validator $patchFile
+    if ($LASTEXITCODE -ne 0) { Write-Host 'WARN patch validation found a problem; fix the file before restarting' -ForegroundColor Yellow }
+  } catch {
+    Write-Host "WARN could not validate the patch (node unavailable): $($_.Exception.Message)" -ForegroundColor Yellow
+  }
+}
+
 # --- 2. Add the profile patch entry (idempotent) ---------------------------
 $entryText = @'
 
 # --- credential-management tools (native dsh) ---
 # credentials_list / credentials_set / credentials_unset / credentials_verify
 # manage %DSH_HOME%\.credentials.yaml through the official credentials seam
-# (values never revealed; set gated behind approval when composed).
+# (values never revealed). requireApproval is off: this deployment runs the
+# approval policy "never", so a gate here would reject every write.
 - insert:
     - id: tool-credentials
       name: './plugins/credentials/index.js'
+      config:
+        requireApproval: false
+'@
+
+# Older installs wrote the entry without the config block (and, before the YAML
+# fix, its keys could be swallowed by a comment line). Refresh that block in
+# place so re-running this script actually repairs the entry.
+$sectionFix = @'
+- insert:
+    - id: tool-credentials
+      name: './plugins/credentials/index.js'
+      config:
+        requireApproval: false
 '@
 $current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
-if ($current -match 'tool-credentials') {
-  Write-Host "SKIP profile patch entry already present in $patchFile" -ForegroundColor Yellow
+$entryPattern = "(?ms)^-\s*insert:\s*\r?\n\s*-\s*id:\s*tool-credentials\s*\r?\n\s*name:\s*'\./plugins/credentials/index\.js'.*?(?=^-|^#|\z)"
+if ($current -match $entryPattern) {
+  $existing = $Matches[0].TrimEnd()
+  # The lookahead ends the match before the next line's newline, so re-add it.
+  $existingLines = $existing -split "`r?`n"
+  if ($existingLines -match '^\s+requireApproval:\s*false\s*$') {
+    Write-Host "SKIP profile patch entry already present and configured in $patchFile" -ForegroundColor Yellow
+  } else {
+    $updated = [regex]::Replace($current, $entryPattern, { param($m) $sectionFix.TrimStart() + "`n" })
+    [System.IO.File]::WriteAllText($patchFile, $updated.TrimEnd() + "`n", (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "OK  profile patch entry refreshed with config.requireApproval=false -> $patchFile" -ForegroundColor Green
+    Test-ProfilePatch
+  }
 } else {
   # dsh initializes cordis.patch.yml with a bare "[]" (empty-array placeholder).
   # Appending entries after it would produce invalid YAML (js-yaml / cordis both
@@ -56,6 +98,7 @@ if ($current -match 'tool-credentials') {
   $combined = if ($base) { $base + "`n" + $entryText.TrimStart() } else { $entryText.TrimStart() }
   [System.IO.File]::WriteAllText($patchFile, $combined, (New-Object System.Text.UTF8Encoding($false)))
   Write-Host "OK  profile patch entry added -> $patchFile" -ForegroundColor Green
+  Test-ProfilePatch
 }
 
 # --- 3. Credential note ----------------------------------------------------

@@ -10,8 +10,8 @@ DSH 内置 `dsh-skill-filesystem`，从若干“根目录”发现技能（发�
 `<name>/SKILL.md` 目录包，frontmatter 必填 `name`（kebab-case）与
 `description`，可选 `whenToUse` 等。调用方式：
 
-- **用户显式**：在对话里输入 `/技能名`（如 `/install-describe-image`）
-- **模型调用**：直接说需求（如“安装 describe-image 插件”），模型会自动加载对应技能
+- **用户显式**：在对话里输入 `/技能名`（如 `/install-media`）
+- **模型调用**：直接说需求（如“安装 video-read 插件”），模型会自动加载对应技能
 
 技能文件随目录变化**热刷新**，新会话即可发现最新技能。
 
@@ -34,7 +34,7 @@ powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1
 
 # 只装选中的插件技能（“选择安装哪些插件”）
 powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -Skills install-unity-mcp
-powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -Skills install-unity-mcp,install-describe-image
+powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -Skills install-unity-mcp,install-media
 powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -DryRun   # 只看会装什么
 ```
 
@@ -44,23 +44,24 @@ powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -DryRun   #
 > 技能根目录：根下平铺的 `README.md` 会被当成畸形平铺技能而以警告丢弃。
 > 只复制 `<name>/SKILL.md` 包目录，或使用 `install-skills.ps1`。
 
-装完后，在新会话里输入 `/install-describe-image`，或直接说“安装 X 插件”即可。
+装完后，在新会话里输入 `/install-media`，或直接说“安装 X 插件”即可。
 
 ## 技能清单
 
 | 技能 | 对应插件 | 说明 |
 |------|----------|------|
-| `install-describe-image` | `plugins/describe-image-dsh-plugin` | describe_image 图片理解工具（需 MIMO_API_KEY） |
+| `install-media` | `plugins/dsh-media-dsh-plugin` | 感知合并包：transcribe_audio/understand_audio/speak_text/read_video/read_document（需 MIMO_API_KEY） |
+| `install-deepseek` | `plugins/dsh-deepseek-dsh-plugin` | DeepSeek 账户合并包：余额查询 + 充值辅助（需 DEEPSEEK_API_KEY） |
+| `install-launcher` | `plugins/dsh-launcher-dsh-plugin` | 会话内重启/查状态/切连接/开浏览器/查升级（无额外依赖） |
 | `install-unity-mcp` | `plugins/unity-mcp-dsh-plugin` | MCP for Unity 桥（需 Unity + uv/uvx） |
 | `install-ue-mcp` | `plugins/ue-mcp-dsh-plugin` | UE 内置 Unreal MCP 桥：mcp__unreal__* 工具 + 监督器拉起编辑器（需 UE 工程启用 MCP 插件，无需 key） |
-| `install-video-read` | `plugins/video-read-dsh-plugin` | read_video 视频理解工具（需 MIMO_API_KEY） |
-| `install-audio-read` | `plugins/audio-read-dsh-plugin` | transcribe_audio 转写 + understand_audio 理解（需 MIMO_API_KEY） |
-| `install-audio-speak` | `plugins/audio-speak-dsh-plugin` | speak_text 语音合成工具（需 MIMO_API_KEY） |
 | `install-credentials` | `plugins/credentials-dsh-plugin` | 对话里管理凭证：list/verify/set/unset（无额外依赖） |
 | `install-stock` | `plugins/stock-dsh-plugin` | A股行情/技术指标/自选股/舆情研判/交易建议/模拟盘（22 工具，腾讯公开接口，无依赖） |
-| `install-deepseek-balance` | `plugins/deepseek-balance-dsh-plugin` | DeepSeek 余额查询（需 DEEPSEEK_API_KEY） |
-| `install-deepseek-recharge` | `plugins/deepseek-recharge-dsh-plugin` | DeepSeek 充值辅助：余额上下文 + 跳转充值页（需 DEEPSEEK_API_KEY） |
-| `install-document-read` | `plugins/document-read-dsh-plugin` | read_document 文档理解：Word/Excel/PDF 文字 + 内嵌图片 vision 描述（需 Python 解析库 + MIMO_API_KEY） |
+| `install-github` | `plugins/github-dsh-plugin` | GitHub 仓库管理与本地工作区同步（可选 GITHUB_TOKEN） |
+
+> 图片读取不需要技能：DeepSeek 主模型原生支持图片输入，会话直接读图。
+> 单工具旧包（audio-read / audio-speak / video-read / document-read /
+> deepseek-balance / deepseek-recharge）已 DEPRECATED，只作历史保留。
 
 ## 新增技能的约定
 

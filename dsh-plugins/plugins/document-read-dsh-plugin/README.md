@@ -66,7 +66,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 - 解析由随包分发的 `parse_document.py` 完成（python-docx / openpyxl / PyMuPDF）
 - URL 下载到系统临时目录，解析后自动清理
 - 提取出的图片写入 `%TEMP%\dsh_doc_img_*\`，工具返回每张图的本地路径，
-  模型可再用 `describe_image` 复查；如需长期保存请告知模型复制路径
+  需要细看时模型可自行直读该图片（主模型已原生支持图片输入）；
+  如需长期保存请告知模型复制路径
 
 ## 可选配置
 
