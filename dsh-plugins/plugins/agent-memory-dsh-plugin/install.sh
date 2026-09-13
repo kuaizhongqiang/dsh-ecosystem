@@ -159,18 +159,20 @@ if [ "$MODE" = native ]; then
       config:
         memoryEndpoint: http://127.0.0.1:8422
         knowledgeEndpoint: http://127.0.0.1:8421
-        apiKey: '<bridge api key>'
+        apiKeyRef: AGENT_MEMORY_API_KEY
         serviceId: default
         teamId: '<TEAM_ID>'
         agentId: '<AGENT_ID>'
         userId: '<USER_ID>'
-        userKey: '<sk-mem-...>'
+        userKeyRef: AGENT_MEMORY_USER_KEY
         taskId: '<project label task_id>'
         capture: true
         timeoutMs: 15000
 EOF
 )"
-    info "记得把 config 里的 <...> 占位符换成真实值（见 .env.example / README）"
+    info "记得把 config 里的 <...> 占位符（teamId/agentId/userId/taskId）换成真实值"
+    info "两个密钥走**引用式**：存进受管凭证库即可 —— 会话里 credentials_set AGENT_MEMORY_API_KEY / AGENT_MEMORY_USER_KEY，"
+    info "  或直接编辑 %DSH_HOME%/.credentials.yaml 的 refs: 段（0600，热生效）；解析优先级 seam > 同名环境变量 > 内联值"
     info "native 模式下入库在进程内完成，无需 autostore 守护"
   fi
 fi

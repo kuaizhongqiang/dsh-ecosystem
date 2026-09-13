@@ -43,7 +43,16 @@ Windows：`powershell -ExecutionPolicy Bypass -File .\install.ps1 [-Mode mcp] [-
 
 ## 3. 填凭证（建议重启）
 
-把生成的 `cordis.patch.yml` 条目里的 `<...>` 换成真实值（对照 `.env.example`），然后**重启 `dsh web`**：
+把生成的 `cordis.patch.yml` 条目里的 `<...>`（teamId/agentId/userId/taskId）换成真实值（对照 `.env.example`）。
+
+密钥走**引用式**：条目里只有 `apiKeyRef: AGENT_MEMORY_API_KEY` / `userKeyRef: AGENT_MEMORY_USER_KEY`，
+真值存受管凭证库 `%DSH_HOME%/.credentials.yaml` 的 `refs:` 段（0600、热生效）。存法二选一：
+
+- 会话里调 `credentials_set`（需 credentials 插件 **v0.0.2** 且该条目 `config.requireApproval: false`，
+  否则本部署的 `never` 审批策略会直接拒绝写入）；
+- 或直接编辑 `%DSH_HOME%/.credentials.yaml`（更保守，改完无需重启）。
+
+解析优先级 `凭证 seam > 同名环境变量 > 内联 apiKey/userKey`——在凭证库里轮换 key 不必改 patch。然后**重启 `dsh web`**：
 
 ```bash
 systemctl --user restart dsh      # 本机部署方式

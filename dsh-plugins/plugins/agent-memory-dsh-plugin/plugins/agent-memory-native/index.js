@@ -22,6 +22,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 
 import {
   CODE_QUERY_ACTIONS,
+  resolveSecretValue,
   contextEcho,
   createCaptureEngine,
   createCodeGraphClient,
@@ -50,8 +51,12 @@ export const Config = z.object({
   teamId: z.string(),
   agentId: z.string(),
   userId: z.string(),
-  /** 团队 user_key（可选，meta 面鉴权） */
+  /** 团队 user_key（可选，meta 面鉴权；也可用 userKeyRef 引用凭证 seam） */
   userKey: z.string(),
+  /** 凭证 seam 引用名（如 AGENT_MEMORY_USER_KEY）；优先于内联 userKey */
+  userKeyRef: z.string(),
+  /** 凭证 seam 引用名（如 AGENT_MEMORY_API_KEY）；优先于内联 apiKey */
+  apiKeyRef: z.string(),
   /** 项目级隔离标签 task_id；未配则取会话 cwd 目录名 */
   taskId: z.string(),
   /** 默认 session key（store_memory / capture 未显式给时用）；未配则用 DSH 会话 id */
@@ -76,16 +81,61 @@ const textOutput = {
 }
 
 /**
- * @param ctx - cordis 上下文（inject: tools）。
+ * @param ctx - cordis 上下文（inject: tools；credentials 可选，用于引用式凭证）。
  * @param config - 见 {@link Config}。
  */
 export function apply(ctx, config) {
   const log = (...parts) => console.log('[agent-memory]', ...parts)
   const warn = (...parts) => console.warn('[agent-memory]', ...parts)
 
-  const memory = createMemoryClient(config)
-  const codeGraph = createCodeGraphClient(config)
-  const capture = createCaptureEngine(config, { log, warn, memoryClient: memory })
+  /**
+   * 引用式凭证：secret 优先从官方凭证 seam（`ctx.get('credentials')`）按 ref 解析，
+   * 其次回落到同名环境变量，最后才用 config 里的内联值。
+   * 这样 cordis.patch.yml 里可以只写 `apiKeyRef: AGENT_MEMORY_API_KEY`，
+   * 真值放 `%DSH_HOME%/.credentials.yaml`（0600、热更新、永不回显）。
+   */
+  const credentialService = () => (typeof ctx.get === 'function' ? ctx.get('credentials') : undefined)
+  const resolveSecret = async (ref, inline) => {
+    let brand = (name) => name
+    try {
+      const { credentialRef } = await import('@deepseek-ai/dsh-credentials')
+      brand = credentialRef
+    } catch { /* seam 包不可用时直接回落 env */ }
+    const { value } = await resolveSecretValue({ ref, inline, service: credentialService(), brand, warn })
+    return value
+  }
+
+  let memory
+  let codeGraph
+  let capture
+  /** 首次使用（工具调用 / 会话事件）时才解析凭证并建客户端，避免把 apply 变成异步。 */
+  const ready = (async () => {
+    const apiKey = await resolveSecret(config.apiKeyRef, config.apiKey)
+    const userKey = await resolveSecret(config.userKeyRef, config.userKey)
+    const effective = { ...config, apiKey, userKey }
+    memory = createMemoryClient(effective)
+    codeGraph = createCodeGraphClient(effective)
+    capture = createCaptureEngine(effective, { log, warn, memoryClient: memory })
+    log(
+      `clients ready: secrets=${effective.apiKey ? 'apiKey✓' : 'apiKey✗'}${effective.userKey ? ' userKey✓' : ''} `
+      + `refs=${[config.apiKeyRef, config.userKeyRef].filter(Boolean).join(',') || '-'} capture=${effective.capture !== false ? 'on' : 'off'}`,
+    )
+    return effective
+  })().catch((err) => {
+    warn(`初始化失败：${err.message}`)
+    return config
+  })
+
+  if (config.capture !== false) {
+    // 关键：profile 级插件必须用 { global: true } —— `session/event` 是「会话作用域」事件，
+    // 不带该选项的监听器收不到任何事件（harness 官方订阅均如此，见 core/tools/invariant.ts）。
+    // 订阅在 apply 期同步挂载，事件按序等待 ready（凭证解析）完成后再处理。
+    ctx.on('session/event', (session, event) => {
+      ready
+        .then(() => capture.handleEvent(session, event))
+        .catch((err) => warn(`session/event 处理异常：${err.message}`))
+    }, { global: true })
+  }
 
   const register = (spec) =>
     ctx.tools.register(
@@ -113,6 +163,7 @@ export function apply(ctx, config) {
       include_scenes: { type: 'boolean', description: 'Include L2 scene index (default false)' },
     },
     async execute(args, exec) {
+      await ready
       const cwd = cwdOf(exec)
       const [facts, persona, scenes] = await Promise.all([
         memory.searchAtomic(args.query, { limit: args.limit }, cwd),
@@ -138,6 +189,7 @@ export function apply(ctx, config) {
       session_key: { type: 'string', description: 'Session key (default: plugin sessionKey / DSH session id)' },
     },
     async execute(args, exec) {
+      await ready
       const cwd = cwdOf(exec)
       const sessionId = args.session_key || config.sessionKey || exec?.session?.id
       const data = await memory.addConversation(
@@ -162,6 +214,7 @@ export function apply(ctx, config) {
       type: { type: 'string', description: 'Filter by memory type' },
     },
     async execute(args, exec) {
+      await ready
       const cwd = cwdOf(exec)
       const data = await memory.searchAtomic(args.query, { limit: args.limit, type: args.type }, cwd)
       return { text: jsonText({ items: data?.items ?? [], _context: contextEcho(config, cwd) }) }
@@ -176,6 +229,7 @@ export function apply(ctx, config) {
       description,
       parameters,
       async execute(args) {
+        await ready
         return { text: toolName === 'code_graph_list' ? await codeGraph.list() : await codeGraph.query(toolName, args) }
       },
     })
@@ -232,19 +286,13 @@ export function apply(ctx, config) {
   })
 
   // ── 进程内自动入库 ────────────────────────────────────────────────────
-
-  const captureOn = config.capture !== false
-  if (captureOn) {
-    // 关键：profile 级插件必须用 { global: true } —— `session/event` 是「会话作用域」事件，
-    // 不带该选项的监听器收不到任何事件（harness 官方订阅均如此，见 core/tools/invariant.ts）。
-    ctx.on('session/event', (session, event) => {
-      capture.handleEvent(session, event).catch((err) => warn(`session/event 处理异常：${err.message}`))
-    }, { global: true })
-  }
+  // 订阅在 ready 里完成（见上）：先把凭证 ref 解析成客户端，再挂 global 事件监听。
 
   log(
-    `ready v${version}: tools=${3 + CODE_QUERY_ACTIONS.size + 1} capture=${captureOn ? 'on' : 'off'} `
+    `ready v${version}: tools=${3 + CODE_QUERY_ACTIONS.size + 1} capture=${config.capture !== false ? 'on' : 'off'} `
     + `memory=${config.memoryEndpoint || '(unset)'} knowledge=${config.knowledgeEndpoint || '(unset)'} `
-    + `team=${config.teamId || '(unset)'} state=${captureOn ? config.statePath || defaultStatePath() : '-'}`,
+    + `team=${config.teamId || '(unset)'} `
+    + `secrets=${config.apiKeyRef || config.userKeyRef ? 'ref(' + [config.apiKeyRef, config.userKeyRef].filter(Boolean).join(',') + ')' : 'inline'} `
+    + `state=${config.capture !== false ? config.statePath || defaultStatePath() : '-'}`,
   )
 }

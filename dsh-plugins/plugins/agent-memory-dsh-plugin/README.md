@@ -78,9 +78,19 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 
 | config 键 | 用途 | 从哪来 |
 |---|---|---|
-| `teamId` / `agentId` / `userId` | v3 隔离三元组 | Memory Panel（:8123）/ 团队管理员 |
-| `userKey`（`sk-mem-…`） | 团队记忆 key | 同上 |
-| `apiKey` | 网关门禁 key（`Authorization: Bearer`） | 自定/团队 |
+| `teamId` / `agentId` / `userId` | v3 隔离三元组（非密钥） | Memory Panel（:8123）/ 团队管理员 |
+| `userKeyRef` → `AGENT_MEMORY_USER_KEY` | 团队记忆 key（`sk-mem-…`） | 存进**受管凭证库**（见下） |
+| `apiKeyRef` → `AGENT_MEMORY_API_KEY` | 网关门禁 key（`Authorization: Bearer`） | 存进**受管凭证库**（见下） |
+
+**引用式（推荐）**：`cordis.patch.yml` 里只写 `*Ref` 名，真值放 `%DSH_HOME%/.credentials.yaml`
+（0600、原子写、热生效、永不回显）。存法二选一：
+
+- 会话里让模型调 `credentials_set`（值会经过一次对话上下文；需要 credentials 插件 v0.0.2
+  且该条目 `config.requireApproval: false`，否则本部署的 `never` 审批策略会直接拒绝）；
+- 或**直接编辑** `%DSH_HOME%/.credentials.yaml` 的 `refs:` 段（更保守，改完无需重启）。
+
+解析优先级：**凭证 seam（ref）> 同名环境变量 > 内联 `apiKey`/`userKey`**。内联值仅作切换期兜底；
+两者同时存在时以凭证库为准，因此在凭证库里轮换 key **不需要**改 patch。
 | `taskId` | L1 事实的项目标签（**不是** agent_id） | 自定（如 `normal-manager`）；不配则取会话 cwd 目录名 |
 | `memoryEndpoint` / `knowledgeEndpoint` | MemoryCore / MemoryKnowledge | 本地部署地址 |
 | 引擎 LLM key | 记忆提炼 | 600 权限文件，见上 |

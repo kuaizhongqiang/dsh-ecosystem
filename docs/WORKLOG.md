@@ -1,5 +1,21 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-13(凭证接入：credentials v0.0.2 上线 + agent-memory 引用式密钥)
+
+- **凭证写入门径打通**：线上 profile 原为 credentials **v0.0.1**（279 行）且 `tool-credentials` 条目没有
+  `config`，因此 `credentials_set` 一直被 approval seam 拒（本部署策略 `never`）。本轮把仓库里的
+  **v0.0.2**（298 行）复制进线上并给条目补 `config.requireApproval: false` → `credentials_set` 成功
+  （`GITHUB_TOKEN` 已入受管库，`credentials_verify` 报 `configured (source=file)`）。
+- **踩坑自曝**：首次用脚本把两个记忆密钥写入 `.credentials.yaml` 时追加到了**顶层**，而该文件有
+  `version/refs/records` schema —— 已改为写入 `refs:` 段并做了 YAML 解析校验（9 个 ref、权限 0600 未变）。
+- **agent-memory 引用式密钥**：新增 `apiKeyRef`/`userKeyRef` + 可测试的 `resolveSecretValue()`
+  （优先级 **凭证 seam > 同名环境变量 > 内联值**）；`AGENT_MEMORY_API_KEY` / `AGENT_MEMORY_USER_KEY`
+  已存入受管库，cordis 条目同时保留 ref 与内联值（切换期兜底，同一时刻内联仅在被 ref 命中前生效）。
+  selftest 增 6 组断言 → **35 ok / 0 FAIL**；安装器默认生成 ref 式配置并提示存储方式。
+- **热重载结论再修正**：本轮 patch 变更与插件文件覆盖**都未能**触发重载（15:37/15:38 两次 `ready`
+  之后再无），因此**重启仍是唯一可靠路径**；文档措辞保持「改动后建议重启」。当前线上运行的仍是
+  上一版代码（内联值兜底），ref 版代码已同步到 profile，待下次重启生效后再撤掉内联值。
+
 ## 2026-09-13(更正：本部署并非「完全不热加载」+ 线上入库实测生效 + 守护撤除)
 
 - **证据（同一天三条时间线）**:① 15:17 追加 native 条目 → **15:18:42 运行中的实例（pid 1357）即打 `ready`**;

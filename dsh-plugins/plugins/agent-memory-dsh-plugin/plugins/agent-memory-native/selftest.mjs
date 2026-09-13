@@ -18,6 +18,7 @@ import { join } from 'node:path'
 
 import {
   createCaptureEngine,
+  resolveSecretValue,
   createCodeGraphClient,
   createMemoryClient,
   resolveTaskId,
@@ -231,11 +232,34 @@ async function mockTests() {
   mock.server.close()
 }
 
+async function secretTests() {
+  console.log('6. 引用式凭证解析（resolveSecretValue：seam > env > 内联）')
+  const seam = (value, source = 'file') => ({ resolve: async () => ({ value, source }) })
+  let r = await resolveSecretValue({ ref: 'X_KEY', service: seam('from-seam'), env: { X_KEY: 'from-env' } })
+  ok(r.value === 'from-seam' && r.source === 'file', '6-1 凭证 seam 优先于环境变量')
+  r = await resolveSecretValue({ ref: 'X_KEY', inline: 'inline-val', service: seam('from-seam') })
+  ok(r.value === 'from-seam' && r.source === 'file', '6-2 凭证 seam 优先于内联值（轮换 key 无需改 patch）')
+  r = await resolveSecretValue({ ref: 'UNSET_KEY', inline: 'inline-fallback', env: {} })
+  ok(r.value === 'inline-fallback' && r.source === 'inline', '6-2b ref 未配置时回落内联值（切换期不中断）')
+  r = await resolveSecretValue({ ref: 'X_KEY', env: { X_KEY: 'from-env' } })
+  ok(r.value === 'from-env' && r.source === 'env', '6-3 seam 缺失时回落同名环境变量')
+  const warns = []
+  r = await resolveSecretValue({
+    ref: 'X_KEY',
+    service: { resolve: async () => { throw new Error('boom') } },
+    env: { X_KEY: 'env-after-error' },
+    warn: (m) => warns.push(m),
+  })
+  ok(r.value === 'env-after-error' && warns.length === 1, '6-4 seam 报错时回落 env 并告警（不抛）')
+  r = await resolveSecretValue({ ref: 'MISSING_KEY', env: {} })
+  ok(r.value === undefined && r.source === 'none', '6-5 全缺时返回 none（不抛错，由调用方决定报错时机）')
+}
+
 async function liveTests(write) {
   const config = parseLiveConfig()
-  console.log(`6. 真实引擎（${write ? '含写入' : '只读'}）`)
+  console.log(`7. 真实引擎（${write ? '含写入' : '只读'}）`)
   ok(Boolean(config.memoryEndpoint), `6-1 memoryEndpoint 已配置（${config.memoryEndpoint || '缺失'}）`)
-  ok(Boolean(config.teamId && config.agentId && config.userId), '6-2 身份三元组已配置')
+  ok(Boolean(config.teamId && config.agentId && config.userId), '7-2 身份三元组已配置')
   const memory = createMemoryClient(config)
   const codeGraph = createCodeGraphClient(config)
 
@@ -244,7 +268,7 @@ async function liveTests(write) {
   const core = await memory.readCore()
   ok(core !== null && typeof core === 'object', `6-4 core/read 可用（persona ${core?.content ? '有' : '空'}）`)
   const list = await codeGraph.list()
-  ok(list.includes('code-graph 索引'), '6-5 code-graph/list 可用')
+  ok(list.includes('code-graph 索引'), '7-5 code-graph/list 可用')
   // list() 末尾附了 JSON（items + _context），据此取一个真实 repo 做查询
   let repo = process.env.TEST_REPO || ''
   try {
@@ -253,7 +277,7 @@ async function liveTests(write) {
   } catch { /* 解析失败则回退到默认短名 */ }
   ok(Boolean(repo), `6-6 取得可用 repo（${repo || '缺失'}）`)
   const search = await codeGraph.query('code_search', { query: 'install', repo, limit: 3 })
-  ok(typeof search === 'string' && search.startsWith('[code-graph]'), '6-7 code-graph/search 可用')
+  ok(typeof search === 'string' && search.startsWith('[code-graph]'), '7-7 code-graph/search 可用')
 
   if (write) {
     const dir = mkdtempSync(join(tmpdir(), 'am-native-live-'))
@@ -274,7 +298,7 @@ const liveWrite = args.includes('--live-write')
 
 console.log(`agent-memory-native selftest（${live ? 'live' : 'mock'} 模式）`)
 if (live) await liveTests(liveWrite)
-else await mockTests()
+else { await mockTests(); await secretTests() }
 
 console.log(`\n结果：${passed} ok / ${failed} FAIL`)
 process.exit(failed === 0 ? 0 : 1)

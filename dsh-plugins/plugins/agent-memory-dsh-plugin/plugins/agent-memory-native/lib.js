@@ -20,6 +20,38 @@ export const DEFAULT_META_TTL_MS = 60_000
 /** 身份 id 前缀白名单：这些永远不能当 task_id（项目级标签）用。 */
 export const IDENTITY_PREFIXES = /^(agt-|team-|usr-|uky-|sk-mem-|sk-|key-)/i
 
+/**
+ * 解析一个凭证值，优先级：内联值 > 官方凭证 seam（按 ref 解析）> 同名环境变量。
+ * 纯函数式（seam/brand/env 全部注入），因此可在 selftest 里离线验证。
+ * @returns `{ value, source }`，source ∈ inline | seam | env | none
+ */
+export async function resolveSecretValue({
+  ref,
+  inline,
+  service,
+  brand = (name) => name,
+  env = process.env,
+  warn = () => {},
+} = {}) {
+  // 优先级：凭证 seam（ref）> 同名环境变量 > 内联值（向后兼容/兜底）。
+  // 这样 ref 一旦配置就自动生效（在 .credentials.yaml 里轮换 key 无需改 patch），
+  // 而旧配置里的内联值仍然可用，切换期不会中断。
+  if (ref) {
+    if (service?.resolve) {
+      try {
+        const resolved = await service.resolve(brand(ref))
+        if (resolved?.value) return { value: resolved.value, source: resolved.source ?? 'seam' }
+      } catch (err) {
+        warn(`凭证 ref ${ref} 解析失败（继续回落 env/内联）：${err.message}`)
+      }
+    }
+    const fromEnv = env?.[ref]
+    if (fromEnv) return { value: fromEnv, source: 'env' }
+  }
+  if (inline) return { value: inline, source: 'inline' }
+  return { value: undefined, source: 'none' }
+}
+
 export function dshHome() {
   return process.env.DSH_HOME || join(homedir(), '.dsh')
 }

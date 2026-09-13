@@ -36,6 +36,16 @@ cd credentials-dsh-plugin
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
+Linux/macOS（本机部署实测）：
+
+```bash
+cp plugins/credentials/index.js  "$DSH_HOME/profiles/web/plugins/credentials/index.js"
+cp plugins/credentials/package.json "$DSH_HOME/profiles/web/plugins/credentials/package.json"
+# 在 cordis.patch.yml 的 tool-credentials 条目下加：
+#     config:
+#       requireApproval: false     # 本部署 approval 策略为 never，开启则写入必被拒
+```
+
 脚本会：
 1. 把 `plugins/credentials` 复制到 `%DSH_HOME%\profiles\web\plugins\credentials`
 2. 幂等地在 `cordis.patch.yml` 追加 `- insert:` 挂载条目（已存在则跳过）

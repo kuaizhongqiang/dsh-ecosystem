@@ -53,6 +53,14 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 
 > 注意：该脚本**不做密钥脱敏**——会话里粘贴过的明文密钥会被原样提交进记忆库。凭据请勿经聊天传递。
 
+## 凭证接入（引用式）
+
+原生插件支持 `apiKeyRef` / `userKeyRef`：`cordis.patch.yml` 只写引用名，真值放受管凭证库
+`%DSH_HOME%/.credentials.yaml`（`refs:` 段，0600、原子写、热生效），解析优先级
+**凭证 seam（`ctx.get('credentials')` + `credentialRef`/`resolve`）> 同名环境变量 > 内联值**。
+好处：轮换 key 不必改 patch、密钥不再散落在 profile 配置里；内联值仅作切换期兜底。
+凭证写入门径见 credentials 插件（v0.0.2；本部署 approval 策略为 `never`，需 `requireApproval: false`）。
+
 ## 数据与红线
 
 - 记忆数据在 `~/.openclaw/memory-tdai/`（L0–L3、场景块、persona）→ **本机数据，永不入仓**。

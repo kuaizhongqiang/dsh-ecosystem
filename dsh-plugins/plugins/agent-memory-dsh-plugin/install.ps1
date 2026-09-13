@@ -119,18 +119,20 @@ if ($Mode -eq 'native' -and (Has-Svc 'memory' -or Has-Svc 'codegraph')) {
       config:
         memoryEndpoint: http://127.0.0.1:8422
         knowledgeEndpoint: http://127.0.0.1:8421
-        apiKey: '<bridge api key>'
+        apiKeyRef: AGENT_MEMORY_API_KEY
         serviceId: default
         teamId: '<TEAM_ID>'
         agentId: '<AGENT_ID>'
         userId: '<USER_ID>'
-        userKey: '<sk-mem-...>'
+        userKeyRef: AGENT_MEMORY_USER_KEY
         taskId: '<project label task_id>'
         capture: true
         timeoutMs: 15000
 "@
   Add-PatchBlock 'tool-agent-memory' $body
-  Write-Host '  NOTE: replace the <...> placeholders in cordis.patch.yml (see README / .env.example)'
+  Write-Host '  NOTE: replace the <...> placeholders (teamId/agentId/userId/taskId) in cordis.patch.yml'
+  Write-Host '  NOTE: secrets are referenced, not inlined — store them via credentials_set AGENT_MEMORY_API_KEY /'
+  Write-Host '        AGENT_MEMORY_USER_KEY, or edit %DSH_HOME%\.credentials.yaml (refs:, 0600, hot-applied).'
   Write-Host '  NOTE: capture runs in-process; the external autostore task is not needed'
 }
 
@@ -188,7 +190,9 @@ if ($Mode -eq 'mcp') {
         toolCallTimeoutMs: 30000
 "@
     Add-PatchBlock 'mcp-agent-memory' $body
-    Write-Host '  NOTE: replace the <...> placeholders in cordis.patch.yml (see README / .env.example)'
+    Write-Host '  NOTE: replace the <...> placeholders (teamId/agentId/userId/taskId) in cordis.patch.yml'
+  Write-Host '  NOTE: secrets are referenced, not inlined — store them via credentials_set AGENT_MEMORY_API_KEY /'
+  Write-Host '        AGENT_MEMORY_USER_KEY, or edit %DSH_HOME%\.credentials.yaml (refs:, 0600, hot-applied).'
   }
 }
 
