@@ -1,5 +1,26 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-13(agent-memory 进程内入库修复：global 订阅 + 注入过滤 + 上限截断；端到端跑通)
+
+用户重启后实测发现「工具能用、入库不动」(游标停在 15:16:51、无捕获日志),根因逐个挖出并修复:
+
+1. **`session/event` 必须带 `{ global: true }`**(核心根因):该事件是**会话作用域**事件,
+   profile 级插件用 `ctx.on('session/event', fn)` 收不到任何事件 —— harness 官方订阅均为
+   `ctx.on(..., { global: true })`(`core/tools/src/invariant.ts:79`、`sdk/server/src/server.ts:95`)。
+   这也解释了当年 v1 `memory-bridge` 原生插件为何被放弃、改用文件轮询守护。
+2. **只认真人输入**:`user/message` 事件混有 `agent.inject()` 的合成上下文(AGENTS.md/技能/环境提示),
+   全部累积会直接撑爆引擎上限 —— 实测 `400 messages.0.content: Too big: expected <=8192 characters`。
+   现按守护同口径过滤 `source.kind === 'user' && role === 'user'`,助手侧只认 `message.role === 'assistant'`,
+   并在无新真人输入时沿用上一轮文本(pendingUser 语义)。
+3. **8192 上限保护**:单条 content 超过上限自动截断(留余量 8000 + 截断标记),避免长回复/长输入触发 400。
+
+- **端到端验证**(用 `--profile headless --patch` 起一轮真实对话,**不动线上 web 会话**):
+  日志 `[agent-memory] ready … tools=11 capture=on` → 任务答复正常 → `[agent-memory] capture 已提交
+  session=session-6a5d63a8-… turn=1`,探针游标文件同步写入该会话 turn=1。
+  selftest 扩到 **mock 28 ok / 0 FAIL**(含注入过滤、pendingUser 沿用、超限截断三组新用例)。
+- **线上状态**:工具面在重启后已生效(本会话直接调用裸名 `recall_memory` 成功,返回 `_context` 带
+  service_id —— native 实现特征);入库修复已同步进 profile,**需再重启一次**才在线上生效。
+
 ## 2026-09-13(agent-memory 重启上线验证 + 两处修复)
 
 - **用户重启 dsh 后实测**(15:24:54 重启,新进程 pid 11752):日志出现

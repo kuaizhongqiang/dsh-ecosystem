@@ -235,9 +235,11 @@ export function apply(ctx, config) {
 
   const captureOn = config.capture !== false
   if (captureOn) {
+    // 关键：profile 级插件必须用 { global: true } —— `session/event` 是「会话作用域」事件，
+    // 不带该选项的监听器收不到任何事件（harness 官方订阅均如此，见 core/tools/invariant.ts）。
     ctx.on('session/event', (session, event) => {
       capture.handleEvent(session, event).catch((err) => warn(`session/event 处理异常：${err.message}`))
-    })
+    }, { global: true })
   }
 
   log(

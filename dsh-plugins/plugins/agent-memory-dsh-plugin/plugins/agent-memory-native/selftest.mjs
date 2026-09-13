@@ -182,29 +182,43 @@ async function mockTests() {
     { memoryClient: memory, debug: (m) => debugLogs.push(m) },
   )
   const session = { id: 'session-selftest', header: { cwd: '/home/kuai/dsh-project/dsh-ecosystem' } }
-  await capture.handleEvent(session, { type: 'user/message', data: { content: [{ type: 'text', text: '第一问' }] } })
-  await capture.handleEvent(session, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '第一答' }, { type: 'image', url: 'x' }] } } })
+  // 事件形状按 harness 真实负载：真人是 source.kind==='user' && role==='user'；助手是 message.role==='assistant'
+  const human = (text) => ({ type: 'user/message', data: { source: { kind: 'user' }, role: 'user', content: [{ type: 'text', text }] } })
+  const injected = (text) => ({ type: 'user/message', data: { source: { kind: 'agent' }, role: 'user', content: [{ type: 'text', text }] } })
+  const assistant = (text, extra = []) => ({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text }, ...extra] } } })
+
+  await capture.handleEvent(session, human('第一问'))
+  await capture.handleEvent(session, injected('注入的 AGENTS.md 上下文（不应入库）'))
+  await capture.handleEvent(session, assistant('第一答', [{ type: 'image', url: 'x' }]))
   await capture.handleEvent(session, { type: 'turn/end', data: { turn: 7 } })
   ok(last().path === '/v3/conversation/add', '4-1 turn/end 触发 conversation/add')
   ok(last().body.session_id === 'session-selftest', '4-2 session_id = DSH 会话 id')
-  ok(last().body.messages[0].content === '第一问' && last().body.messages[1].content === '第一答', '4-3 只取 text 块，忽略非文本块')
+  ok(last().body.messages[0].content === '第一问' && last().body.messages[1].content === '第一答', '4-3 只取真人输入与 text 块，忽略注入内容/非文本块')
   ok(capture.cursor('session-selftest') === 7, '4-4 游标写入 state')
   const before = mock.calls.length
-  await capture.handleEvent(session, { type: 'user/message', data: { content: [{ type: 'text', text: 'dup' }] } })
+  await capture.handleEvent(session, human('dup'))
   await capture.handleEvent(session, { type: 'turn/end', data: { turn: 7 } })
   ok(mock.calls.length === before, '4-5 同一 turn 不重复提交（游标去重）')
   await capture.handleEvent(session, { type: 'turn/end', data: { turn: 8 } })
   ok(mock.calls.length === before, '4-6 空轮次不提交')
-  // 单侧空轮次（纯工具调用回合等）：引擎要求 content >= 1 字符，上传会被判 400 → 必须跳过
-  await capture.handleEvent(session, { type: 'turn/start', data: { turn: 9 } })
-  await capture.handleEvent(session, { type: 'user/message', data: { content: [{ type: 'text', text: '只有用户侧' }] } })
+  await capture.handleEvent(session, injected('又一段注入'))
+  await capture.handleEvent(session, assistant('只有助手侧'))
   await capture.handleEvent(session, { type: 'turn/end', data: { turn: 9 } })
-  ok(mock.calls.length === before && debugLogs.some((l) => l.includes('单侧空')), '4-7 缺 assistant 的轮次不入库（避免引擎 400）')
+  ok(last().path === '/v3/conversation/add' && last().body.messages[0].content === 'dup', '4-7 无新真人输入时沿用上一轮 user 文本（注入不污染）')
+  const afterFallback = mock.calls.length
   await capture.handleEvent(session, { type: 'turn/start', data: { turn: 10 } })
-  await capture.handleEvent(session, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '只有助手侧' }] } } })
+  await capture.handleEvent(session, assistant('第二答'))
   await capture.handleEvent(session, { type: 'turn/end', data: { turn: 10 } })
-  ok(mock.calls.length === before, '4-8 缺 user 的轮次同样不入库')
-  ok(capture.cursor('session-selftest') === 7, '4-9 跳过轮次不推进游标')
+  ok(mock.calls.length === afterFallback + 1 && last().body.messages[1].content === '第二答'
+    && last().body.messages[0].content === 'dup', '4-8 无新真人输入时沿用上一轮 user 文本（守护同口径）')
+  await capture.handleEvent(session, { type: 'turn/start', data: { turn: 11 } })
+  await capture.handleEvent(session, human('长'.repeat(9000)))
+  await capture.handleEvent(session, assistant('答'.repeat(9000)))
+  await capture.handleEvent(session, { type: 'turn/end', data: { turn: 11 } })
+  const longBody = last().body
+  ok(longBody.messages[0].content.length <= 8100 && longBody.messages[1].content.length <= 8100
+    && longBody.messages[0].content.includes('已截断'), '4-9 超 8192 上限自动截断（避免引擎 400）')
+  ok(capture.cursor('session-selftest') === 11, '4-10 正常轮次推进游标到最新')
   rmSync(dir, { recursive: true, force: true })
 
   console.log('5. task_id 语义')

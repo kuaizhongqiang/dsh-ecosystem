@@ -322,6 +322,8 @@ export function createCaptureEngine(config, options = {}) {
 
   let state = readState()
   const buffers = new Map()
+  /** 每会话最近一条真人输入：turn 内没有新输入时沿用（与守护的 pendingUser 保留语义一致）。 */
+  const lastUserText = new Map()
 
   const bufferOf = (sessionId, turn) => {
     let buf = buffers.get(sessionId)
@@ -332,7 +334,12 @@ export function createCaptureEngine(config, options = {}) {
     return buf
   }
 
-  const appendText = (prev, next) => (prev === '' ? next : `${prev}\n${next}`)
+  /** 引擎上限：messages[].content <= 8192 字符（实测 400 报错），留余量截断。 */
+  const MAX_CONTENT_CHARS = 8000
+  const truncate = (text) =>
+    text.length <= MAX_CONTENT_CHARS
+      ? text
+      : `${text.slice(0, MAX_CONTENT_CHARS)}\n…[已截断 ${text.length - MAX_CONTENT_CHARS} 字符]`
 
   return {
     statePath,
@@ -343,18 +350,23 @@ export function createCaptureEngine(config, options = {}) {
         const sessionId = session?.id
         if (!sessionId) return
         if (event.type === 'user/message') {
-          const text = textOf(event.data?.content)
-          if (text) {
-            const buf = bufferOf(sessionId)
-            buf.userText = appendText(buf.userText, text)
+          // 与 autostore 守护同口径：只认**真人**输入（source.kind==='user'），
+          // 忽略 agent.inject() 的合成上下文（AGENTS.md/技能/环境提示等，否则会撑爆 8192 上限）。
+          const data = event.data
+          if (data?.source?.kind === 'user' && data?.role === 'user') {
+            const text = textOf(data.content)
+            if (text) {
+              bufferOf(sessionId).userText = text
+              lastUserText.set(sessionId, text)
+            }
           }
           return
         }
         if (event.type === 'assistant/message') {
-          const text = textOf(event.data?.message?.content)
-          if (text) {
-            const buf = bufferOf(sessionId)
-            buf.assistantText = appendText(buf.assistantText, text)
+          const data = event.data
+          if (data?.message?.role === 'assistant') {
+            const text = textOf(data.message.content)
+            if (text) bufferOf(sessionId).assistantText = text
           }
           return
         }
@@ -367,12 +379,15 @@ export function createCaptureEngine(config, options = {}) {
         const turn = event.data?.turn
         const buf = buffers.get(sessionId) ?? { turn, userText: '', assistantText: '' }
         buffers.delete(sessionId)
-        // 与 autostore 守护同口径：**缺任一侧文本的轮次不入库**。
-        // 引擎要求 messages[].content >= 1 字符；单侧为空（如纯工具调用回合）上传会被判 400。
-        if (buf.userText === '' || buf.assistantText === '') {
-          if (buf.userText !== '' || buf.assistantText !== '') {
-            debug(`capture 跳过单侧空轮次 session=${sessionId} turn=${turn}`)
-          }
+        // 与 autostore 守护同口径：无助手文本的轮次不入库；user 侧沿用上一轮的真人输入
+        // （注入型 user/message 已被过滤，所以不会把合成上下文带进来）。
+        if (buf.assistantText === '') {
+          if (buf.userText !== '') debug(`capture 跳过无助手文本轮次 session=${sessionId} turn=${turn}`)
+          return
+        }
+        const userText = buf.userText || lastUserText.get(sessionId) || ''
+        if (userText === '') {
+          debug(`capture 跳过无真人输入轮次 session=${sessionId} turn=${turn}`)
           return
         }
         if (typeof turn === 'number' && typeof state[sessionId] === 'number' && turn <= state[sessionId]) return
@@ -384,8 +399,8 @@ export function createCaptureEngine(config, options = {}) {
         const sessionKey = config.sessionKey || sessionId
         await memoryClient.addConversation(
           [
-            { role: 'user', content: buf.userText },
-            { role: 'assistant', content: buf.assistantText },
+            { role: 'user', content: truncate(userText) },
+            { role: 'assistant', content: truncate(buf.assistantText) },
           ],
           sessionKey,
           cwd,
