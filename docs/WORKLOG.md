@@ -40,9 +40,21 @@
 - **红线执行**:记忆数据 `~/.openclaw/memory-tdai/`、游标 `.dsh-memory-autostore-state*`、
   引擎 LLM key(`~/.config/memory-gateway/*.txt`)、团队 `USER_KEY`/`API_KEY` **一律不入仓**;
   仓库内只有 `<...>` 占位符;已 grep 自检吸收目录与模板无 `/home/kuai`、无 key 残留。
+- **并发提交整合 + 清单修复**(与 `e6c55bb` fix(credentials) 撞车):推送时发现远端多出
+  `e6c55bb`(修 credentials approval gate + 下线 describe-image;同样改了 `dsh-plugins/README.md`、
+  `verify-pm4.mjs`、`skills/README.md`)。处理:
+  1. `git rebase origin/main` 解决三处冲突——保留其 describe-image 下线与「单工具旧包 DEPRECATED」表述,
+     并入本轮的 `agent-memory` 行;skills 期望清单合并为 **9 个集合**(其 `install-ue-mcp` + 本轮 `install-memory`)。
+  2. **修复远端遗留的发布门失败**:`e6c55bb` 改了 `dsh-media` / `dsh-credentials` 的 `install.ps1` 与
+     `skills/install-skills.ps1`,却**没同步清单 sha256** → `origin/main` 上 `node scripts/verify-release.mjs`
+     直接 FAIL(3 处不匹配),launcher 供应链校验会拒绝安装这些包。本轮按 CRLF 工作树口径重算并写回
+     (`af6852ef…` / `812643a25e33…` / `a3bd073e…`),修复随内容提交一起入库。
+  3. rebase 改写了内容提交 sha,故 pin 由 `a90749d` 重指为 **`2165f6c`**(内容提交);并在该 pin 提交树内
+     复算了全部 8 包 + skills 的 sha256 → **全部一致**(launcher 拉取路径可通)。
 - **遗留/下一步**:主记忆通道默认走 npm 上的 `tencent-agent-memory-mcp-bridge@0.4.0`(要离线自持需在
   `agent-memory/` 内构建并把 `args` 指向本地 `dist/index.js`);引擎升级须人工验证后记录 ref;
   Windows 下引擎侧仍需 WSL2/docker;原仓 npm 发布通道保留但 DSH 侧不再依赖。
+  另:`ue-mcp` 在伞仓里有包 + 技能但**不在 launcher 清单**(与本次之前的 codegraph 同状况),是否纳入待定。
 
 ## 2026-09-13(股票插件交易层入库 v0.2.0 —— 模拟盘/舆情/建议 + 日周期时间模型)
 
