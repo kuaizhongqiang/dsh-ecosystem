@@ -46,8 +46,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
      `http://127.0.0.1:8080/mcp`
    - `unity-mcp-supervisor`：本包插件，保证服务器进程存活
 
-> 与 describe-image 包不同，本插件**不需要任何 API key**，没有 `.credentials.yaml`
-> 配置步骤。
+> 本插件**不需要任何 API key**，没有 `.credentials.yaml` 配置步骤。
 
 ## 配置（可选，改 `cordis.patch.yml` 里的 `unity-mcp-supervisor` 条目）
 
