@@ -57,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -DryRun   #
 | `install-audio-read` | `plugins/audio-read-dsh-plugin` | transcribe_audio 转写 + understand_audio 理解（需 MIMO_API_KEY） |
 | `install-audio-speak` | `plugins/audio-speak-dsh-plugin` | speak_text 语音合成工具（需 MIMO_API_KEY） |
 | `install-credentials` | `plugins/credentials-dsh-plugin` | 对话里管理凭证：list/verify/set/unset（无额外依赖） |
-| `install-stock` | `plugins/stock-dsh-plugin` | A股行情/技术指标/自选股/每日收集/报告（腾讯公开接口，无依赖） |
+| `install-stock` | `plugins/stock-dsh-plugin` | A股行情/技术指标/自选股/舆情研判/交易建议/模拟盘（22 工具，腾讯公开接口，无依赖） |
 | `install-deepseek-balance` | `plugins/deepseek-balance-dsh-plugin` | DeepSeek 余额查询（需 DEEPSEEK_API_KEY） |
 | `install-deepseek-recharge` | `plugins/deepseek-recharge-dsh-plugin` | DeepSeek 充值辅助：余额上下文 + 跳转充值页（需 DEEPSEEK_API_KEY） |
 | `install-document-read` | `plugins/document-read-dsh-plugin` | read_document 文档理解：Word/Excel/PDF 文字 + 内嵌图片 vision 描述（需 Python 解析库 + MIMO_API_KEY） |

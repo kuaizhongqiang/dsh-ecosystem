@@ -10,7 +10,7 @@
 | 基础设施 | dsh-credentials | 最底层凭证 seam(`.credentials.yaml`),不与任何包耦合 |
 | 感知 | **dsh-media** | 音频/语音/图片/视频/文档;MIMO_API_KEY(+vision 端点);「text-only 主模型 + 外挂感知」 |
 | 账户 | **dsh-deepseek** | DEEPSEEK_API_KEY;账户运维(balance/recharge) |
-| 域工具 | dsh-github / dsh-stock | 工具数 ≥8,自成一体 |
+| 域工具 | dsh-github / dsh-stock | 工具数 ≥8(github 8 / stock 22),自成一体 |
 | 桥接 | dsh-unity / **dsh-launcher** | 外部系统桥(unity-mcp / launcher seam) |
 
 ## 2. 准入三问(D7/§8)
