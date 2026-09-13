@@ -1,5 +1,26 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-13(已发 v0.9.4 —— issue #29 code-graph 修复下发)
+
+- **发布准备**（commit `4de4654`）：launcher / vscode / desktop 三组件 0.9.3 → **0.9.4**（与 tag 一致，
+  CI 逐组件断言）；插件集沿用 `840693d` 落库的 pin（插件源 = `2e2d61f7`，agent-memory `install.ps1`
+  sha256 = `531001b1…`）。
+- **本地质量门**：launcher `tsc --noEmit` + `build` OK，`dist/launcher.cjs` 内嵌清单已解析为
+  `2e2d61f7…` / `531001b1…`，CLI `--version` = v0.9.4；`verify-m1` 1-1..5-2 全绿
+  （含 1-3「默认清单插件源锁 = 仓库清单(2e2d61f7)」；第 6 步真实 pull 需 Windows `powershell`，
+  本机 Linux 无，交由 CI `windows-latest` 覆盖）；vscode `typecheck` + **116 passed / 2 skipped**；
+  desktop 依赖声明 `os:win32`（本机 `npm ci` 报 notsup，不可本地构建，由 CI 覆盖）；
+  `verify-release.mjs` OK；`deepseek-harness` 子模块未动。
+- **发布**：`git tag -a v0.9.4` → CI run `34747199230` **五个 job 全绿**
+  （Init / launcher / desktop / vscode / plugins，16:17:59 completed success）。
+- **上线核验（不凭界面判断）**：Release `dsh-ecosystem v0.9.4` 资产齐备
+  （`dsh-launcher.exe` 64.9MB + `dsh-launcher-setup-0.9.4.exe` 71.4MB、`dsh-desktop-0.9.4-setup.exe`
+  89.4MB + blockmap + `latest.yml`、`dsh-vscode-0.9.4.vsix`）；Open VSX `latest = 0.9.4`；
+  npm `@kuaizhongqiang/dsh-desktop latest = 0.9.4`。
+- **供应链复核（fresh clone @ v0.9.4）**：8 个插件包 `install.ps1` + skills 脚本 sha256 **全部与
+  ecosystem.json 一致** —— 顺带验证了 `.gitattributes`（blob 存 LF、`*.ps1` 检出强制 CRLF）这条
+  约定在 CI/用户机/本机三处口径一致（直接抓 raw blob 比对会因 LF/CRLF 差异误报）。
+
 ## 2026-09-13(issue #29：code-graph 通道鉴权对齐 + 远端可达性定位)
 
 - **issue #29 定性复核**：`memory.<域名>` 只网关到 MemoryCore（:8422，`/health` 仅 MemoryCore 组件），
