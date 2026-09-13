@@ -94,7 +94,15 @@ export function apply(ctx, config) {
    * 这样 cordis.patch.yml 里可以只写 `apiKeyRef: AGENT_MEMORY_API_KEY`，
    * 真值放 `%DSH_HOME%/.credentials.yaml`（0600、热更新、永不回显）。
    */
-  const credentialService = () => (typeof ctx.get === 'function' ? ctx.get('credentials') : undefined)
+  /**
+   * 取 credentials 服务：`ctx.get(name)` 在提供方 fiber 未 active 时返回 undefined（cordis reflect.get 语义），
+   * 因此先严格取、失败再非严格取（拿已注册但尚未激活的实例）。
+   */
+  const credentialService = () => {
+    if (typeof ctx.get !== 'function') return undefined
+    const strict = ctx.get('credentials')
+    return strict ?? ctx.get('credentials', false)
+  }
   const resolveSecret = async (ref, inline) => {
     let brand = (name) => name
     try {
@@ -108,8 +116,15 @@ export function apply(ctx, config) {
   let memory
   let codeGraph
   let capture
-  /** 首次使用（工具调用 / 会话事件）时才解析凭证并建客户端，避免把 apply 变成异步。 */
-  const ready = (async () => {
+  let readyPromise = null
+  const warmupTimers = []
+  /**
+   * 惰性初始化：**必须在 apply 之后**再解析凭证 —— cordis 的 `ctx.get('credentials')`
+   * 在插件树加载期可能还没挂载 credentials 服务（实测：apply 期拿到 undefined，
+   * 工具调用期才拿得到，官方 credentials 插件正是在工具调用时才 `ctx.get`）。
+   * 因此这里 memoize 成 promise，并在启动后延迟预热一次；解析失败则清空 promise 以便重试。
+   */
+  const ensureReady = () => (readyPromise ??= (async () => {
     const apiKey = await resolveSecret(config.apiKeyRef, config.apiKey)
     const userKey = await resolveSecret(config.userKeyRef, config.userKey)
     const effective = { ...config, apiKey, userKey }
@@ -120,18 +135,35 @@ export function apply(ctx, config) {
       `clients ready: secrets=${effective.apiKey ? 'apiKey✓' : 'apiKey✗'}${effective.userKey ? ' userKey✓' : ''} `
       + `refs=${[config.apiKeyRef, config.userKeyRef].filter(Boolean).join(',') || '-'} capture=${effective.capture !== false ? 'on' : 'off'}`,
     )
+    if (!effective.apiKey) {
+      warn(`未能解析 apiKey（ref=${config.apiKeyRef || '-'}）——将在首次使用时重试`)
+      readyPromise = null
+    }
     return effective
   })().catch((err) => {
     warn(`初始化失败：${err.message}`)
+    readyPromise = null
     return config
-  })
+  }))
+
+  // 启动后按退避节奏预热（credentials 提供方在 boot 期间才 active，单次 1.5s 往往太早）；
+  // 任一次成功即停；全部失败也不影响——工具调用/会话事件时还会再重试。unref 不阻塞退出。
+  for (const delay of [1500, 5000, 12000, 25000]) {
+    const timer = setTimeout(() => {
+      ensureReady().then((effective) => {
+        if (effective.apiKey) for (const t of warmupTimers) clearTimeout(t)
+      }).catch(() => {})
+    }, delay)
+    if (typeof timer.unref === 'function') timer.unref()
+    warmupTimers.push(timer)
+  }
 
   if (config.capture !== false) {
     // 关键：profile 级插件必须用 { global: true } —— `session/event` 是「会话作用域」事件，
     // 不带该选项的监听器收不到任何事件（harness 官方订阅均如此，见 core/tools/invariant.ts）。
     // 订阅在 apply 期同步挂载，事件按序等待 ready（凭证解析）完成后再处理。
     ctx.on('session/event', (session, event) => {
-      ready
+      ensureReady()
         .then(() => capture.handleEvent(session, event))
         .catch((err) => warn(`session/event 处理异常：${err.message}`))
     }, { global: true })
@@ -163,7 +195,7 @@ export function apply(ctx, config) {
       include_scenes: { type: 'boolean', description: 'Include L2 scene index (default false)' },
     },
     async execute(args, exec) {
-      await ready
+      await ensureReady()
       const cwd = cwdOf(exec)
       const [facts, persona, scenes] = await Promise.all([
         memory.searchAtomic(args.query, { limit: args.limit }, cwd),
@@ -189,7 +221,7 @@ export function apply(ctx, config) {
       session_key: { type: 'string', description: 'Session key (default: plugin sessionKey / DSH session id)' },
     },
     async execute(args, exec) {
-      await ready
+      await ensureReady()
       const cwd = cwdOf(exec)
       const sessionId = args.session_key || config.sessionKey || exec?.session?.id
       const data = await memory.addConversation(
@@ -214,7 +246,7 @@ export function apply(ctx, config) {
       type: { type: 'string', description: 'Filter by memory type' },
     },
     async execute(args, exec) {
-      await ready
+      await ensureReady()
       const cwd = cwdOf(exec)
       const data = await memory.searchAtomic(args.query, { limit: args.limit, type: args.type }, cwd)
       return { text: jsonText({ items: data?.items ?? [], _context: contextEcho(config, cwd) }) }
@@ -229,7 +261,7 @@ export function apply(ctx, config) {
       description,
       parameters,
       async execute(args) {
-        await ready
+        await ensureReady()
         return { text: toolName === 'code_graph_list' ? await codeGraph.list() : await codeGraph.query(toolName, args) }
       },
     })
