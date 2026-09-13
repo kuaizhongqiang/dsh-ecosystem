@@ -1,5 +1,21 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-13(agent-memory 重启上线验证 + 两处修复)
+
+- **用户重启 dsh 后实测**(15:24:54 重启,新进程 pid 11752):日志出现
+  `[agent-memory] ready v0.1.0: tools=11 capture=on memory=…:8422 knowledge=…:8421 team=team-w7eai9w6kc`
+  —— **native 插件在真实线上实例生效**;同时 `agent-memory-codegraph] ready` 计数为 **0**,MCP 通道确已退出。
+- **修复 1(重启后立刻暴露的真 bug)**:`capture` 在**只有单侧文本**的轮次会把空 content 传上去,
+  引擎判 `400 messages.0.content: Too small: expected string to have >=1 characters`(日志 15:23:21 实测)。
+  现与 autostore 守护同口径:**缺任一侧文本的轮次直接跳过**(不推进游标、不刷错误日志,`debug` 级别记录)。
+  selftest 新增 3 例(缺 assistant / 缺 user / 跳过轮次不推进游标)→ mock **28 ok / 0 FAIL**。
+- **修复 2(本轮自身缺陷,已坦白)**:安装器 `SYSTEMD_DIR` 未跟随 `DSH_HOME/PROFILE_DIR` 作用域,
+  导致「临时 profile 演练」的 `--uninstall` 把**真实的** `dsh-memory-autostore.service` 删掉了。
+  已加 `SYSTEMD_USER_DIR` 覆盖项(演练指向临时目录)并把 systemd 目录打印进脚本头部;
+  真实单元已用 `./install.sh --only autostore` 恢复(`active`)。native 模式下守护属冗余,
+  是否保留由用户决定(两种模式共用游标,不会重复提交)。
+- **线上 profile 已同步修复后的 `lib.js`**(纯逻辑改动,下次重启生效;不影响已加载实例的常规轮次)。
+
 ## 2026-09-13(agent-memory 原生插件 —— 去 MCP 化 + 进程内入库；附带 `?v=` 陷阱)
 
 - **背景**(用户:「agent-memory 能不能作为一个插件？而不是 mcp?」→ 选「全量原生」):把 DSH 侧的

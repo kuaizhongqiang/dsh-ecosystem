@@ -176,7 +176,11 @@ async function mockTests() {
   console.log('4. 进程内自动入库（turn/end → L0）')
   const dir = mkdtempSync(join(tmpdir(), 'am-native-'))
   const statePath = join(dir, 'state.json')
-  const capture = createCaptureEngine({ ...config, statePath, sessionKey: '' }, { memoryClient: memory })
+  const debugLogs = []
+  const capture = createCaptureEngine(
+    { ...config, statePath, sessionKey: '' },
+    { memoryClient: memory, debug: (m) => debugLogs.push(m) },
+  )
   const session = { id: 'session-selftest', header: { cwd: '/home/kuai/dsh-project/dsh-ecosystem' } }
   await capture.handleEvent(session, { type: 'user/message', data: { content: [{ type: 'text', text: '第一问' }] } })
   await capture.handleEvent(session, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '第一答' }, { type: 'image', url: 'x' }] } } })
@@ -191,6 +195,16 @@ async function mockTests() {
   ok(mock.calls.length === before, '4-5 同一 turn 不重复提交（游标去重）')
   await capture.handleEvent(session, { type: 'turn/end', data: { turn: 8 } })
   ok(mock.calls.length === before, '4-6 空轮次不提交')
+  // 单侧空轮次（纯工具调用回合等）：引擎要求 content >= 1 字符，上传会被判 400 → 必须跳过
+  await capture.handleEvent(session, { type: 'turn/start', data: { turn: 9 } })
+  await capture.handleEvent(session, { type: 'user/message', data: { content: [{ type: 'text', text: '只有用户侧' }] } })
+  await capture.handleEvent(session, { type: 'turn/end', data: { turn: 9 } })
+  ok(mock.calls.length === before && debugLogs.some((l) => l.includes('单侧空')), '4-7 缺 assistant 的轮次不入库（避免引擎 400）')
+  await capture.handleEvent(session, { type: 'turn/start', data: { turn: 10 } })
+  await capture.handleEvent(session, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '只有助手侧' }] } } })
+  await capture.handleEvent(session, { type: 'turn/end', data: { turn: 10 } })
+  ok(mock.calls.length === before, '4-8 缺 user 的轮次同样不入库')
+  ok(capture.cursor('session-selftest') === 7, '4-9 跳过轮次不推进游标')
   rmSync(dir, { recursive: true, force: true })
 
   console.log('5. task_id 语义')

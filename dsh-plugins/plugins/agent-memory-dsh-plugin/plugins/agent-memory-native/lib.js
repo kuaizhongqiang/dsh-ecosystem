@@ -297,6 +297,7 @@ export function createCodeGraphClient(config) {
 export function createCaptureEngine(config, options = {}) {
   const log = options.log ?? (() => {})
   const warn = options.warn ?? (() => {})
+  const debug = options.debug ?? (() => {})
   const statePath = config.statePath || defaultStatePath()
   const memoryClient = options.memoryClient ?? createMemoryClient(config)
 
@@ -366,7 +367,14 @@ export function createCaptureEngine(config, options = {}) {
         const turn = event.data?.turn
         const buf = buffers.get(sessionId) ?? { turn, userText: '', assistantText: '' }
         buffers.delete(sessionId)
-        if (buf.userText === '' && buf.assistantText === '') return
+        // 与 autostore 守护同口径：**缺任一侧文本的轮次不入库**。
+        // 引擎要求 messages[].content >= 1 字符；单侧为空（如纯工具调用回合）上传会被判 400。
+        if (buf.userText === '' || buf.assistantText === '') {
+          if (buf.userText !== '' || buf.assistantText !== '') {
+            debug(`capture 跳过单侧空轮次 session=${sessionId} turn=${turn}`)
+          }
+          return
+        }
         if (typeof turn === 'number' && typeof state[sessionId] === 'number' && turn <= state[sessionId]) return
         if (!memoryClient.configured()) {
           warn('capture 跳过：memory 端点/身份未配置完整')

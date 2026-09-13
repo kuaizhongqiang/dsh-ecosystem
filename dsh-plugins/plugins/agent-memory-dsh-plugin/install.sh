@@ -66,7 +66,10 @@ DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 PATCH="$PROFILE_DIR/cordis.patch.yml"
 PLUGINS_DIR="$PROFILE_DIR/plugins"
 NATIVE_DIR="$PLUGINS_DIR/agent-memory-native"
-SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+# systemd 单元目录：默认用户级 systemd；测试/演练时用 SYSTEMD_USER_DIR 指到临时目录，
+# 避免 --dry-run/临时 profile 演练误动真实单元（2026-09-13 实测踩过：临时 profile 的
+# --uninstall 删掉了真实的 dsh-memory-autostore.service）。
+SYSTEMD_DIR="${SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
 NODE_BIN="$(command -v node || true)"
 MARK="agent-memory-dsh-plugin"
 
@@ -82,6 +85,7 @@ echo "== agent-memory-dsh-plugin =="
 echo "  包目录  : $PKG_DIR"
 echo "  伞仓根  : $REPO_ROOT"
 echo "  profile : $PROFILE_DIR"
+echo "  systemd : $SYSTEMD_DIR"
 echo "  mode    : $MODE$([ "$UNINSTALL" = 1 ] && echo '  (uninstall)')"
 echo "  services: $ONLY"
 
