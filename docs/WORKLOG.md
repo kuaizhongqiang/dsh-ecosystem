@@ -1,5 +1,33 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-13(股票插件交易层入库 v0.2.0 —— 模拟盘/舆情/建议 + 日周期时间模型)
+
+- **背景**(用户提问「股票插件有改动吗？需要提交一下」):核对发现权威仓已随 2026-09-04 monorepo 化迁入伞仓,
+  但伞仓 `dsh-plugins/plugins/stock-dsh-plugin/` 仍是 **960 行 / 9 工具 / v0.1.0** 的轻量基线,
+  `grep -r paper_settle` 全伞仓无命中;线上实际运行的 **2755 行 / 22 工具 / v0.2.0**
+  (含 5 个 `paper_*` 模拟盘工具 + 日周期时间模型 `phase`/`dataDate`)只存在于
+  `%DSH_HOME%\profiles\web\plugins\stock\` —— 即交易层在本仓缺失,且线上版**无任何版本控制副本**。
+  归档只读仓 `kuaizhongqiang/dsh-plugins` 本地检出的两处未提交改动(README 热重载 SOP +
+  index.js `+91/-8`:多因子信号分 `signalScoreFor`、报告文件名 hash 截断、schema 补
+  `signalScore/confidence/factors`)已逐项确认被线上版完整包含,故以线上版为准回灌。
+- **改动**(显式 pathspec,5 文件 +1920/-54):
+  1. `dsh-plugins/plugins/stock-dsh-plugin/plugins/stock/index.js` ← 线上 v0.2.0 运行版(2755 行/22 工具);
+     同目录 `package.json` 版本 `0.1.0 → 0.2.0`(install.ps1 按此打印版本)。
+  2. 包 `README.md` 重写:22 工具分四组表(行情 9 / 舆情 4 / 建议与持仓 4 / 模拟盘 5)、
+     日周期运行模型(T+1 按建议日之后第一个交易日实际高低价区间验单、股数口径 100 股整数倍)、
+     `advice_calc` 多因子信号分与定档说明、热重载 SOP(改 JS 免重启,`name` 版本号 +1 触发重载)。
+  3. `dsh-plugins/skills/install-stock/SKILL.md`:描述与验证清单同步 22 工具;clone 源由归档的
+     `dsh-plugins` 改为伞仓 `dsh-ecosystem`(路径 `dsh-plugins/plugins/stock-dsh-plugin/`);
+     补 `paper_settle` / `sentiment_pick` 排查项与挂单/T+1 口径。
+  4. `docs/ECOSYSTEM-PLAN.md`:dsh-stock 工具数 9 → 22(合并映射表 + 准入三问依据句)。
+- **验证**:线上文件 `node --check` 通过;伞仓根 `node scripts/verify-release.mjs` **全绿**
+  (7 包 install.ps1 + skills 脚本 + `src/ecosystem.ts` 单一来源);**未改 `install.ps1` → 清单 sha256 无需重算**;
+  另确认 CI 的「Assert version matches tag」只作用于伞仓根/launcher/desktop/vscode,不约束插件子包版本。
+- **遗留/下一步**:`dsh-launcher/ecosystem.json`(及 `src/ecosystem.ts`)的 `plugins.source.commit`
+  仍指向旧伞仓 commit —— 下次发版须按 RELEASING.md「两步提交」(先提交插件内容取 sha,再把 commit 字段指过去),
+  launcher 才会拉到 v0.2.0 插件;归档仓 `dsh-project/dsh-plugins` 的两处未提交改动已被本仓覆盖,
+  按用户决定处理(默认原样保留不触碰)。
+
 ## 2026-09-11(dsh-vscode 0.9.3 —— 费用估算改按官方调价历史 + 峰谷时段)
 
 - **问题**(用户报):用量栏「累计费用 ¥」没跟上官方调价,且峰谷判档不看星期;实测当下(9/11 周五 15:22)费用 chip **根本不显示**。

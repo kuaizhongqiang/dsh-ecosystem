@@ -180,7 +180,7 @@
 | **dsh-deepseek**(新) | deepseek-balance + deepseek-recharge | 2 | `DEEPSEEK_API_KEY`;账户运维 |
 | dsh-credentials | credentials(原样保留) | 4 | 最底层凭证 seam,不与任何包耦合 |
 | dsh-github | github(保留) | 8 | 域大,自成一体 |
-| dsh-stock | stock(保留) | 9 | 域大,自成一体 |
+| dsh-stock | stock(保留) | 22(行情 9 + 舆情 4 + 建议/持仓 4 + 模拟盘 5) | 域大,自成一体 |
 | dsh-unity | unity-mcp(保留) | 48(MCP 桥) | 外部 MCP,桥接型独立 |
 | **dsh-launcher**(新增) | — | 5(见下) | 无新凭证,seam 全在 DSH_HOME 文件与环境变量 |
 
@@ -195,7 +195,7 @@
 **分层规范与准入规则**(D7 落地):
 1. 分层:基础设施(credentials)/ 感知(media)/ 域工具(github、stock)/ 桥接(unity、launcher)/ 账户(deepseek)
 2. 包内多服务,`--only audio,video` 子集安装;工具名统一前缀,合并后零冲突
-3. 新插件准入三问:**独立凭证?独立外部系统(MCP)?工具数 ≥8?**——三者皆否,并入既有层。≥8 的依据:工具数越大,API surface 与独立维护成本越高,并入域插件会稀释内聚性(github=8、stock=9 即按此边界保留独立);阈值随实践校准,非硬常数
+3. 新插件准入三问:**独立凭证?独立外部系统(MCP)?工具数 ≥8?**——三者皆否,并入既有层。≥8 的依据:工具数越大,API surface 与独立维护成本越高,并入域插件会稀释内聚性(github=8、stock=22 即按此边界保留独立);阈值随实践校准,非硬常数
 
 **迁移与兼容**:
 - 旧包保留一个 deprecated 版本周期:新包 `install.ps1` 幂等,附带 `uninstall-old.ps1`(卸载 audio-read 等 7 个旧包);凭证与 settings 在 DSH_HOME 层,合并只动插件包与挂载

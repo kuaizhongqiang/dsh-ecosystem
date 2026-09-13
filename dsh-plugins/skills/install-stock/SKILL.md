@@ -1,21 +1,22 @@
 ---
 name: install-stock
-description: 把 A 股行情分析与自选股插件安装到 dsh web（9 个工具：stock_quote / stock_kline / stock_indicators / stock_market_overview / watchlist_add|remove|list / stock_daily_collect / stock_report，数据源腾讯公开接口，无密钥，指标零依赖计算，数据存 %DSH_HOME%\stock）。当用户要求安装、卸载或排查 stock 插件，或想让 dsh 具备查行情、技术分析、自选股管理、每日行情收集、个股报告能力时使用。
-whenToUse: 用户想给 dsh 加股票行情查询/技术分析/自选股/每日收集/分析报告能力、要求安装或卸载 stock 插件、或查询股票相关功能不可用需要排查时。
+description: 把 A 股「行情→舆情→建议→模拟盘」闭环插件安装到 dsh web（22 个工具：行情 9 = stock_quote/stock_kline/stock_indicators/stock_market_overview/watchlist_add|remove|list/stock_daily_collect/stock_report；舆情 4 = sentiment_sources|pick|record|list；建议与持仓 4 = advice_calc/position_record|list|update；模拟盘 5 = paper_init|account|trade|execute_advice|settle，数据源腾讯公开接口，无密钥，指标零依赖计算，数据存 %DSH_HOME%\stock）。当用户要求安装、卸载或排查 stock 插件，或想让 dsh 具备查行情、技术分析、自选股管理、每日行情收集、个股报告、舆情研判、交易建议与模拟盘能力时使用。
+whenToUse: 用户想给 dsh 加股票行情查询/技术分析/自选股/每日收集/分析报告/舆情研判/交易建议/模拟盘能力、要求安装或卸载 stock 插件、或股票相关功能不可用需要排查时。
 ---
 
 # 安装 stock 插件
 
-把 A 股行情分析与自选股管理插件装进目标电脑的 dsh web。数据**仅来自腾讯
+把 A 股「行情 → 舆情 → 建议 → 模拟盘」闭环插件装进目标电脑的 dsh web。数据**仅来自腾讯
 公开行情接口**（无需 API key），技术指标（MA/MACD/RSI/KDJ/ATR）在插件内
-零依赖计算，主模型负责解读与报告撰写。
+零依赖计算，主模型负责解读与报告撰写。交易建议以**挂单**登记（**股数为准**，100 股整数倍），
+次日按「建议日之后第一个交易日」的实际最高/最低价区间验单成交（`paper_settle`），与记录时刻无关。
 
 ## 0. 定位插件包
 
-插件包在本仓库 `plugins/stock-dsh-plugin/`，二选一获取：
+插件包在伞仓 `dsh-plugins/plugins/stock-dsh-plugin/`，二选一获取：
 
-- 本地已有仓库克隆：直接用 `<仓库根>/plugins/stock-dsh-plugin`
-- 没有克隆：`git clone https://github.com/kuaizhongqiang/dsh-plugins`，
+- 本地已有伞仓克隆：直接用 `<伞仓根>/dsh-plugins/plugins/stock-dsh-plugin`
+- 没有克隆：`git clone https://github.com/kuaizhongqiang/dsh-ecosystem.git`，
   或让用户下载 Release 压缩包并解压
 
 以下步骤均在插件包目录内执行。
@@ -36,7 +37,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 脚本会（幂等，可重复执行）：
 1. 复制 `plugins/stock` 到 `%DSH_HOME%\profiles\web\plugins\stock`
 2. 幂等地在 `cordis.patch.yml` 追加 `- insert:` 的 `tool-stock` 挂载条目
-   （已存在则跳过；一个条目注册九个工具）
+   （已存在则跳过；一个条目注册 22 个工具）
 
 确认输出出现 `OK  plugin copied`、`OK  profile patch entry added`（或
 `SKIP ... already present`）。若报 `no dsh profiles found` 或 `web profile
@@ -67,6 +68,10 @@ not found`，回到步骤 1 检查 dsh 是否装好、`dsh web` 是否初始化�
    - “收集今日行情” → `stock_daily_collect`（收盘后调用最有意义）
    - “出一份 600519 的分析报告” → `stock_report` + 模型补充分析
    - “今天大盘怎么样？” → `stock_market_overview`
+   - “挑今天最该做舆情调查的股票” → `sentiment_pick` → 权威源搜索 → `sentiment_record`
+   - “给 600519 一条交易建议” → `advice_calc` → `position_record`（登记挂单）
+   - “初始化模拟盘 / 看模拟盘账户” → `paper_init` / `paper_account`
+   - “结算昨天挂单” → `paper_settle`（T+1 按实际高低价区间验单）
 
 ## 5. 排查
 
@@ -78,6 +83,9 @@ not found`，回到步骤 1 检查 dsh 是否装好、`dsh web` 是否初始化�
 - 指标返回 null：K 线不足（如 MA60 需 60 根以上），新股数据少属正常
 - `stock_daily_collect` 报 `watchlist is empty`：先用 `watchlist_add` 加自选股
 - 提示“今日快照已存在”：当日幂等设计，重采加 `force: true`
+- `paper_settle` 全部判为作废：挂单价未落入次日 `[最低, 最高]` 区间（挂单偏离），
+  非工具故障；先 `preview: true` 试算可只判不落库
+- `sentiment_pick` 候选为空：先确认自选股非空；调查上限为 5 只/日
 
 ## 6. 卸载
 
