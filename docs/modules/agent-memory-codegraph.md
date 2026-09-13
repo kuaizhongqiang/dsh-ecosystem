@@ -64,6 +64,11 @@
   MemoryKnowledge，不出本机）。
 - 失败显式化（issue #26）：服务不可达 / code!=0 / 引擎 isError / 未知 repo /
   缺 repo 且多索引 → 一律 `isError:true` + 明确文案，绝不静默空结果。
+- 鉴权与诊断（issue #29，native 插件 v0.1.1）：请求与 memory 通道对齐，带
+  `Authorization: Bearer`（专属 `knowledgeApiKey`/`knowledgeApiKeyRef` 优先，未配则回落共享
+  `apiKey`/`apiKeyRef`）；三类失败翻译成可执行文案 —— 401「网关要求鉴权，配 knowledgeApiKeyRef」、
+  404 且路径含 code-graph「该地址没有 code-graph 路由，应指向 MemoryKnowledge 而不是 MemoryCore 网关」、
+  连接类「Knowledge 服务不可达，引擎在远端时需给客户端一个可达地址」。envelope 等其它错误原样透传。
 - 超时：HTTP 12s（可调）+ mcp-client `toolCallTimeoutMs` 30s。
 - 身份 env 缺失（TEAM_ID）→ 启动即退出，不提供无隔离的降级服务。
 
@@ -81,3 +86,9 @@
   的 team 级可见口径可能不同——后续若按 agent 精确授权，只需在 `refreshIndexes`
   处收紧过滤条件。
 - 上游 bridge 若未来原生支持 code-graph，本通道可平滑收敛（去掉独立实例并对齐工具名）。
+- **远端部署的 Knowledge 可达性（issue #29）**：MemoryCore 网关只暴露 `/v3/knowledge/*`
+  元数据（返回索引的 `service_url`，值为服务端视角的 `http://localhost:8421/v3`，对客户端不可直用），
+  code-graph 查询必须另有一条到 MemoryKnowledge 的路由。当前部署形态：MemoryCore 在
+  `memory.<域名>`、MemoryKnowledge 在 `knowledge.<域名>`；客户端把 `knowledgeEndpoint` 指向后者即可。
+  若未来只暴露 MemoryCore，可考虑在 `code_graph_list` 用 `/v3/knowledge/list` 做**元数据降级**
+  （只出索引清单，查询仍显式报错）——本期未做，保持失败显式。

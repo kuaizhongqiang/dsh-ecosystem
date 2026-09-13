@@ -117,9 +117,15 @@ if ($Mode -eq 'native' -and (Has-Svc 'memory' -or Has-Svc 'codegraph')) {
     - id: tool-agent-memory
       name: './plugins/agent-memory-native/index.js'
       config:
+        # 主记忆通道: MemoryCore gateway (:8422)
         memoryEndpoint: http://127.0.0.1:8422
+        # code-graph 通道: MemoryKnowledge (:8421) -- 与 MemoryCore 是两个服务,
+        # /v3/code-graph/* 只由 MemoryKnowledge 提供. 引擎在远端时改成 Knowledge 的
+        # 对外地址(如 https://knowledge.<域名>), 不要用 memory.<域名>(那是 MemoryCore 网关, 会 404).
         knowledgeEndpoint: http://127.0.0.1:8421
         apiKeyRef: AGENT_MEMORY_API_KEY
+        # 仅当 Knowledge 网关接受的 key 与 MemoryCore 不同才需要:
+        # knowledgeApiKeyRef: AGENT_MEMORY_KNOWLEDGE_KEY
         serviceId: default
         teamId: '<TEAM_ID>'
         agentId: '<AGENT_ID>'
@@ -131,6 +137,9 @@ if ($Mode -eq 'native' -and (Has-Svc 'memory' -or Has-Svc 'codegraph')) {
 "@
   Add-PatchBlock 'tool-agent-memory' $body
   Write-Host '  NOTE: replace the <...> placeholders (teamId/agentId/userId/taskId) in cordis.patch.yml'
+  Write-Host '  NOTE: code-graph needs MemoryKnowledge (default :8421) reachable from THIS machine.'
+  Write-Host '        If the engine runs elsewhere, point knowledgeEndpoint at a reachable Knowledge'
+  Write-Host '        address (e.g. https://knowledge.<domain>) -- memory.<domain> only fronts MemoryCore.'
   Write-Host '  NOTE: secrets are referenced, not inlined — store them via credentials_set AGENT_MEMORY_API_KEY /'
   Write-Host '        AGENT_MEMORY_USER_KEY, or edit %DSH_HOME%\.credentials.yaml (refs:, 0600, hot-applied).'
   Write-Host '  NOTE: capture runs in-process; the external autostore task is not needed'
@@ -158,6 +167,8 @@ if ($Mode -eq 'mcp') {
         args: ['$($dst.Replace('\','/'))/index.mjs']
         env:
           KNOWLEDGE_ENDPOINT: 'http://127.0.0.1:8421'
+          # 仅当 Knowledge 在带鉴权的网关后面才需要（远端部署常见）:
+          # KNOWLEDGE_API_KEY: '<knowledge api key>'
           SERVICE_ID: default
           TEAM_ID: '<TEAM_ID>'
           USER_ID: '<USER_ID>'

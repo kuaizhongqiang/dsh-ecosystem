@@ -218,11 +218,62 @@ const CODE_ARG_PASSTHROUGH = [
   'query', 'symbol', 'kind', 'includeCode', 'file', 'path', 'pattern', 'format', 'includeMetadata', 'maxDepth',
 ]
 
+/** 从 httpPost 的错误文案里取回 HTTP 状态码（`${path} HTTP ${status}: ${raw}`）。 */
+export function httpStatusOf(err) {
+  const m = /HTTP (\d{3})/.exec(String(err?.message ?? err ?? ''))
+  return m ? Number(m[1]) : undefined
+}
+
+/**
+ * 把 code-graph 通道的失败翻译成**可执行**的诊断（issue #29）。
+ *
+ * 三个高频成因必须区分开，否则调用方只看到 401/404 原文、无从下手：
+ *   - 401/403：网关要求鉴权但没带上/带错 Bearer（code-graph 此前不带 Authorization）。
+ *   - 404 且路径是 /v3/code-graph/*：该地址的网关没有 code-graph 路由 —— 典型是把
+ *     `knowledgeEndpoint` 指到了 **MemoryCore 网关**（只有 `/v3/knowledge/*` 元数据），
+ *     而 code-graph 查询只由 **MemoryKnowledge**（默认 :8421）提供。
+ *   - 连接类错误（ECONNREFUSED/ENOTFOUND/超时）：地址不可达 —— 引擎在远端时客户端
+ *     必须有一个可达的 Knowledge 地址；与主记忆通道（memoryEndpoint）互不影响。
+ *
+ * 其余错误原样透传（保留 envelope `code=…` 等原文）。
+ */
+export function explainCodeGraphFailure(err, base) {
+  const raw = String(err?.message ?? err ?? '')
+  const where = base ? `（knowledgeEndpoint=${base}）` : ''
+  const status = httpStatusOf(err)
+  const netCode = String(err?.cause?.code ?? err?.code ?? '')
+  const timedOut = err?.name === 'AbortError' || /abort/i.test(raw)
+
+  if (status === 401 || status === 403) {
+    return `Knowledge 网关要求鉴权但请求未通过${where}：配置 knowledgeApiKeyRef（或 apiKeyRef/apiKey）指向 Knowledge 服务接受的 key；`
+      + `本机免鉴权的 MemoryKnowledge(:8421) 不需要该 key。原始错误：${raw}`
+  }
+  if (status === 404 && /code-graph/i.test(raw)) {
+    return `该地址未暴露 code-graph 路由${where}：/v3/code-graph/* 只由 MemoryKnowledge 服务提供，`
+      + `MemoryCore 网关（memoryEndpoint，仅 /v3/knowledge/* 元数据）不路由它。`
+      + `引擎部署在远端时，请把 knowledgeEndpoint 指向 Knowledge 的对外地址（如 https://knowledge.<域名> 或 :8421），不要用 memory.<域名>。`
+      + `原始错误：${raw}`
+  }
+  if (status === 404) {
+    return `地址未找到（404）${where}：knowledgeEndpoint 应指向 MemoryKnowledge 服务根（默认 http://127.0.0.1:8421）。原始错误：${raw}`
+  }
+  if (timedOut || /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|fetch failed/i.test(`${netCode} ${raw}`)) {
+    return `Knowledge 服务不可达${where}：引擎在远端时必须给客户端一个可达的 Knowledge 地址`
+      + `（在网关上暴露 MemoryKnowledge，或改用本机/内网地址）；主记忆通道（memoryEndpoint）不受影响。`
+      + `原始错误：${netCode ? netCode + ' ' : ''}${raw}`
+  }
+  return raw
+}
+
 export function createCodeGraphClient(config) {
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const metaTtlMs = config.codegraphMetaTtlMs ?? DEFAULT_META_TTL_MS
   const serviceId = config.serviceId ?? 'default'
   const base = String(config.knowledgeEndpoint ?? '').trim()
+  // 与 memory 通道对齐（issue #29）：Knowledge 也可以部署在带鉴权的网关后面。
+  // 专属 key（knowledgeApiKey/knowledgeApiKeyRef）优先，未配置则回落共享 apiKey；
+  // 两者都没有时不发 Authorization —— 本机免鉴权的 MemoryKnowledge 照常可用。
+  const apiKey = config.knowledgeApiKey || config.apiKey
 
   let cache = { at: 0, rows: [], byUrl: new Map(), bySlug: new Map() }
 
@@ -231,7 +282,18 @@ export function createCodeGraphClient(config) {
     if (!config.teamId) throw new Error('agent-memory code-graph 未配置：teamId（身份隔离必需）')
   }
 
-  const post = (path, body) => httpPost(base, path, body, { 'x-tdai-service-id': serviceId }, timeoutMs)
+  const headers = () => ({
+    'x-tdai-service-id': serviceId,
+    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+  })
+
+  const post = async (path, body) => {
+    try {
+      return await httpPost(base, path, body, headers(), timeoutMs)
+    } catch (err) {
+      throw new Error(explainCodeGraphFailure(err, base), { cause: err })
+    }
+  }
   const normRepoKey = (v) => String(v || '').trim().toLowerCase().replace(/\/+$/, '')
 
   async function refreshIndexes(force = false) {

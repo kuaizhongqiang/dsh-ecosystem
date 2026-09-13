@@ -1,6 +1,11 @@
-# cordis.patch.yml 片段示例（agent-memory 两条 MCP 通道）
+# cordis.patch.yml 片段示例（agent-memory 两条 MCP 通道；native 模式为默认，见 install.sh）
 # install.sh / install.ps1 会按这两个块自动追加（带 >>> / <<< 标记便于卸载时精确剥离）。
 # 真实值把 <...> 换成你的身份三元组/团队 key（见 ../.env.example）。
+#
+# 两条通道是**两个服务**：MEMORY_ENDPOINT → MemoryCore(:8422)；
+# KNOWLEDGE_ENDPOINT → MemoryKnowledge(:8421)。/v3/code-graph/* 只由后者提供，
+# MemoryCore 网关不代理它（远端部署时用 Knowledge 的对外地址，如 https://knowledge.<域名>）。
+# Knowledge 在带鉴权的网关后面时，给 codegraph 通道加 KNOWLEDGE_API_KEY。
 
 # --- 主记忆通道（recall_memory / store_memory / search_memories）-------------
 - insert:
@@ -36,6 +41,8 @@
         args: ['<DSH_HOME>/profiles/web/plugins/agent-memory-codegraph/index.mjs']
         env:
           KNOWLEDGE_ENDPOINT: 'http://127.0.0.1:8421'
+          # 仅当 Knowledge 在带鉴权的网关后面才需要（未配置则不发 Authorization）：
+          # KNOWLEDGE_API_KEY: '<knowledge api key>'
           SERVICE_ID: default
           TEAM_ID: '<TEAM_ID>'
           USER_ID: '<USER_ID>'

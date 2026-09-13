@@ -64,10 +64,10 @@ systemctl --user restart dsh      # 本机部署方式
 
 ## 4. 验收
 
-1. 离线自检：`cd plugins/agent-memory-native && node selftest.mjs` → 25 ok；
+1. 离线自检：`cd plugins/agent-memory-native && node selftest.mjs` → 47 ok（含 code-graph 鉴权/诊断断言）；
    真实引擎：`node selftest.mjs --live`（只读）/ `--live --live-write`（含一次 L0 写入）。
 2. 重启后 `journalctl --user -u dsh | grep agent-memory` 出现
-   `[agent-memory] ready v0.1.0: tools=11 capture=on ...`。
+   `[agent-memory] ready v0.1.1: tools=11 capture=on ...`。
 3. 会话里调 `recall_memory` / `code_graph_list`（native 模式工具名**无** `mcp__` 前缀）。
 4. 自动入库：聊一轮后日志出现 `[agent-memory] capture 已提交 session=… turn=N`，
    且 `%DSH_HOME%/.dsh-memory-autostore-state.json` 游标推进。
@@ -78,6 +78,10 @@ systemctl --user restart dsh      # 本机部署方式
 - 启动即失败 `plugin tree failed to load`：先看是不是 `name` 路径写错（含 `?v=` 必挂）
 - 召回为空：`taskId` 是否与写入时一致（L1 按 task_id 隔离）；三元组是否正确；引擎是否在跑
 - `code_graph_list` 为空：MemoryKnowledge 侧该 repo 是否已建索引（图谱由引擎 auto-sync 维护，本通道只读）
+- `code_graph_*` 报 `401 missing Bearer token`：Knowledge 在带鉴权的网关后面 → 配 `knowledgeApiKeyRef`（或 `apiKeyRef`）
+- `code_graph_*` 报 `404 Not found: POST /v3/code-graph/...`：`knowledgeEndpoint` 指到了 **MemoryCore 网关**
+  （它只有 `/v3/knowledge/*`，不代理 code-graph）→ 改成 MemoryKnowledge 的可达地址（如 `https://knowledge.<域名>`，默认端口 `:8421`）；
+  引擎在远端时必须给客户端一条到 Knowledge 的路由。主记忆 3 个工具不受此影响
 - 入库不动：native 模式看日志 `capture` 行与游标文件写权限；mcp 模式看
   `systemctl --user status dsh-memory-autostore`
 - 引擎不可达时：native 入库是 fire-and-forget（该轮不重试）；需要回填用

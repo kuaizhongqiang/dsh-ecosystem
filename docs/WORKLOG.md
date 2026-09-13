@@ -1,5 +1,27 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-13(issue #29：code-graph 通道鉴权对齐 + 远端可达性定位)
+
+- **issue #29 定性复核**：`memory.<域名>` 只网关到 MemoryCore（:8422，`/health` 仅 MemoryCore 组件），
+  `/v3/code-graph/*` 带 Bearer 仍 `404 Not found: POST /v3/code-graph/list`；但**同一引擎的 MemoryKnowledge
+  已在 `knowledge.<域名>` 独立暴露**（`/health` 与 `/v3/code-graph/list`、`/v3/code-graph/search` 实测可用）。
+  即「网关无 code-graph 路由」只对 `memory.<域名>` 成立 —— 客户端把 `knowledgeEndpoint` 指向 Knowledge 主机即全通，
+  无需新建部署（原 issue 的建议 1 实际已满足，只是地址口径没写进配置/文档）。
+- **插件侧修复（native 0.1.0 → 0.1.1）**：`createCodeGraphClient` 与 memory 通道对齐 —— 发
+  `Authorization: Bearer`（专属 `knowledgeApiKey`/`knowledgeApiKeyRef` 优先，未配则回落共享 `apiKey`/`apiKeyRef`；
+  都没有时不发该头，本机免鉴权的 MemoryKnowledge 照常可用）；失败按三类给可执行诊断：401（缺 key）、
+  404 且路径含 code-graph（指错网关 → 应指向 MemoryKnowledge）、连接不可达；其余错误原样透传。
+  旧 MCP codegraph 通道同一缺陷一并修（1.0.1，新增 `KNOWLEDGE_API_KEY`，回落 `API_KEY`）。
+- **验证**：native mock 自检 35 → **47 ok / 0 FAIL**；旧 MCP 套件 23 → **30 passed / 0 FAIL**；
+  live 双形态实测（本机 `:8421` 与远端 `memory.<域名> + knowledge.<域名>`）各 **7 ok / 0 FAIL**；
+  故意把 `knowledgeEndpoint` 指到 `memory.<域名>` 时得到 `404 → 该地址未暴露 code-graph 路由…应指向 MemoryKnowledge` 的可读诊断。
+- **顺带修掉 live 自检的两处历史缺陷**：`parseLiveConfig()` 仍在读 MCP 时代的 `mcp-agent-memory` 条目
+  （team 落回 `team-test`、可见索引 0，repo 解析失败直接抛栈中断整个 live 跑），改为优先读 native 条目；
+  live-write 用例的事件形状缺 `source.kind==='user'` / `message.role==='assistant'`，会被 capture 过滤而不入库。
+- **口径落文档**：包 README 新增「远端部署（引擎不在本机）」+ `.env.example` / SKILL 排查项 /
+  codegraph 模块页 §5·§7 / 安装器注释同步；明确 `memoryEndpoint`(MemoryCore) 与 `knowledgeEndpoint`(MemoryKnowledge)
+  是**两个服务**，MemoryCore 网关只有 `/v3/knowledge/*` 元数据、不代理 code-graph。
+
 ## 2026-09-13(凭证接入：credentials v0.0.2 上线 + agent-memory 引用式密钥)
 
 - **凭证写入门径打通**：线上 profile 原为 credentials **v0.0.1**（279 行）且 `tool-credentials` 条目没有

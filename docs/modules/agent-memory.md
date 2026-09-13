@@ -43,7 +43,21 @@ DSH / Claude Code / CodeBuddy / OpenClaw
 两种模式**共用去重游标** `%DSH_HOME%/.dsh-memory-autostore-state.json`（`session_id + turn`），可互换不重复提交。
 L1（语义事实）与 code-graph（确定性代码检索）**不复用同一 namespace**；设计见
 [agent-memory-codegraph.md](agent-memory-codegraph.md)。原生插件的纯逻辑在 `plugins/agent-memory-native/lib.js`，
-可用 `node selftest.mjs`（mock 25 项 / `--live` 打真实引擎）独立验证。
+可用 `node selftest.mjs`（mock 47 项 / `--live` 打真实引擎）独立验证。
+
+### 两条通道的端点与鉴权（issue #29）
+
+`memoryEndpoint`（MemoryCore :8422）与 `knowledgeEndpoint`（MemoryKnowledge :8421）是**两个服务**：
+`/v3/code-graph/*` 只由 MemoryKnowledge 提供，MemoryCore 网关只有 `/v3/knowledge/*` 元数据、
+**不代理** code-graph。因此远端部署（客户端只连 `memory.<域名>`）会让 8 个 `code_*` 工具失败：
+不带 Bearer → `401`，带上 Bearer → `404 Not found: POST /v3/code-graph/list`。
+
+插件侧已对齐两条通道（v0.1.1）：code-graph 请求同样发 `Authorization: Bearer`
+（专属 `knowledgeApiKey`/`knowledgeApiKeyRef` 优先，未配则回落共享 `apiKey`/`apiKeyRef`；
+都没有时不发该头，本机免鉴权的 MemoryKnowledge 照常可用），并把三类失败翻译成可执行诊断
+（401 缺 key / 404 指错网关 / 连接不可达），不再只抛 401/404 原文。
+部署侧要么在网关上**单独暴露 MemoryKnowledge**（如 `https://knowledge.<域名>`）并把它写进
+`knowledgeEndpoint`，要么给客户端一个内网/隧道可达的 `:8421` 地址。
 
 ## 自动入库（建议即沉淀）
 
@@ -55,8 +69,8 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 
 ## 凭证接入（引用式）
 
-原生插件支持 `apiKeyRef` / `userKeyRef`：`cordis.patch.yml` 只写引用名，真值放受管凭证库
-`%DSH_HOME%/.credentials.yaml`（`refs:` 段，0600、原子写、热生效），解析优先级
+原生插件支持 `apiKeyRef` / `userKeyRef`（以及 code-graph 专属的 `knowledgeApiKeyRef`）：`cordis.patch.yml` 只写引用名，
+真值放受管凭证库 `%DSH_HOME%/.credentials.yaml`（`refs:` 段，0600、原子写、热生效），解析优先级
 **凭证 seam（`ctx.get('credentials')` + `credentialRef`/`resolve`）> 同名环境变量 > 内联值**。
 好处：轮换 key 不必改 patch、密钥不再散落在 profile 配置里；内联值仅作切换期兜底。
 凭证写入门径见 credentials 插件（v0.0.2；本部署 approval 策略为 `never`，需 `requireApproval: false`）。
@@ -74,7 +88,7 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 
 1. 引擎服务：`systemctl --user status memory-core... `（本机为 memory-gateway-full / memory-knowledge / memory-panel / memory-proxy / tdai-gateway / memory-bridge）。
 2. **重启 dsh web**（本部署未启用 HMR，改代码/增删条目必须重启）后，
-   `journalctl --user -u dsh | grep agent-memory` 出现 `[agent-memory] ready v0.1.0: tools=11 capture=on`。
+   `journalctl --user -u dsh | grep agent-memory` 出现 `[agent-memory] ready v0.1.1: tools=11 capture=on`。
 3. native 模式工具名无前缀：`recall_memory` / `code_graph_list`；mcp 模式为 `mcp__agent-memory__*` / `mcp__agent-memory-codegraph__code_*`。
 4. 自动入库：native 看 `[agent-memory] capture 已提交 session=… turn=N`；mcp 看
    `journalctl --user -u dsh-memory-autostore` 的增量计数。

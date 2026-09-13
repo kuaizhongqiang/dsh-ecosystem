@@ -31,6 +31,10 @@ import { createHash } from 'node:crypto'
 // ───────────────────────────── config ─────────────────────────────
 
 const KNOWLEDGE_ENDPOINT = (process.env.KNOWLEDGE_ENDPOINT || 'http://127.0.0.1:8421').replace(/\/+$/, '')
+// 与 memory 通道对齐（issue #29）：Knowledge 也可以部署在带鉴权的网关后面。
+// 专属 KNOWLEDGE_API_KEY 优先，未配则回落共享 API_KEY；都没有时不发 Authorization
+// （本机免鉴权的 MemoryKnowledge 照常可用）。
+const KNOWLEDGE_API_KEY = process.env.KNOWLEDGE_API_KEY || process.env.API_KEY || ''
 const SERVICE_ID = process.env.SERVICE_ID || 'default'
 const TEAM_ID = process.env.TEAM_ID || ''
 const USER_ID = process.env.USER_ID || ''
@@ -60,19 +64,51 @@ function contextEcho() {
   return ctx
 }
 
+/**
+ * HTTP/连接失败 → 可执行诊断（issue #29），与原生插件的
+ * `explainCodeGraphFailure()` 同口径：
+ *   - 401/403：网关要求鉴权但没带上/带错 Bearer（配 KNOWLEDGE_API_KEY）。
+ *   - 404 且路径是 /v3/code-graph/*：该地址没有 code-graph 路由 —— 典型是把
+ *     KNOWLEDGE_ENDPOINT 指到了 MemoryCore 网关（只有 /v3/knowledge/* 元数据）。
+ *   - 连接类：Knowledge 不可达；远端部署必须给客户端一条可达的 Knowledge 路由。
+ */
+function explainHttpFailure(status, raw) {
+  if (status === 401 || status === 403) {
+    return `Knowledge 网关要求鉴权但请求未通过（KNOWLEDGE_ENDPOINT=${KNOWLEDGE_ENDPOINT}）：`
+      + `设置 KNOWLEDGE_API_KEY（或 API_KEY）为 Knowledge 服务接受的 key；本机免鉴权的 MemoryKnowledge 不需要。`
+      + `原始响应：${raw.slice(0, 300)}`
+  }
+  if (status === 404 && /code-graph/i.test(raw)) {
+    return `该地址未暴露 code-graph 路由（KNOWLEDGE_ENDPOINT=${KNOWLEDGE_ENDPOINT}）：/v3/code-graph/* 只由 MemoryKnowledge 提供，`
+      + `MemoryCore 网关（仅 /v3/knowledge/* 元数据）不路由它；远端部署时指向 Knowledge 的对外地址（如 https://knowledge.<域名>）。`
+      + `原始响应：${raw.slice(0, 300)}`
+  }
+  return `knowledge service HTTP ${status}: ${raw.slice(0, 300)}`
+}
+
 async function httpPost(path, body) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
   try {
-    const res = await fetch(`${KNOWLEDGE_ENDPOINT}${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-tdai-service-id': SERVICE_ID,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
+    let res
+    try {
+      res = await fetch(`${KNOWLEDGE_ENDPOINT}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-tdai-service-id': SERVICE_ID,
+          ...(KNOWLEDGE_API_KEY ? { Authorization: `Bearer ${KNOWLEDGE_API_KEY}` } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+    } catch (err) {
+      const code = err?.cause?.code || err?.code || (err?.name === 'AbortError' ? 'AbortError' : '')
+      throw new Error(
+        `Knowledge 服务不可达（KNOWLEDGE_ENDPOINT=${KNOWLEDGE_ENDPOINT}）：引擎在远端时必须给客户端一个可达的 Knowledge 地址`
+        + `（在网关上暴露 MemoryKnowledge，或改用本机/内网地址）。原始错误：${code ? code + ' ' : ''}${err.message}`,
+      )
+    }
     const raw = await res.text()
     let json = null
     try {
@@ -81,7 +117,7 @@ async function httpPost(path, body) {
       json = null
     }
     if (!res.ok) {
-      throw new Error(`knowledge service HTTP ${res.status}: ${raw.slice(0, 300)}`)
+      throw new Error(explainHttpFailure(res.status, raw))
     }
     return json
   } finally {

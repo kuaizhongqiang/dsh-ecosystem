@@ -62,11 +62,20 @@ const MOCK_INDEXES = [
 ]
 
 async function startMock() {
+  const seen = []
+  const state = { failStatus: null, failBody: '' }
   const server = createServer((req, res) => {
     let body = ''
     req.on('data', (c) => (body += c))
     req.on('end', () => {
       res.setHeader('Content-Type', 'application/json')
+      seen.push({ url: req.url || '', headers: req.headers })
+      // 可控失败（issue #29）：模拟远端网关 401 缺 Bearer / 404 无 code-graph 路由
+      if (state.failStatus) {
+        res.statusCode = state.failStatus
+        res.end(state.failBody)
+        return
+      }
       let payload = {}
       try {
         payload = body ? JSON.parse(body) : {}
@@ -101,7 +110,7 @@ async function startMock() {
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
   const port = server.address().port
-  return { server, endpoint: `http://127.0.0.1:${port}` }
+  return { server, seen, state, endpoint: `http://127.0.0.1:${port}` }
 }
 
 // ─────────────────────────── MCP stdio driver ───────────────────────────
@@ -175,8 +184,9 @@ console.log(REAL ? '== INTEGRATION (live service) ==' : '== MOCK unit tests ==')
 
 let endpoint = KNOWLEDGE_ENDPOINT
 let server
+let mock = null
 if (!REAL) {
-  const mock = await startMock()
+  mock = await startMock()
   endpoint = mock.endpoint
   server = mock.server
 }
@@ -218,6 +228,39 @@ try {
     check('code_search returns evidence', res.text.includes('dsh-launcher/src/ecosystem.ts:473'), res.text.slice(0, 200))
     check('code_search header shows repo', res.text.includes('dsh-ecosystem'))
   }, { KNOWLEDGE_ENDPOINT: endpoint })
+
+  // 3b. issue #29: Bearer is sent when a key is configured, omitted when not
+  if (!REAL) {
+    mock.seen.length = 0
+    await withWrapper(async (w) => {
+      await w.request('tools/call', { name: 'code_graph_list', arguments: {} })
+    }, { KNOWLEDGE_ENDPOINT: endpoint, KNOWLEDGE_API_KEY: '', API_KEY: 'gw-key-1' })
+    check('code-graph sends Bearer when a key is configured', mock.seen.at(-1)?.headers.authorization === 'Bearer gw-key-1', JSON.stringify(mock.seen.at(-1)?.headers).slice(0, 160))
+    check('code-graph keeps x-tdai-service-id', mock.seen.at(-1)?.headers['x-tdai-service-id'] === 'default')
+
+    await withWrapper(async (w) => {
+      await w.request('tools/call', { name: 'code_graph_list', arguments: {} })
+    }, { KNOWLEDGE_ENDPOINT: endpoint, KNOWLEDGE_API_KEY: '', API_KEY: '' })
+    check('code-graph omits Authorization when no key', mock.seen.at(-1)?.headers.authorization === undefined)
+
+    // 3c. diagnosable failures: 401 (missing Bearer) and 404 (no code-graph route)
+    mock.state.failStatus = 401
+    mock.state.failBody = '{"code":401,"message":"Unauthorized: missing Bearer token"}'
+    await withWrapper(async (w) => {
+      const res = unwrap(await w.request('tools/call', { name: 'code_graph_list', arguments: {} }))
+      check('401 -> explicit isError', res.isError === true)
+      check('401 message suggests KNOWLEDGE_API_KEY', /KNOWLEDGE_API_KEY/.test(res.text), res.text.slice(0, 200))
+    }, { KNOWLEDGE_ENDPOINT: endpoint })
+
+    mock.state.failStatus = 404
+    mock.state.failBody = '{"error":"Not found: POST /v3/code-graph/list"}'
+    await withWrapper(async (w) => {
+      const res = unwrap(await w.request('tools/call', { name: 'code_graph_list', arguments: {} }))
+      check('404 -> explicit isError', res.isError === true)
+      check('404 message points at MemoryKnowledge', /MemoryKnowledge/.test(res.text), res.text.slice(0, 200))
+    }, { KNOWLEDGE_ENDPOINT: endpoint })
+    mock.state.failStatus = null
+  }
 
   // 4. explicit error: unknown repo
   await withWrapper(async (w) => {

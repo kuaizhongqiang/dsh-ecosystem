@@ -157,9 +157,15 @@ if [ "$MODE" = native ]; then
     - id: tool-agent-memory
       name: './plugins/agent-memory-native/index.js'
       config:
+        # 主记忆通道: MemoryCore gateway (:8422)
         memoryEndpoint: http://127.0.0.1:8422
+        # code-graph 通道: MemoryKnowledge (:8421) —— 与 MemoryCore 是两个服务，
+        # /v3/code-graph/* 只由 MemoryKnowledge 提供。引擎在远端时改成 Knowledge 的
+        # 对外地址（如 https://knowledge.<域名>），不要用 memory.<域名>（那是 MemoryCore 网关，会 404）。
         knowledgeEndpoint: http://127.0.0.1:8421
         apiKeyRef: AGENT_MEMORY_API_KEY
+        # 仅当 Knowledge 网关接受的 key 与 MemoryCore 不同才需要：
+        # knowledgeApiKeyRef: AGENT_MEMORY_KNOWLEDGE_KEY
         serviceId: default
         teamId: '<TEAM_ID>'
         agentId: '<AGENT_ID>'
@@ -171,6 +177,8 @@ if [ "$MODE" = native ]; then
 EOF
 )"
     info "记得把 config 里的 <...> 占位符（teamId/agentId/userId/taskId）换成真实值"
+    info "code-graph 需要本机可达的 MemoryKnowledge（默认 :8421）；引擎不在本机时把 knowledgeEndpoint"
+    info "  指向可达的 Knowledge 地址（如 https://knowledge.<域名>）—— memory.<域名> 只网关到 MemoryCore，会 404"
     info "两个密钥走**引用式**：存进受管凭证库即可 —— 会话里 credentials_set AGENT_MEMORY_API_KEY / AGENT_MEMORY_USER_KEY，"
     info "  或直接编辑 %DSH_HOME%/.credentials.yaml 的 refs: 段（0600，热生效）；解析优先级 seam > 同名环境变量 > 内联值"
     info "native 模式下入库在进程内完成，无需 autostore 守护"
@@ -196,6 +204,8 @@ if [ "$MODE" = mcp ]; then
         args: ['$PLUGINS_DIR/agent-memory-codegraph/index.mjs']
         env:
           KNOWLEDGE_ENDPOINT: 'http://127.0.0.1:8421'
+          # 仅当 Knowledge 在带鉴权的网关后面才需要（远端部署常见）：
+          # KNOWLEDGE_API_KEY: '<knowledge api key>'
           SERVICE_ID: default
           TEAM_ID: '<TEAM_ID>'
           USER_ID: '<USER_ID>'

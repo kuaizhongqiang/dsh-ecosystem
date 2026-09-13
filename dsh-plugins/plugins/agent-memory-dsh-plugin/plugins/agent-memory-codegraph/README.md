@@ -36,14 +36,18 @@
 ## 失败语义（issue #26 要求）
 
 图谱服务不可达 / 查询失败 / 未知 repo / 未知工具 → 一律**显式错误**（`isError: true` + 明确文案），
-绝不静默返回空结果。
+绝不静默返回空结果。自 issue #29 起，鉴权/路由类失败还会给出**可执行诊断**：
+`401` → 提示配置 `KNOWLEDGE_API_KEY`；`404` 且路径含 `code-graph` → 提示该地址没有 code-graph 路由
+（通常是把 `KNOWLEDGE_ENDPOINT` 指到了 MemoryCore 网关，它只有 `/v3/knowledge/*` 元数据）；
+连接失败 → 提示 Knowledge 不可达、远端部署需给客户端一条可达路由。
 
 ## 运行环境（env）
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `TEAM_ID` | **必填** | 身份隔离——只列出/查询该 team 的索引；缺失则启动即退出 |
-| `KNOWLEDGE_ENDPOINT` | `http://127.0.0.1:8421` | MemoryKnowledge 服务 |
+| `KNOWLEDGE_ENDPOINT` | `http://127.0.0.1:8421` | MemoryKnowledge 服务（**不是** memory 网关；远端部署用 Knowledge 的对外地址） |
+| `KNOWLEDGE_API_KEY` | 回落 `API_KEY` | 带鉴权网关的 Bearer key；都没有时不发 `Authorization`（本机免鉴权可用） |
 | `SERVICE_ID` | `default` | 透传 `x-tdai-service-id` 头 |
 | `USER_ID` / `AGENT_ID` | 可选 | 结果 `_context` 回显 |
 | `KNOWLEDGE_HTTP_TIMEOUT_MS` | `12000` | 单次 HTTP 超时 |
@@ -77,6 +81,8 @@ cp -r plugins/agent-memory-codegraph "$PROF/plugins/"
         args: ['/绝对路径/plugins/agent-memory-codegraph/index.mjs']
         env:
           KNOWLEDGE_ENDPOINT: 'http://127.0.0.1:8421'
+          # 仅当 Knowledge 在带鉴权的网关后面才需要（否则不填）：
+          # KNOWLEDGE_API_KEY: '<knowledge api key>'
           SERVICE_ID: default
           TEAM_ID: team-w7eai9w6kc
           USER_ID: usr-w7easao7jg
@@ -91,7 +97,7 @@ cp -r plugins/agent-memory-codegraph "$PROF/plugins/"
 ## 测试
 
 ```bash
-# 单元（mock 知识服务，不依赖真实环境）：23 项
+# 单元（mock 知识服务，不依赖真实环境）：30 项
 node mcp-tests.mjs
 
 # 集成（打真实本机 MemoryKnowledge :8421，需以本 team 身份）：

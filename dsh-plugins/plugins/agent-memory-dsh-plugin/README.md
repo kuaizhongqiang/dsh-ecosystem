@@ -47,6 +47,34 @@ git clone https://github.com/TencentCloud/TencentDB-Agent-Memory
 引擎侧 LLM key 放 `~/.config/memory-gateway/{llm,embedding}_key.txt`（600），由
 `templates/engine/start-gateway-full.sh` 读取。Windows 下引擎走 WSL2 或 docker。
 
+## 远端部署（引擎不在本机）
+
+`memoryEndpoint` 与 `knowledgeEndpoint` 是**两个不同的服务**，远端网关通常只暴露前者：
+
+| 通道 | 服务 | 网关路由 | 缺失时 |
+|---|---|---|---|
+| 主记忆（3 工具） | MemoryCore :8422 | `/v3/conversation|atomic|core|scenario` | `recall_memory` / `store_memory` / `search_memories` 失败 |
+| 代码图谱（8 工具） | MemoryKnowledge :8421 | `/v3/code-graph/*` | `code_graph_list` 及 7 个 `code_*` 全部失败 |
+
+- MemoryCore 网关**不路由** `/v3/code-graph/*`（它只有 `/v3/knowledge/*` 元数据，返回索引的
+  `service_url`/`summary`）。把 `knowledgeEndpoint` 指到 `memory.<域名>` 只会得到
+  `404 Not found: POST /v3/code-graph/list`；完全不带 Bearer 则先得到 `401 Unauthorized`。
+- 引擎在远端时，必须给客户端一个**可达的 Knowledge 地址**（在网关上单独暴露 MemoryKnowledge）：
+
+  ```yaml
+  memoryEndpoint: https://memory.<域名>          # MemoryCore 网关
+  knowledgeEndpoint: https://knowledge.<域名>    # MemoryKnowledge（独立暴露，默认端口 :8421）
+  apiKeyRef: AGENT_MEMORY_API_KEY                # 两个通道都会发 Authorization: Bearer
+  # knowledgeApiKeyRef: AGENT_MEMORY_KNOWLEDGE_KEY   # 仅当 Knowledge 接受的 key 与 MemoryCore 不同
+  ```
+
+- code-graph 客户端自 v0.1.1 起与 memory 通道对齐：请求带 `Authorization: Bearer`
+  （专属 `knowledgeApiKey`/`knowledgeApiKeyRef` 优先，未配则回落 `apiKey`/`apiKeyRef`；
+  都没有时不发该头，本机免鉴权的 MemoryKnowledge 照常可用），并把失败翻译成可执行诊断
+  （401 缺 key / 404 指错网关 / 连接不可达），不再只抛 401/404 原文。
+- 验证：`KNOWLEDGE_ENDPOINT=https://knowledge.<域名> node selftest.mjs --live` 会分别报告
+  两条通道，一条不可用不会中断另一条。
+
 ## 安装
 
 Linux/macOS：
@@ -81,6 +109,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 | `teamId` / `agentId` / `userId` | v3 隔离三元组（非密钥） | Memory Panel（:8123）/ 团队管理员 |
 | `userKeyRef` → `AGENT_MEMORY_USER_KEY` | 团队记忆 key（`sk-mem-…`） | 存进**受管凭证库**（见下） |
 | `apiKeyRef` → `AGENT_MEMORY_API_KEY` | 网关门禁 key（`Authorization: Bearer`） | 存进**受管凭证库**（见下） |
+| `knowledgeApiKeyRef` → `AGENT_MEMORY_KNOWLEDGE_KEY` | Knowledge 专属 key（**可选**，仅两者不同时） | 存进**受管凭证库**（见下） |
+| `taskId` | L1 事实的项目标签（**不是** agent_id） | 自定（如 `normal-manager`）；不配则取会话 cwd 目录名 |
+| `memoryEndpoint` / `knowledgeEndpoint` | MemoryCore / MemoryKnowledge 地址 | 本机端口或**远端可达地址**（见「远端部署」） |
+| 引擎 LLM key | 记忆提炼 | 600 权限文件，见上 |
 
 **引用式（推荐）**：`cordis.patch.yml` 里只写 `*Ref` 名，真值放 `%DSH_HOME%/.credentials.yaml`
 （0600、原子写、热生效、永不回显）。存法二选一：
@@ -91,16 +123,15 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 
 解析优先级：**凭证 seam（ref）> 同名环境变量 > 内联 `apiKey`/`userKey`**。内联值仅作切换期兜底；
 两者同时存在时以凭证库为准，因此在凭证库里轮换 key **不需要**改 patch。
-| `taskId` | L1 事实的项目标签（**不是** agent_id） | 自定（如 `normal-manager`）；不配则取会话 cwd 目录名 |
-| `memoryEndpoint` / `knowledgeEndpoint` | MemoryCore / MemoryKnowledge | 本地部署地址 |
-| 引擎 LLM key | 记忆提炼 | 600 权限文件，见上 |
 
 ## 验收
 
-1. **离线自检**（纯逻辑层，不需要 dsh）：`cd plugins/agent-memory-native && node selftest.mjs` → 25 ok。
-2. **真实引擎自检**：`node selftest.mjs --live`（只读）/ `--live --live-write`（含一次 L0 写入自检）。
+1. **离线自检**（纯逻辑层，不需要 dsh）：`cd plugins/agent-memory-native && node selftest.mjs` → 47 ok
+   （含 code-graph Bearer 头与 401/404/不可达 诊断断言）。
+2. **真实引擎自检**：`node selftest.mjs --live`（只读）/ `--live --live-write`（含一次 L0 写入自检）；
+   配置从环境变量或 profile 的 `cordis.patch.yml` 自动解析（native 与旧 mcp 条目都认）。
 3. **重启后**：`journalctl --user -u dsh | grep agent-memory` 应出现
-   `[agent-memory] ready v0.1.0: tools=11 capture=on ...`。
+   `[agent-memory] ready v0.1.1: tools=11 capture=on ...`。
 4. 会话里直接调 `recall_memory` / `code_graph_list`（native 模式无 `mcp__` 前缀）。
 5. 自动入库：聊完一轮后日志出现 `[agent-memory] capture 已提交 session=… turn=N`，
    且 `%DSH_HOME%/.dsh-memory-autostore-state.json` 游标推进。
@@ -118,6 +149,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 - 引擎用**本地部署分支**，不按 submodule 锁基线；升级须人工验证并记录 ref。
 - 进程内入库是 fire-and-forget：引擎不可达时该轮不重试（守护模式才有重试/回填；需要回填用
   `node agent-memory/scripts/dsh-memory-autostore.mjs --backfill`）。
+- code-graph 通道的可用性取决于 **MemoryKnowledge 对客户端可达**：MemoryCore 网关只提供
+  `/v3/knowledge/*` 元数据，不代理 `/v3/code-graph/*`（见「远端部署」）。远端部署只暴露
+  MemoryCore 时，8 个 `code_*` 工具会显式报错并给出应指向的地址，主记忆 3 个工具不受影响。
 
 ## 卸载
 

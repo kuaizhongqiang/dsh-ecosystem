@@ -41,10 +41,14 @@ export const version = PKG.version
 export const Config = z.object({
   /** MemoryCore gateway（v3），如 http://127.0.0.1:8422 */
   memoryEndpoint: z.string(),
-  /** MemoryKnowledge（code-graph），如 http://127.0.0.1:8421 */
+  /** MemoryKnowledge（code-graph），如 http://127.0.0.1:8421；远端部署时指向 Knowledge 的对外地址（不是 memory 网关） */
   knowledgeEndpoint: z.string(),
-  /** 网关门禁 key（Authorization: Bearer） */
+  /** 网关门禁 key（Authorization: Bearer）；MemoryCore 与 Knowledge 共用一个网关 key 时用它 */
   apiKey: z.string(),
+  /** Knowledge 专属 key（内联）；仅当 Knowledge 与 MemoryCore 的 key 不同时才需要 */
+  knowledgeApiKey: z.string(),
+  /** 凭证 seam 引用名（如 AGENT_MEMORY_KNOWLEDGE_KEY）；优先于 knowledgeApiKey 与 apiKey */
+  knowledgeApiKeyRef: z.string(),
   /** memory 实例 id（x-tdai-service-id） */
   serviceId: z.string(),
   /** v3 身份三元组 */
@@ -127,13 +131,18 @@ export function apply(ctx, config) {
   const ensureReady = () => (readyPromise ??= (async () => {
     const apiKey = await resolveSecret(config.apiKeyRef, config.apiKey)
     const userKey = await resolveSecret(config.userKeyRef, config.userKey)
-    const effective = { ...config, apiKey, userKey }
+    // code-graph 专属 key：没配就回落共享 apiKey（与 memory 通道对齐，见 issue #29）。
+    const resolvedKnowledgeKey = await resolveSecret(config.knowledgeApiKeyRef, config.knowledgeApiKey)
+    const knowledgeApiKey = resolvedKnowledgeKey || apiKey
+    const effective = { ...config, apiKey, userKey, knowledgeApiKey }
     memory = createMemoryClient(effective)
     codeGraph = createCodeGraphClient(effective)
     capture = createCaptureEngine(effective, { log, warn, memoryClient: memory })
     log(
       `clients ready: secrets=${effective.apiKey ? 'apiKey✓' : 'apiKey✗'}${effective.userKey ? ' userKey✓' : ''} `
-      + `refs=${[config.apiKeyRef, config.userKeyRef].filter(Boolean).join(',') || '-'} capture=${effective.capture !== false ? 'on' : 'off'}`,
+      + `knowledgeKey=${resolvedKnowledgeKey ? 'own✓' : knowledgeApiKey ? 'inherit(apiKey)' : '✗'} `
+      + `refs=${[config.apiKeyRef, config.userKeyRef, config.knowledgeApiKeyRef].filter(Boolean).join(',') || '-'} `
+      + `capture=${effective.capture !== false ? 'on' : 'off'}`,
     )
     if (!effective.apiKey) {
       warn(`未能解析 apiKey（ref=${config.apiKeyRef || '-'}）——将在首次使用时重试`)
@@ -324,7 +333,7 @@ export function apply(ctx, config) {
     `ready v${version}: tools=${3 + CODE_QUERY_ACTIONS.size + 1} capture=${config.capture !== false ? 'on' : 'off'} `
     + `memory=${config.memoryEndpoint || '(unset)'} knowledge=${config.knowledgeEndpoint || '(unset)'} `
     + `team=${config.teamId || '(unset)'} `
-    + `secrets=${config.apiKeyRef || config.userKeyRef ? 'ref(' + [config.apiKeyRef, config.userKeyRef].filter(Boolean).join(',') + ')' : 'inline'} `
+    + `secrets=${config.apiKeyRef || config.userKeyRef || config.knowledgeApiKeyRef ? 'ref(' + [config.apiKeyRef, config.userKeyRef, config.knowledgeApiKeyRef].filter(Boolean).join(',') + ')' : 'inline'} `
     + `state=${config.capture !== false ? config.statePath || defaultStatePath() : '-'}`,
   )
 }
