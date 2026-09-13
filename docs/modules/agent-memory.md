@@ -33,15 +33,17 @@ DSH / Claude Code / CodeBuddy / OpenClaw
   见 [dsh-plugins/plugins/agent-memory-dsh-plugin](../../dsh-plugins/plugins/agent-memory-dsh-plugin/README.md)
   与技能 [install-memory](../../dsh-plugins/skills/install-memory/SKILL.md)。
 
-## DSH 侧两条通道
+## DSH 侧接入：native（默认）与 mcp 两种模式
 
-| 通道 | cordis id | 工具 | 语义 |
-|---|---|---|---|
-| 主记忆 | `mcp-agent-memory` | `recall_memory` / `store_memory` / `search_memories` | L1 原子事实（按 `TASK_ID` 隔离）+ L2 场景索引 + L3 画像 |
-| 代码图谱 | `mcp-agent-memory-codegraph` | `code_*` 8 工具（只读） | 仓库资产级检索（符号/调用/文件/影响面），图谱由 MemoryKnowledge auto-sync 维护 |
+| 模式 | cordis id | 工具 | 自动入库 | 依赖 |
+|---|---|---|---|---|
+| **native（默认）** | `tool-agent-memory`（`plugins/agent-memory-native/`） | `recall_memory` / `store_memory` / `search_memories` + `code_*` 8 工具，**无前缀** | **进程内**：`ctx.on('session/event')` 的 `turn/end` 直提 L0 | 零（只用 fetch 打引擎 HTTP） |
+| mcp（兼容） | `mcp-agent-memory` / `mcp-agent-memory-codegraph` | 同名 11 工具，带 `mcp__*__` 前缀 | 外部守护扫 `sessions/` | `npx tencent-agent-memory-mcp-bridge@0.4.0` + 本地子进程 |
 
-两者**不复用同一 namespace**：L1 是语义事实检索，code-graph 是确定性代码检索；设计见
-[agent-memory-codegraph.md](agent-memory-codegraph.md)。
+两种模式**共用去重游标** `%DSH_HOME%/.dsh-memory-autostore-state.json`（`session_id + turn`），可互换不重复提交。
+L1（语义事实）与 code-graph（确定性代码检索）**不复用同一 namespace**；设计见
+[agent-memory-codegraph.md](agent-memory-codegraph.md)。原生插件的纯逻辑在 `plugins/agent-memory-native/lib.js`，
+可用 `node selftest.mjs`（mock 25 项 / `--live` 打真实引擎）独立验证。
 
 ## 自动入库（建议即沉淀）
 
@@ -62,17 +64,22 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 
 ## 验收
 
-1. `systemctl --user status dsh-memory-autostore memory-gateway-full memory-knowledge memory-panel memory-proxy tdai-gateway memory-bridge`。
-2. 重启 dsh web 后，会话出现 `mcp__agent-memory__*`（3）与 `mcp__agent-memory-codegraph__code_*`（8）。
-3. `recall_memory` 能召回既有事实（说明 L1 写入/隔离正确）；`code_graph_list` 能列出本 team 可见索引。
-4. 新聊一轮后 `journalctl --user -u dsh-memory-autostore` 出现增量提交计数。
+1. 引擎服务：`systemctl --user status memory-core... `（本机为 memory-gateway-full / memory-knowledge / memory-panel / memory-proxy / tdai-gateway / memory-bridge）。
+2. **重启 dsh web**（本部署未启用 HMR，改代码/增删条目必须重启）后，
+   `journalctl --user -u dsh | grep agent-memory` 出现 `[agent-memory] ready v0.1.0: tools=11 capture=on`。
+3. native 模式工具名无前缀：`recall_memory` / `code_graph_list`；mcp 模式为 `mcp__agent-memory__*` / `mcp__agent-memory-codegraph__code_*`。
+4. 自动入库：native 看 `[agent-memory] capture 已提交 session=… turn=N`；mcp 看
+   `journalctl --user -u dsh-memory-autostore` 的增量计数。
 
 ## 已知限制
 
-- 主记忆通道默认用 npm 上的 `tencent-agent-memory-mcp-bridge@0.4.0`（需公网）；要离线自持需在
-  `agent-memory/` 内构建后把 cordis 条目 `args` 指向本地 `dist/index.js`。
+- native 模式零依赖；mcp 模式默认用 npm 上的 `tencent-agent-memory-mcp-bridge@0.4.0`（需公网），
+  要离线自持需在 `agent-memory/` 内构建后把 `args` 指向本地 `dist/index.js`。
+- native 的进程内入库是 fire-and-forget：引擎不可达时该轮不重试（要回填用守护的 `--backfill`）。
+- **`cordis.patch.yml` 的 `name` 不能写 `?v=N`**：本部署 loader 把查询串当字面路径，
+  实测报 `ERR_MODULE_NOT_FOUND` 并让整棵插件树加载失败（2026-09-13 实测）。改插件后一律重启。
 - 引擎用本地部署分支，升级须人工验证并记录 ref（不随伞仓 tag 自动推进）。
-- Windows 下引擎侧需 WSL2/docker；只有 autostore 有原生计划任务路径。
+- Windows 下引擎侧需 WSL2/docker；native 插件与 autostore 计划任务可用。
 
 ## 相关文档
 

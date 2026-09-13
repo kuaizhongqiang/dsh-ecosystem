@@ -90,18 +90,18 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
         timeoutMs: 15000
 ```
 
-## 热重载（改代码免重启）
+## 更新代码后必须重启 dsh web
 
-web bundle 禁用了模块级 HMR，但 loader 会在插件 `name` 变化时重新 import
-（绕过 Node ESM 缓存）。因此**修改插件 JS 后无需重启**，只需：
+本部署**未启用 `cordis-plugin-hmr`**，loader 不会监听 profile patch 或插件 JS 的变化，因此：
 
 1. 同步文件到运行时副本：
    `cp dsh-plugins/plugins/stock-dsh-plugin/plugins/stock/index.js %DSH_HOME%\profiles\web\plugins\stock\index.js`
-2. 在 `%DSH_HOME%\profiles\web\cordis.patch.yml` 中把 `tool-stock` 的
-   `name` 版本号 +1（如 `./plugins/stock/index.js?v=2` → `?v=3`），保存即可触发重载。
-3. 注意：**不要把 name 改回无版本号的原始路径**，否则会命中旧的 ESM 缓存回退到旧代码。
+2. **重启** `dsh web`（`systemctl --user restart dsh` 或停掉旧进程重跑），新代码才会生效。
 
-> 依赖新增/变更（如新增第三方包）时，热重载不适用，仍需重启 `dsh web`。
+> ⚠️ 不要把 `cordis.patch.yml` 里的 `name` 写成 `./plugins/stock/index.js?v=N`。本项目 loader 会把
+> 查询串当字面路径去 `import()`，实测报 `ERR_MODULE_NOT_FOUND` 并导致**整棵插件树加载失败**
+> （2026-09-13 在 agent-memory 原生插件上实测复现）。需要绕过 Node ESM 缓存时，正确做法是重启进程，
+> 或启用 `@deepseek-ai/cordis-plugin-hmr`（当前 profile 未挂载）。
 
 ## 卸载
 

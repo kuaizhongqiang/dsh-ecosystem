@@ -1,19 +1,29 @@
 # agent-memory-dsh-plugin -- Windows installer (dsh-ecosystem)
-# 把「TencentDB Agent Memory」在 DSH 侧的接入装到 web profile：
-#   memory     主记忆 MCP 通道（mcp-agent-memory -> mcp-bridge，npx 固定版本）
-#   codegraph  代码图谱只读通道（mcp-agent-memory-codegraph，本地 MCP server）
-#   autostore  自动入库（计划任务 + 隐藏窗口 VBS，每 10 分钟 --once）
-#   engine     第三方引擎（Linux/systemd 或 docker 部署，本脚本只给指引）
+#
+# 两种接入模式:
+#   native (默认) 一个原生 cordis 插件 tool-agent-memory:11 个工具(主记忆 3 + 代码图谱 8)
+#                 + 进程内自动入库(turn/end -> L0)。不需要 npx/MCP 子进程与外部守护。
+#   mcp           原两条 MCP 通道(mcp-agent-memory / mcp-agent-memory-codegraph)
+#                 + 可选外部 autostore 守护(计划任务 + 隐藏 VBS)。
+#
+# 服务(-Only,缺省随模式):
+#   native 缺省 memory,codegraph;autostore 仅显式指定时才装外部守护。
+#   mcp    缺省 memory,codegraph,autostore。
+#   engine 第三方引擎在 Windows 上走 WSL2/docker,本脚本只给指引。
 #
 # 用法:
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Mode mcp
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Only memory,codegraph
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoStart
 #
-# 幂等: 载荷覆盖复制; cordis.patch.yml 按标记块增删, 重复执行不产生重复条目。
+# 幂等: 载荷覆盖复制; cordis.patch.yml 按标记块增删; 模式切换会移除另一模式条目(避免重复工具)。
 # 凭证: 本脚本不写任何密钥; 占位符 <...> 需你按 README/.env.example 自行填写。
+# 注意: 改完插件 JS 必须重启 dsh web -- 本部署未启用 cordis-plugin-hmr;
+#       不要用 './plugins/xxx/index.js?v=N' 这种写法(loader 会把它当字面路径,报 ERR_MODULE_NOT_FOUND 并拖垮整棵插件树)。
 param(
+  [ValidateSet('native', 'mcp')][string]$Mode = 'native',
   [string]$Only = '',
   [switch]$Uninstall,
   [switch]$NoStart
@@ -21,7 +31,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $AllServices = @('memory', 'codegraph', 'autostore', 'engine')
-$selected = if ($Only) { $Only.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ } } else { @('memory', 'codegraph', 'autostore') }
+if (-not $Only) {
+  $Only = if ($Mode -eq 'native') { 'memory,codegraph' } else { 'memory,codegraph,autostore' }
+}
+$selected = $Only.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
 $unknown = $selected | Where-Object { $AllServices -notcontains $_ }
 if ($unknown) { Write-Host ('ERROR: unknown service: ' + ($unknown -join ', ') + '. available: ' + ($AllServices -join ', ')) -ForegroundColor Red; exit 1 }
 function Has-Svc([string]$id) { return ($selected -contains $id) }
@@ -32,6 +45,7 @@ $AmDir = Join-Path $RepoRoot 'agent-memory'
 $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
 $profileDir = Join-Path $dshHome 'profiles\web'
 $pluginsDir = Join-Path $profileDir 'plugins'
+$nativeDir = Join-Path $pluginsDir 'agent-memory-native'
 $patchFile = Join-Path $profileDir 'cordis.patch.yml'
 $MARK = 'agent-memory-dsh-plugin'
 $TASK = 'dsh-memory-autostore'
@@ -40,11 +54,16 @@ Write-Host '== agent-memory-dsh-plugin =='
 Write-Host "  package : $PKG"
 Write-Host "  repo    : $RepoRoot"
 Write-Host "  profile : $profileDir"
-Write-Host "  services: $($selected -join ', ')$(if ($Uninstall) { '  (uninstall)' })"
+Write-Host "  mode    : $Mode$(if ($Uninstall) { '  (uninstall)' })"
+Write-Host "  services: $($selected -join ', ')"
 
 function Test-PatchId([string]$id) {
   if (-not (Test-Path $patchFile)) { return $false }
   return [bool](Select-String -Path $patchFile -Pattern ('id: ' + $id + '$') -Quiet)
+}
+function Test-Managed([string]$id) {
+  if (-not (Test-Path $patchFile)) { return $false }
+  return [bool](Select-String -Path $patchFile -Pattern ('^# >>> ' + $MARK + ': ' + $id + ' >>>$') -Quiet)
 }
 function Add-PatchBlock([string]$id, [string]$body) {
   if (Test-PatchId $id) { Write-Host "  SKIP patch $id (already present)"; return }
@@ -54,7 +73,8 @@ function Add-PatchBlock([string]$id, [string]$body) {
   Write-Host "  OK  patch entry added: $id"
 }
 function Remove-PatchBlock([string]$id) {
-  if (-not (Test-PatchId $id)) { Write-Host "  SKIP patch $id (absent)"; return }
+  if (-not (Test-PatchId $id)) { return }
+  if (-not (Test-Managed $id)) { Write-Host "  SKIP patch $id (present but not managed by this package; left untouched)"; return }
   $out = New-Object System.Collections.Generic.List[string]
   $skip = $false
   foreach ($line in (Get-Content -Path $patchFile -Encoding UTF8)) {
@@ -66,20 +86,65 @@ function Remove-PatchBlock([string]$id) {
   Write-Host "  OK  patch entry removed: $id"
 }
 
-# --- 1. codegraph ------------------------------------------------------------
-if (Has-Svc 'codegraph') {
-  Write-Host '-- codegraph'
-  if ($Uninstall) {
-    Remove-PatchBlock 'mcp-agent-memory-codegraph'
-    $dst = Join-Path $pluginsDir 'agent-memory-codegraph'
-    if (Test-Path $dst) { Move-Item $dst "$dst.removed-$(Get-Date -Format yyyyMMdd-HHmmss)"; Write-Host "  moved $dst -> *.removed-*" }
-  } else {
+# --- uninstall ---------------------------------------------------------------
+if ($Uninstall) {
+  Write-Host '-- uninstall'
+  Remove-PatchBlock 'tool-agent-memory'
+  Remove-PatchBlock 'mcp-agent-memory'
+  Remove-PatchBlock 'mcp-agent-memory-codegraph'
+  if (Test-Path $nativeDir) { Remove-Item -Recurse -Force $nativeDir; Write-Host "  removed $nativeDir" }
+  $cgDir = Join-Path $pluginsDir 'agent-memory-codegraph'
+  if (Test-Path $cgDir) { Remove-Item -Recurse -Force $cgDir; Write-Host "  removed $cgDir" }
+  $q = schtasks /query /tn $TASK 2>$null
+  if ($LASTEXITCODE -eq 0) { schtasks /delete /tn $TASK /f | Out-Null; Write-Host "  removed scheduled task: $TASK" }
+  Write-Host '== done (memory data ~/.openclaw/memory-tdai untouched) =='
+  exit 0
+}
+
+# --- native mode -------------------------------------------------------------
+if ($Mode -eq 'native' -and (Has-Svc 'memory' -or Has-Svc 'codegraph')) {
+  Write-Host '-- native plugin (memory + codegraph + in-process capture)'
+  $src = Join-Path $PKG 'plugins\agent-memory-native'
+  if (-not (Test-Path $src)) { Write-Host "ERROR: missing $src" -ForegroundColor Red; exit 1 }
+  New-Item -ItemType Directory -Force -Path $pluginsDir | Out-Null
+  if (Test-Path $nativeDir) { Remove-Item -Recurse -Force $nativeDir }
+  Copy-Item -Recurse $src $nativeDir
+  Write-Host "  copied -> $nativeDir"
+  Remove-PatchBlock 'mcp-agent-memory'
+  Remove-PatchBlock 'mcp-agent-memory-codegraph'
+  $body = @"
+- insert:
+    - id: tool-agent-memory
+      name: './plugins/agent-memory-native/index.js'
+      config:
+        memoryEndpoint: http://127.0.0.1:8422
+        knowledgeEndpoint: http://127.0.0.1:8421
+        apiKey: '<bridge api key>'
+        serviceId: default
+        teamId: '<TEAM_ID>'
+        agentId: '<AGENT_ID>'
+        userId: '<USER_ID>'
+        userKey: '<sk-mem-...>'
+        taskId: '<project label task_id>'
+        capture: true
+        timeoutMs: 15000
+"@
+  Add-PatchBlock 'tool-agent-memory' $body
+  Write-Host '  NOTE: replace the <...> placeholders in cordis.patch.yml (see README / .env.example)'
+  Write-Host '  NOTE: capture runs in-process; the external autostore task is not needed'
+}
+
+# --- mcp mode ----------------------------------------------------------------
+if ($Mode -eq 'mcp') {
+  if (Has-Svc 'codegraph') {
+    Write-Host '-- mcp: codegraph'
     $src = Join-Path $PKG 'plugins\agent-memory-codegraph'
     $dst = Join-Path $pluginsDir 'agent-memory-codegraph'
     New-Item -ItemType Directory -Force -Path $pluginsDir | Out-Null
     if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
     Copy-Item -Recurse $src $dst
     Write-Host "  copied -> $dst"
+    Remove-PatchBlock 'tool-agent-memory'
     $body = @"
 - insert:
     - id: mcp-agent-memory-codegraph
@@ -99,14 +164,9 @@ if (Has-Svc 'codegraph') {
 "@
     Add-PatchBlock 'mcp-agent-memory-codegraph' $body
   }
-}
-
-# --- 2. memory ---------------------------------------------------------------
-if (Has-Svc 'memory') {
-  Write-Host '-- memory'
-  if ($Uninstall) {
-    Remove-PatchBlock 'mcp-agent-memory'
-  } else {
+  if (Has-Svc 'memory') {
+    Write-Host '-- mcp: memory'
+    Remove-PatchBlock 'tool-agent-memory'
     $body = @"
 - insert:
     - id: mcp-agent-memory
@@ -129,29 +189,20 @@ if (Has-Svc 'memory') {
 "@
     Add-PatchBlock 'mcp-agent-memory' $body
     Write-Host '  NOTE: replace the <...> placeholders in cordis.patch.yml (see README / .env.example)'
-    if (Test-Path (Join-Path $AmDir 'packages\mcp-bridge\dist\index.js')) {
-      Write-Host "  NOTE: local build found -> you may point args at $AmDir\packages\mcp-bridge\dist\index.js to avoid npm"
-    }
   }
 }
 
-# --- 3. autostore (scheduled task + hidden VBS) ------------------------------
+# --- autostore (external daemon; scheduled task + hidden VBS) ----------------
 if (Has-Svc 'autostore') {
-  Write-Host '-- autostore'
+  Write-Host '-- autostore daemon'
   $taskDir = Join-Path $dshHome 'agent-memory\scripts'
   $vbs = Join-Path $taskDir 'dsh-memory-autostore-hidden.vbs'
-  if ($Uninstall) {
-    $q = schtasks /query /tn $TASK 2>$null
-    if ($LASTEXITCODE -eq 0) { schtasks /delete /tn $TASK /f | Out-Null; Write-Host "  removed scheduled task: $TASK" }
-    else { Write-Host "  SKIP scheduled task $TASK (absent)" }
-    if (Test-Path $vbs) { Remove-Item $vbs -Force; Write-Host "  removed $vbs" }
-  } else {
-    $mjsSrc = Join-Path $AmDir 'scripts\dsh-memory-autostore.mjs'
-    if (-not (Test-Path $mjsSrc)) { Write-Host "ERROR: not found: $mjsSrc (is -RepoRoot correct?)" -ForegroundColor Red; exit 1 }
-    New-Item -ItemType Directory -Force -Path $taskDir | Out-Null
-    Copy-Item $mjsSrc (Join-Path $taskDir 'dsh-memory-autostore.mjs') -Force
-    $node = (Get-Command node).Source
-    $vbsBody = @"
+  $mjsSrc = Join-Path $AmDir 'scripts\dsh-memory-autostore.mjs'
+  if (-not (Test-Path $mjsSrc)) { Write-Host "ERROR: not found: $mjsSrc" -ForegroundColor Red; exit 1 }
+  New-Item -ItemType Directory -Force -Path $taskDir | Out-Null
+  Copy-Item $mjsSrc (Join-Path $taskDir 'dsh-memory-autostore.mjs') -Force
+  $node = (Get-Command node).Source
+  $vbsBody = @"
 ' generated by agent-memory-dsh-plugin install.ps1 -- runs autostore --once with a hidden window
 Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(WScript.ScriptFullName)
@@ -162,28 +213,22 @@ logPath = base & "\dsh-memory-autostore-run.log"
 cmdLine = "cmd /c """"" & nodePath & """ """ & scriptPath & """ --once >> """ & logPath & """ 2>&1"""
 shell.Run cmdLine, 0, False
 "@
-    Set-Content -Path $vbs -Value $vbsBody -Encoding ASCII
-    Write-Host "  wrote $vbs (node: $node)"
-    if ($NoStart) {
-      Write-Host "  SKIP scheduled task (-NoStart); manual: schtasks /create /tn $TASK /sc minute /mo 10 /tr `"wscript.exe `"$vbs`"`" /f"
-    } else {
-      schtasks /create /tn $TASK /sc minute /mo 10 /tr "wscript.exe `"$vbs`"" /f | Out-Null
-      Write-Host "  OK  scheduled task registered: $TASK (every 10 minutes)"
-    }
+  Set-Content -Path $vbs -Value $vbsBody -Encoding ASCII
+  Write-Host "  wrote $vbs (node: $node)"
+  if ($NoStart) {
+    Write-Host "  SKIP scheduled task (-NoStart)"
+  } else {
+    schtasks /create /tn $TASK /sc minute /mo 10 /tr "wscript.exe `"$vbs`"" /f | Out-Null
+    Write-Host "  OK  scheduled task registered: $TASK (every 10 minutes)"
   }
 }
 
-# --- 4. engine (third-party, guidance only) ----------------------------------
+# --- engine (third-party; guidance only) -------------------------------------
 if (Has-Svc 'engine') {
   Write-Host '-- engine (third-party TencentDB Agent Memory)'
-  if ($Uninstall) { Write-Host '  engine services are not managed by this script on Windows' }
-  else {
-    Write-Host '  The memory engine (MemoryCore/MemoryKnowledge/MemoryPanel/MemoryProxy + TDAI gateway)'
-    Write-Host '  is a separate upstream project and is deployed on Linux (systemd) or via docker.'
-    Write-Host '  On Windows: use WSL2 (see templates/systemd/*.service) or docker (upstream deploy/global-images).'
-    Write-Host '  See templates/engine/ and docs/modules/agent-memory.md for prerequisites.'
-  }
+  Write-Host '  The engine is deployed on Linux (systemd, see templates/systemd/*.service) or docker.'
+  Write-Host '  On Windows use WSL2 or docker (upstream deploy/global-images); see docs/modules/agent-memory.md.'
 }
 
 Write-Host '== done =='
-if (-not $Uninstall) { Write-Host '  Restart dsh web to load new cordis entries (MCP wiring is read at process start).' }
+Write-Host '  Restart dsh web to load new cordis entries (HMR is not enabled in this deployment).'

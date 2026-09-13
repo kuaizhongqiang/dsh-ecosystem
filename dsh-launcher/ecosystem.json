@@ -63,7 +63,7 @@
         "id": "agent-memory",
         "dir": "dsh-plugins/plugins/agent-memory-dsh-plugin",
         "sha256": {
-          "install.ps1": "584e96d74b787e36565eafd87bb1231c5c62baab58ac7617a5bc33b49c4f543a"
+          "install.ps1": "f6acb34bf0fce35f8ba8ddff7235ffa8662feb3c5a03f0c660d6d9776f75786d"
         }
       }
     ]

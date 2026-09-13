@@ -1,22 +1,37 @@
 # agent-memory-dsh-plugin
 
 把「[TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory)」这套长期记忆
-（L0 对话 → L1 原子事实 → L2 场景 → L3 画像）接入 DSH web profile 的**安装包**。一个条目下提供
-三件事（可用 `--only` 子集安装）：主记忆 MCP 通道、代码图谱只读通道、自动入库守护。
+（L0 对话 → L1 原子事实 → L2 场景 → L3 画像）接入 DSH web profile 的**安装包**。默认走
+**原生 cordis 插件**（进程内直连引擎 + 进程内自动入库），也可回退到 MCP 双通道模式。
 
 > 分层：**引擎是第三方上游**（腾讯云，MIT），**`<伞仓>/agent-memory/` 是我们自己的协议桥源码**
-> （MCP 桥 / HTTP 桥 / autostore 脚本），**本包是安装器与模板**。三层职责不要混。
+> （MCP 桥 / HTTP 桥 / autostore 脚本），**本包是安装器 + 原生插件 + 模板**。
 
-## 服务（`--only`）
+## 两种模式（`--mode native|mcp`，默认 native）
 
-| 服务 | 装什么 | 关键产物 |
+| | **native（默认）** | **mcp（兼容）** |
 |---|---|---|
-| `memory` | 主记忆 MCP 通道 `mcp-agent-memory`（`recall_memory` / `store_memory` / `search_memories`） | `cordis.patch.yml` 条目（`npx tencent-agent-memory-mcp-bridge@0.4.0` 固定版本，可换本地构建） |
-| `codegraph` | 代码图谱只读通道 `mcp-agent-memory-codegraph`（`code_*` 8 工具，查 MemoryKnowledge 图谱） | `profiles/web/plugins/agent-memory-codegraph/` + patch 条目 |
-| `autostore` | 自动入库守护：每轮 `turn/end` 把该轮对话提交进 MemoryCore（**默认提交、按需取回**） | Linux：`systemd --user` 单元；Windows：计划任务 + 隐藏窗口 VBS |
-| `engine` | 第三方引擎的单元/配置**模板渲染**（不下载引擎本体） | `templates/systemd/*.service`、`templates/engine/*` |
+| 载体 | 一个原生 cordis 插件 `tool-agent-memory`（`plugins/agent-memory-native/`） | 两条 `@deepseek-ai/dsh-mcp-client` 通道 |
+| 工具 | 11 个，工具名**无前缀**：`recall_memory` / `store_memory` / `search_memories` + `code_*` ×8 | 同 11 个，但叫 `mcp__agent-memory__*` / `mcp__agent-memory-codegraph__code_*` |
+| 依赖 | **零外部依赖**（只用 fetch 打引擎 HTTP） | `npx tencent-agent-memory-mcp-bridge@0.4.0`（需公网/npm）+ 本地 codegraph server 子进程 |
+| 自动入库 | **进程内**：`ctx.on('session/event')` 在 `turn/end` 直提 L0 | 外部守护（Linux systemd / Windows 计划任务）扫 `sessions/` 提交 |
+| 适合 | DSH 本机（默认） | 其它平台（Claude Code / CodeBuddy / OpenClaw）与无插件能力的 headless 场景 |
 
-默认集合 = `memory,codegraph,autostore`；`engine` 必须显式指定（它依赖另一份引擎检出）。
+去重游标两种模式**共用** `%DSH_HOME%/.dsh-memory-autostore-state.json`（按 `session_id + turn`），
+因此来回切换不会重复提交。
+
+## 工具（native 模式，11 个）
+
+| 工具 | 作用 |
+|---|---|
+| `recall_memory` | 召回当前 task 的 L1 事实（+可选 L3 persona / L2 场景索引） |
+| `store_memory` | 显式把一轮对话写进 L0 |
+| `search_memories` | L1 原子记忆语义检索（可按 type 过滤） |
+| `code_graph_list` | 列出当前 team 可见的 code-graph 索引 |
+| `code_search` / `code_callers` / `code_callees` / `code_impact` / `code_explore` / `code_node` / `code_files` | 代码图谱只读检索（符号/调用/影响面/文件） |
+
+身份（`team_id`/`agent_id`/`user_id`）与 `task_id` 由插件 config 固定，**工具调用方不能传身份**；
+返回值带 `_context` 回显当前隔离域。
 
 ## 前置：引擎（第三方）
 
@@ -24,78 +39,81 @@
 
 ```bash
 git clone https://github.com/TencentCloud/TencentDB-Agent-Memory
-# 本团队部署验证过的 ref：分支 upgrade-v2.0.1（本地部署分支，含 pnpm 11 lockfile 重建）
-#   本机检出：~/projects/TencentDB-Agent-Memory（该分支不回推上游）
+# 本团队部署验证过的 ref：分支 upgrade-v2.0.1（本地部署分支，含 pnpm 11 lockfile 重建，不回推上游）
 ```
 
-引擎四个服务与端口：`MemoryCore` :8422（v3 元数据/gateway）、`MemoryKnowledge` :8421（knowledge + code-graph）、
-`MemoryProxy` :8096（透明 LLM 上下文代理）、`MemoryPanel` :8123（团队记忆面板），外加 `TDAI HTTP Gateway` :8420
-与我们的 HTTP 桥 `bridge-server` :3000。
-
-- 引擎侧 LLM key **不写进仓库**：放 `~/.config/memory-gateway/llm_key.txt`、`embedding_key.txt`（600），
-  由 `templates/engine/start-gateway-full.sh` 读取（避免 systemd 明文暴露）。
-- Windows：引擎走 WSL2 或 docker（上游 `deploy/global-images`），本包的 `autostore` 有原生计划任务路径。
+服务与端口：`MemoryCore` :8422（v3 元数据/gateway）、`MemoryKnowledge` :8421（knowledge + code-graph）、
+`MemoryProxy` :8096、`MemoryPanel` :8123、`TDAI HTTP Gateway` :8420（外加我们的 HTTP 桥 `bridge-server` :3000）。
+引擎侧 LLM key 放 `~/.config/memory-gateway/{llm,embedding}_key.txt`（600），由
+`templates/engine/start-gateway-full.sh` 读取。Windows 下引擎走 WSL2 或 docker。
 
 ## 安装
 
 Linux/macOS：
 
 ```bash
-./install.sh                                  # memory,codegraph,autostore
-./install.sh --only memory,codegraph          # 子集
-./install.sh --only engine --engine-dir ~/projects/TencentDB-Agent-Memory
-./install.sh --uninstall
+./install.sh                                     # native（memory,codegraph）
+./install.sh --mode mcp                          # 回退 MCP 双通道 + 守护
+./install.sh --only memory,codegraph             # 子集
+./install.sh --only engine --engine-dir <路径>    # 渲染引擎 systemd 单元模板
+./install.sh --uninstall                         # 清两种模式的产物
 ```
 
 Windows：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Only memory,codegraph
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Mode mcp
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 ```
 
-幂等：载荷覆盖复制；`cordis.patch.yml` 按 `# >>> agent-memory-dsh-plugin: <id> >>>` … `<<<` 标记块增删，
-重复执行不产生重复条目，卸载按标记精确剥离。
+装完把 config 里的 `<...>` 换成真实值（见 [.env.example](.env.example)），然后**重启 `dsh web`**。
 
-**装完必做**：把条目 `env` 里的 `<...>` 占位符换成真实值（见 [.env.example](.env.example)），
-然后重启 `dsh web`（cordis 条目在进程启动时加载）。
+> ⚠️ 本部署**未启用 `cordis-plugin-hmr`**：改插件 JS 或增删条目都必须重启 dsh web。
+> 另**不要**把 `name:` 写成 `./plugins/xxx/index.js?v=N`——loader 会把查询串当字面路径，
+> 报 `ERR_MODULE_NOT_FOUND` 并让**整棵插件树加载失败**（已实测）。
 
 ## 凭证清单（都不许入库）
 
-| 值 | 用途 | 从哪来 |
+| config 键 | 用途 | 从哪来 |
 |---|---|---|
-| `TEAM_ID` / `AGENT_ID` / `USER_ID` | v3 隔离三元组 | Memory Panel（:8123）/ 团队管理员 |
-| `USER_KEY`（`sk-mem-…`） | 团队记忆 key | 同上 |
-| `API_KEY` | bridge-server 鉴权（单元里存 `sha256(API_KEY)`） | 自定 |
-| `TASK_ID` | L1 事实的项目标签 | 自定（如 `normal-manager`） |
-| 引擎 LLM key | 记忆提炼 | 放 600 权限文件，见上 |
+| `teamId` / `agentId` / `userId` | v3 隔离三元组 | Memory Panel（:8123）/ 团队管理员 |
+| `userKey`（`sk-mem-…`） | 团队记忆 key | 同上 |
+| `apiKey` | 网关门禁 key（`Authorization: Bearer`） | 自定/团队 |
+| `taskId` | L1 事实的项目标签（**不是** agent_id） | 自定（如 `normal-manager`）；不配则取会话 cwd 目录名 |
+| `memoryEndpoint` / `knowledgeEndpoint` | MemoryCore / MemoryKnowledge | 本地部署地址 |
+| 引擎 LLM key | 记忆提炼 | 600 权限文件，见上 |
 
 ## 验收
 
-1. `systemctl --user status dsh-memory-autostore` → `active (running)`；
-   `journalctl --user -u dsh-memory-autostore -n 5` → 出现 `轮询完成：无新轮次` 之类心跳。
-2. 重启 dsh web 后，会话里应出现 `mcp__agent-memory__*`（3 工具）与 `mcp__agent-memory-codegraph__code_*`（8 工具）。
-3. `code_graph_list` 能列出本 team 可见索引；`recall_memory` 能召回既有 L1 事实。
-4. autostore 生效验证：新开一轮对话后 `journalctl` 出现提交计数（不是"无新轮次"）。
+1. **离线自检**（纯逻辑层，不需要 dsh）：`cd plugins/agent-memory-native && node selftest.mjs` → 25 ok。
+2. **真实引擎自检**：`node selftest.mjs --live`（只读）/ `--live --live-write`（含一次 L0 写入自检）。
+3. **重启后**：`journalctl --user -u dsh | grep agent-memory` 应出现
+   `[agent-memory] ready v0.1.0: tools=11 capture=on ...`。
+4. 会话里直接调 `recall_memory` / `code_graph_list`（native 模式无 `mcp__` 前缀）。
+5. 自动入库：聊完一轮后日志出现 `[agent-memory] capture 已提交 session=… turn=N`，
+   且 `%DSH_HOME%/.dsh-memory-autostore-state.json` 游标推进。
 
 ## 数据与排除项
 
-- 运行时记忆数据在 `~/.openclaw/memory-tdai/`（L0–L3、场景块、persona）—— **本机数据，不进任何仓库**。
-- 会话游标 `%DSH_HOME%/.dsh-memory-autostore-state*.json` 为机器绑定状态，伞仓的 profile 同步白名单**明确排除**。
-- `agent-memory/` 内的 `node_modules/`、`dist/`、`.turbo/` 不入库（与上游 `.gitignore` 一致）。
+- 记忆数据在 `~/.openclaw/memory-tdai/`（L0–L3、场景块、persona）→ **本机数据，永不入仓**。
+- 游标 `%DSH_HOME%/.dsh-memory-autostore-state*.json` 为机器绑定状态，伞仓 profile 白名单已排除。
+- `node_modules/`、`dist/`、`.turbo/` 不入库。
 
 ## 已知限制
 
-- 主记忆通道默认用 npm 上的 `tencent-agent-memory-mcp-bridge@0.4.0`（固定版本、需公网可达）；
-  要离线自持，先在 `<伞仓>/agent-memory` 构建，再把条目 `args` 指向本地 `dist/index.js`。
-- 引擎使用**本地部署分支**（非上游 commit），因此不按 submodule 锁基线；升级引擎须人工验证后记录 ref。
-- Windows 下引擎侧需 WSL2/docker；`autostore` 之外的服务不提供 Windows 单元。
+- native 模式零依赖；mcp 模式默认从 npm 取 `tencent-agent-memory-mcp-bridge@0.4.0`（要离线自持可在
+  `<伞仓>/agent-memory` 内构建后把 `args` 指向本地 `dist/index.js`）。
+- 引擎用**本地部署分支**，不按 submodule 锁基线；升级须人工验证并记录 ref。
+- 进程内入库是 fire-and-forget：引擎不可达时该轮不重试（守护模式才有重试/回填；需要回填用
+  `node agent-memory/scripts/dsh-memory-autostore.mjs --backfill`）。
 
 ## 卸载
 
 ```bash
-./install.sh --uninstall                   # 或 powershell ... -Uninstall
+./install.sh --uninstall                  # 或 powershell ... -Uninstall
 ```
 
-卸载不改动 `~/.openclaw/memory-tdai/` 数据；引擎单元模板如由本包渲染，会提示你手动清理。
+只剥离插件侧内容（native 载荷 + MCP 载荷 + cordis 标记块 + autostore 守护/计划任务）；
+**不动** `~/.openclaw/memory-tdai/` 记忆数据，也不动第三方引擎。手工添加的旧条目（无
+`# >>> agent-memory-dsh-plugin:` 标记）本包不会擅自动，会提示你手工处理。

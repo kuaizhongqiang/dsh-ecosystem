@@ -1,5 +1,39 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-13(agent-memory 原生插件 —— 去 MCP 化 + 进程内入库；附带 `?v=` 陷阱)
+
+- **背景**(用户:「agent-memory 能不能作为一个插件？而不是 mcp?」→ 选「全量原生」):把 DSH 侧的
+  agent-memory 从**两条 MCP 通道**改为**一个原生 cordis 插件**(工具面 + 进程内入库),MCP 保留为
+  `--mode mcp` 兼容路径给其它平台(Claude Code / CodeBuddy / OpenClaw)。
+- **改动**:
+  1. `plugins/agent-memory-native/`(新):`index.js`(cordis 接线:Config + 11 个 `defineTool` +
+     `ctx.on('session/event')`)、`lib.js`(**纯逻辑层,零 dsh 依赖**:MemoryCore/MemoryKnowledge 裸 HTTP
+     客户端 + 身份/task_id 语义 + 进程内入库)、`package.json`、`selftest.mjs`(mock + `--live` + `--live-write`)。
+     工具:3 主记忆 + 8 代码图谱,**工具名不再带 `mcp__` 前缀**;零外部依赖(不再 `npx`,无子进程)。
+  2. 进程内入库:`turn/end` 直提 L0,**与 autostore 守护共用同一份游标**
+     (`%DSH_HOME%/.dsh-memory-autostore-state.json`,按 `session_id + turn`),两种模式可互换不重复提交;
+     native 模式缺省不再安装守护。
+  3. `install.sh` / `install.ps1`:`--mode native|mcp`(默认 native)、`--only`、`--uninstall`、`--dry-run`;
+     按标记块幂等增删;**只删本包管理的块**(手工旧条目提示不擅动)。
+  4. 文档:包 README / 技能 `install-memory` / `docs/modules/agent-memory.md` / `dsh-plugins/README.md` 同步;
+     清单 `agent-memory` 的 install.ps1 sha256 重算 `584e96d7… → f6acb34b…`。
+- **安装实测**(用户要求「改完先给自己安装测试,跑通再提交」):
+  1. 离线自检 `selftest.mjs` → **25 ok / 0 FAIL**;
+  2. 真实引擎 `selftest.mjs --live` → **7 ok**(atomic/search、core/read、code-graph/list+search);
+     `--live --live-write` → **8 ok**(真实 L0 写入);
+  3. 接线测试(用真实 dsh 运行时模块 `profiles/node_modules/@deepseek-ai/{dsh-tools,schemastery}` + 真实引擎,
+     stub ctx)→ **9 ok**:Config 校验、apply() 注册 **11** 工具、订阅 `session/event`、
+     `recall_memory`/`code_graph_list` 打真引擎、喂一轮事件后真实写 L0 且游标落盘;
+  4. 真机 dsh 加载:在 **3081 端口另起一个临时 dsh web 实例**(不打断线上 3080 会话)加载 live profile →
+     日志出现 `[agent-memory] ready v0.1.0: tools=11 capture=on …`。
+- **踩到的真坑(已修,写进文档)**:从旧 README 继承的「热重载」写法 `name: './plugins/xxx/index.js?v=N'`
+  **在本部署会让整棵插件树加载失败** —— loader 把查询串当字面路径 `import()`,报
+  `ERR_MODULE_NOT_FOUND: …/index.js%3Fv=2`(3081 实例实测复现)。已把安装器与线上条目改回纯路径,
+  并把 stock 包 README 里同一段错误说明改写为「改插件必须重启 dsh web;本部署未启用 `cordis-plugin-hmr`」。
+  另修:selftest 从 `cordis.patch.yml` 解析 YAML 值时未剥引号 → `Bearer 'xxx'` 被引擎判 401。
+- **状态**:插件已装到本机 profile(native 条目 + 真实凭证注入,旧 MCP 块保留待重启后清理);
+  **线上 3080 实例仍跑 MCP,需一次 `systemctl --user restart dsh` 切到 native**(重启会中断当前会话)。
+
 ## 2026-09-13(memory 融入 eco —— L5 记忆层组件 + 第 8 个插件包)
 
 - **背景**(用户:「我要把 memory 融入 eco」):先做全栈盘点,确认 memory 是四层混合体——
