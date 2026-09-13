@@ -103,7 +103,10 @@ async function main() {
     const { manifest, label } = await eco.loadManifest();
     ok(label.includes('默认'), '1-1 默认清单来源 = 内嵌');
     ok(manifest.plugins.packages.length === 7, '1-2 默认清单含 7 个插件包(11→7)');
-    ok(manifest.plugins.source.commit === '9f472797785a70cf78de0042f98e01d05ef927cb', '1-3 插件源锁 9f47279');
+    // 期望值取仓库清单(单一事实来源),避免发布 re-pin 后此处硬编码过期(原硬编码 9f47279 自 9/9 pin 起即失败)。
+    const repoManifest = JSON.parse(readFileSync(new URL('../ecosystem.json', import.meta.url), 'utf8'));
+    ok(manifest.plugins.source.commit === repoManifest.plugins.source.commit,
+      `1-3 默认清单插件源锁 = 仓库清单(${repoManifest.plugins.source.commit.slice(0, 8)})`);
     ok(!!manifest.skills?.sha256, '1-4 skills 声明 sha256');
   } catch (e) {
     ok(false, `1-x 默认清单加载异常:${e.message}`);

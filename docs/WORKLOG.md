@@ -23,10 +23,17 @@
 - **验证**:线上文件 `node --check` 通过;伞仓根 `node scripts/verify-release.mjs` **全绿**
   (7 包 install.ps1 + skills 脚本 + `src/ecosystem.ts` 单一来源);**未改 `install.ps1` → 清单 sha256 无需重算**;
   另确认 CI 的「Assert version matches tag」只作用于伞仓根/launcher/desktop/vscode,不约束插件子包版本。
-- **遗留/下一步**:`dsh-launcher/ecosystem.json`(及 `src/ecosystem.ts`)的 `plugins.source.commit`
-  仍指向旧伞仓 commit —— 下次发版须按 RELEASING.md「两步提交」(先提交插件内容取 sha,再把 commit 字段指过去),
-  launcher 才会拉到 v0.2.0 插件;归档仓 `dsh-project/dsh-plugins` 的两处未提交改动已被本仓覆盖,
-  按用户决定处理(默认原样保留不触碰)。
+- **插件源 pin 与全链同步**(同日追加提交,用户要求「stock 相关全额提交推送到 eco」):
+  1. 文档同步:`dsh-plugins/README.md`(stock 行改 22 工具闭环描述)、`skills/README.md`
+     (install-stock 能力补舆情/建议/模拟盘)、`docs/PLUGIN-SPEC.md`(域工具层标注 github 8 / stock 22)。
+  2. `dsh-launcher/ecosystem.json` 的 `plugins.source.commit` `56bfcbb → eeaaaa6`(RELEASING「两步提交」第二步);
+     已核验 `install.ps1` blob 在 pin 前后完全相同 → `.gitattributes` 的 `*.ps1 eol=crlf` 口径下清单 sha256 无需重算。
+  3. 顺手修复 `dsh-launcher/scripts/verify-m1.mjs` 检查 1-3 的硬编码过期断言(写死 `9f47279`,自 9/9 re-pin 起即 FAIL):
+     改为与仓库清单(单一事实来源)比对。修复后 M1 检查 1–5 **10 ok / 0 FAIL**
+     (第 6 节需 Windows PowerShell,Linux 下 `spawn powershell ENOENT` 属环境限制,非代码问题)。
+- **遗留**:随包内嵌默认清单由 esbuild 构建期内联(`src/ecosystem.ts`),已安装的启动器需重建/发版后才生效
+  (「一键更新」按伞仓 HEAD 清单路径可即时读到新 pin);归档仓 `dsh-project/dsh-plugins` 的两处未提交改动
+  内容已在伞仓,按用户决定处理(默认原样保留不触碰)。
 
 ## 2026-09-11(dsh-vscode 0.9.3 —— 费用估算改按官方调价历史 + 峰谷时段)
 
