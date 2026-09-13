@@ -1,7 +1,9 @@
 # agent-memory MCP × code-graph：通道设计（milestone #3 / issue #25）
 
 > 状态：**设计定稿**（2026-09-10）。调研事实清单见 issue #24 评论；实现见
-> `dsh-plugins/plugins/agent-memory-codegraph-dsh-plugin/`（issue #26）；端到端验收见 issue #27。
+> `dsh-plugins/plugins/agent-memory-dsh-plugin/plugins/agent-memory-codegraph/`（issue #26；原单包
+> `agent-memory-codegraph-dsh-plugin` 已于 2026-09-13 并入 `agent-memory-dsh-plugin`，见
+> [agent-memory.md](agent-memory.md)）；端到端验收见 issue #27。
 > 前置阅读：`docs/modules/README.md`（模块文档约定）、本机 MemoryCore/MemoryKnowledge 部署（feat/server_team @ 0a568c3）。
 
 ## 1. 位置：独立只读检索通道（并列于 L1/L2/L3，不复用 recall）
