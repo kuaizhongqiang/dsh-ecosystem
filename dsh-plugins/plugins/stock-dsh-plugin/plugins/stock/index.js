@@ -2758,6 +2758,11 @@ function renderPaperSettle(value) {
 // =========================================================================
 // 四块信号模型（见 playbook.md）：sector_panel / order_calibration
 // 电力设备/航天卫星 = 可交易；券商/石油 = 只做信号、不建头寸。
+// 资金观（用户口径）：A 股以存量资金为主，板块间是零和轮动，因此
+//   (1) 额占比"变化"比绝对量更有意义（占比上升 = 从别的板块抽血）；
+//   (2) 全池总量水位决定是纯存量博弈还是可能有增量；
+//   (3) 板块净流入与"龙头"是否背离 = 资金是集中还是分散；
+//   (4) 成交量放大/缩小 = 分歧还是共识。
 // =========================================================================
 
 /** 电力设备 —— 运营/防御子层。 */
@@ -2770,8 +2775,6 @@ const POWER_EQ = [
   'sh600406', 'sz000400', 'sh600312', 'sh601179', 'sh600089',
   'sh603606', 'sh601567', 'sh601727', 'sh600875', 'sz300001',
 ]
-/** 电力设备 —— 锂电新能源子层（不设第五块，故并入电力设备）。 */
-const POWER_NE = ['sz300750', 'sz300014', 'sz002074', 'sz300274', 'sz300124']
 /** 航天卫星 —— 航天/卫星/军工电子。 */
 const SPACE = [
   'sz002025', 'sh600879', 'sz000547', 'sz000901', 'sz002389',
@@ -2787,6 +2790,10 @@ const BROKER = [
 /** 石油 —— 信号块（牛市收尾，仅牛市监听）。 */
 const OIL = ['sh600028', 'sh601857', 'sh600688', 'sh600871']
 
+// 已移出股池（主题不符）：中航沈飞/中航西飞/航发动力（航空整机，非"航天卫星"）、
+// 国网英大（主业金融）；锂电新能源 5 只（宁德/亿纬/国轩/阳光/汇川）因主题不符
+// 电力设备、且 29.9% 成交额权重会把块级读数从"出逃"扭成"主升"，一并移出。
+
 const SECTOR_BLOCKS = [
   {
     key: 'power',
@@ -2795,7 +2802,6 @@ const SECTOR_BLOCKS = [
     layers: [
       { name: '运营/防御', members: POWER_DEF },
       { name: '设备/基建', members: POWER_EQ },
-      { name: '锂电新能源', members: POWER_NE },
     ],
   },
   { key: 'space', name: '航天卫星', tradable: true, layers: [{ name: '航天卫星', members: SPACE }] },
@@ -2803,8 +2809,8 @@ const SECTOR_BLOCKS = [
   { key: 'oil', name: '石油', tradable: false, layers: [{ name: '石油', members: OIL }] },
 ]
 
-/** 池内全部标的（面板与标定共用；已移出股池的标的不参与）。 */
-const SECTOR_POOL = [...POWER_DEF, ...POWER_EQ, ...POWER_NE, ...SPACE, ...BROKER, ...OIL]
+/** 池内全部标的（面板与标定共用）。 */
+const SECTOR_POOL = [...POWER_DEF, ...POWER_EQ, ...SPACE, ...BROKER, ...OIL]
 /** 市场基准。 */
 const SECTOR_BENCH = 'sh000300'
 /** 券商异动阈值（疑似启动；确认还需连续 2 日 + 大盘站上 MA20）。 */
@@ -2975,6 +2981,68 @@ function sectorOrderRule(quadrant, regime, tradable) {
   return '不参与'
 }
 
+/**
+ * 龙头背离：龙头 = 近 20 日成交额最大的成员（资金意义上的龙头，动态自维护）。
+ * 存量市里最有信息量的一条：板块量能与龙头是否同向。
+ */
+function sectorLeader(close, volume, days, i, members, names) {
+  const avgAmount = (symbol, span) => {
+    const values = []
+    for (let k = 0; k < span; k += 1) {
+      const idx = i - k
+      if (idx < 0) break
+      values.push(sectorAmountAt(close, volume, days, idx, symbol))
+    }
+    return sectorMean(values)
+  }
+  let leader = null
+  let best = -1
+  for (const symbol of members) {
+    const a = avgAmount(symbol, 20)
+    if (a > best) {
+      best = a
+      leader = symbol
+    }
+  }
+  if (leader === null) return null
+  let leader5 = 0
+  let block5 = 0
+  for (let k = 0; k < 5; k += 1) {
+    leader5 += sectorRetAt(close, days, i - k, leader) ?? 0
+    block5 += sectorMembersRet(close, days, i - k, members) ?? 0
+  }
+  const rel5 = (leader5 - block5) * 100
+  const amountNow = sectorMembersAmount(close, volume, days, i, members)
+  const leaderShare = amountNow === 0 ? 0 : (sectorAmountAt(close, volume, days, i, leader) / amountNow) * 100
+  const priorShares = []
+  for (let k = 5; k < 10; k += 1) {
+    const idx = i - k
+    if (idx < 0) continue
+    const tot = sectorMembersAmount(close, volume, days, idx, members)
+    priorShares.push(tot === 0 ? 0 : (sectorAmountAt(close, volume, days, idx, leader) / tot) * 100)
+  }
+  return {
+    symbol: leader,
+    name: names[leader] ?? leader,
+    rel5,
+    leaderShare,
+    shareDelta: leaderShare - sectorMean(priorShares),
+  }
+}
+
+/** 量能 × 龙头 → 背离判定。 */
+function sectorDivergence(unit, leader) {
+  if (leader === null) return '无龙头数据'
+  const expanding = unit.volMult >= 1.05
+  const shrinking = unit.volMult <= 0.95
+  const rel5 = leader.rel5
+  if (expanding && rel5 < 0) return '放量而龙头不涨 → 资金分散/出货嫌疑（背离）'
+  if (expanding && rel5 >= 0) return '放量且龙头领涨 → 资金集中流入（健康）'
+  if (shrinking && rel5 > 0) return '缩量而龙头独强 → 存量抱团（防御）'
+  if (shrinking && rel5 <= 0) return '缩量且龙头走弱 → 无人问津（冷落）'
+  return '量能与龙头同步，中性'
+}
+
 /** 市场状态机（牛/震荡/熊）。 */
 function sectorRegime(bench, days, i) {
   const series = days.map((d) => bench[d]).filter((v) => v !== undefined)
@@ -3035,7 +3103,11 @@ function sectorOilSignal(close, volume, bench, days, i, totals, regime) {
   }
 }
 
-/** 成交率标定：买单挂 收盘−k×ATR，卖单挂 收盘+u×ATR。 */
+/**
+ * 成交率标定：买单挂 收盘−k×ATR / 卖单挂 收盘+u×ATR。
+ * 同时给出"没成交"那一侧的 5 日表现——它才是决定挂单深度的关键：
+ * 买单没成交 = 踏空成本；卖单没成交 = 继续扛跌。
+ */
 function calibrateOrders(cache, pool) {
   const samples = { up: [], down: [] }
   for (const symbol of pool) {
@@ -3069,16 +3141,19 @@ function calibrateOrders(cache, pool) {
   const table = (bucket, side) => ks.map((k) => {
     const rows = samples[bucket]
     const filled = []
+    const missed = []
     for (const row of rows) {
       const limit = side === 'buy' ? row.close - k * row.atr : row.close + k * row.atr
       const hit = side === 'buy' ? row.nextLow <= limit : row.nextHigh >= limit
       if (hit) filled.push(side === 'buy' ? row.f5 / limit - 1 : -(row.f5 / limit - 1))
+      else missed.push(row.f5 / row.close - 1)
     }
     return {
       k,
       depthPct: sectorMean(rows.map((r) => (k * r.atr) / r.close)) * 100,
       fillRate: rows.length === 0 ? 0 : (filled.length / rows.length) * 100,
       outcome: sectorMean(filled) * 100,
+      missOutcome: sectorMean(missed) * 100,
       samples: rows.length,
     }
   })
@@ -3103,9 +3178,15 @@ function renderSectorPanel(model) {
       const l = layer.unit
       lines.push(`${padCell(`  └${layer.name}`, 16)}${padCell(l.r1.toFixed(2), 8)}${padCell(l.r5.toFixed(2), 8)}${padCell(l.r20.toFixed(2), 9)}${padCell(l.rs20.toFixed(2), 9)}${padCell(`${l.sharePct.toFixed(1)}%`, 8)}${padCell(l.volMult.toFixed(2), 8)}${padCell(l.breadth.toFixed(0), 7)}${padCell(l.beta.toFixed(2), 7)}${layer.quadrant}`)
     }
-    lines.push(`${padCell('', 16)}※ ${block.name} 为合并读数，实际以子层象限为准`)
   }
   lines.push('')
+  lines.push('龙头与量能（存量市：占比是零和的，龙头是资金去向的落点）')
+  for (const row of model.leaders) {
+    lines.push(`  · ${padCell(row.name, 18)}龙头 ${padCell(row.leaderName, 8)}5日相对 ${row.rel5 >= 0 ? '+' : ''}${row.rel5.toFixed(2)}pp`
+      + `｜龙头额占比 ${row.leaderShare.toFixed(1)}%（Δ${row.shareDelta >= 0 ? '+' : ''}${row.shareDelta.toFixed(1)}pp）→ ${row.divergence}`)
+  }
+  lines.push('')
+  lines.push(`资金水位：全池成交额 ${model.waterLevel.toFixed(2)}× 于 20 日均值 → ${model.waterLabel}`)
   lines.push(`大盘状态机：${model.regime}｜${model.regimeDetail}`)
   lines.push(`券商信号（牛市启动）：${model.brokerSignal}｜${model.brokerDetail}`)
   lines.push(`石油信号（牛市收尾）：${model.oilSignal}｜${model.oilDetail}`)
@@ -3113,7 +3194,7 @@ function renderSectorPanel(model) {
   lines.push('挂单规则：')
   for (const row of model.rules) lines.push(`  · ${row.name}［${row.quadrant}］→ ${row.rule}`)
   lines.push('')
-  lines.push('用法：先看状态机（熊市禁止在成长子块开多），再看子层象限定挂单深度——建仓 k≈0.3~0.5 ATR，了结 u≤0.2 ATR。')
+  lines.push('用法：先看状态机（熊市禁止在成长子块开多），再看子层象限与龙头背离定挂单深度——建仓 k≈0.3~0.5 ATR，了结 u≤0.2 ATR。')
   return lines.join('\n')
 }
 
@@ -3122,8 +3203,10 @@ function registerSectorTools(ctx, dataRoot) {
   ctx.tools.register(defineTool({
     name: 'sector_panel',
     description: '四块信号模型面板（电力设备/航天卫星=可交易，券商/石油=只做信号、不建头寸）：输出每块的 1/5/20 日收益、'
-      + '相对沪深300 超额（RS20）、成交额占比及其量能倍数、上涨家数占比、β 与四象限判定；输出大盘状态机（牛/震荡/熊）、'
-      + '券商牛市启动信号、石油牛市收尾信号，以及每块/子层对应的挂单深度规则。每次盘后挂单前用它判定方向与挂单深度。',
+      + '相对沪深300 超额（RS20）、成交额占比及其量能倍数、上涨家数、β 与四象限判定；输出板块龙头与量能是否背离'
+      + '（放量而龙头不涨=资金分散/出货，缩量而龙头独强=存量抱团）、全池资金水位（存量还是增量）、大盘状态机'
+      + '（牛/震荡/熊）、券商牛市启动信号、石油牛市收尾信号，以及每块/子层对应的挂单深度规则。每次盘后挂单前用它'
+      + '判定方向与挂单深度。',
     parameters: {
       date: { type: 'string', description: '基准日 YYYY-MM-DD，缺省=缓存最新交易日。' },
     },
@@ -3140,6 +3223,8 @@ function registerSectorTools(ctx, dataRoot) {
           brokerDetail: { type: 'string', required: true },
           oilSignal: { type: 'string', required: true },
           oilDetail: { type: 'string', required: true },
+          waterLevel: { type: 'number', required: true },
+          waterLabel: { type: 'string', required: true },
           blocks: {
             type: 'array',
             required: true,
@@ -3172,6 +3257,11 @@ function registerSectorTools(ctx, dataRoot) {
                 block: { type: 'string', required: true },
                 name: { type: 'string', required: true },
                 quadrant: { type: 'string', required: true },
+                leaderName: { type: 'string', required: true },
+                rel5: { type: 'number', required: true },
+                leaderShare: { type: 'number', required: true },
+                shareDelta: { type: 'number', required: true },
+                divergence: { type: 'string', required: true },
                 r1: { type: 'number', required: true },
                 r5: { type: 'number', required: true },
                 r20: { type: 'number', required: true },
@@ -3195,12 +3285,22 @@ function registerSectorTools(ctx, dataRoot) {
           brokerDetail: value.brokerDetail,
           oilSignal: value.oilSignal,
           oilDetail: value.oilDetail,
+          waterLevel: value.waterLevel,
+          waterLabel: value.waterLabel,
           blocks: value.blocks.map((b) => ({
             name: b.name,
             tradable: b.tradable,
             quadrant: b.quadrant,
             unit: b,
             layers: value.layers.filter((l) => l.block === b.name).map((l) => ({ name: l.name, quadrant: l.quadrant, unit: l })),
+          })),
+          leaders: value.layers.map((l) => ({
+            name: `${l.block}·${l.name}`,
+            leaderName: l.leaderName,
+            rel5: l.rel5,
+            leaderShare: l.leaderShare,
+            shareDelta: l.shareDelta,
+            divergence: l.divergence,
           })),
           rules: [
             ...value.blocks.filter((b) => b.tradable).map((b) => ({ name: b.name, quadrant: b.quadrant, rule: b.rule })),
@@ -3217,6 +3317,8 @@ function registerSectorTools(ctx, dataRoot) {
       const merged = new Map((cache[SECTOR_BENCH]?.bars ?? []).map((b) => [b.date, { date: b.date, close: b.close }]))
       for (const bar of fresh ?? []) merged.set(bar.date, bar)
       const series = buildSectorSeries(cache, [...merged.values()].sort((a, b) => (a.date < b.date ? -1 : 1)))
+      const names = {}
+      for (const symbol of SECTOR_POOL) names[symbol] = cache[symbol]?.name ?? symbol
 
       let i = series.days.length - 1
       if (args.date !== undefined && args.date !== '') {
@@ -3232,6 +3334,15 @@ function registerSectorTools(ctx, dataRoot) {
         for (const block of SECTOR_BLOCKS) for (const layer of block.layers) sum += sectorMembersAmount(series.close, series.volume, series.days, idx, layer.members)
         return sum
       })
+
+      // 资金水位：全池总量 vs 前 20 日均值 → 存量博弈 or 可能有增量
+      const waterBase = sectorMean(series.days.slice(Math.max(0, i - 20), i).map((_, k) => totals[i - 20 + k] ?? 0))
+      const waterLevel = waterBase === 0 ? 0 : totals[i] / waterBase
+      const waterLabel = waterLevel >= 1.15
+        ? `放量 ${waterLevel.toFixed(2)}×（可能有增量或恐慌换手，占比变化不再是纯零和）`
+        : waterLevel <= 0.9
+          ? `缩量 ${waterLevel.toFixed(2)}×（纯存量博弈：某块占比上升=从别处抽血）`
+          : `平稳 ${waterLevel.toFixed(2)}×（存量轮动为主）`
 
       const { regime, detail: regimeDetail } = sectorRegime(series.bench, series.days, i)
       const broker = sectorBrokerSignal(series.close, series.volume, series.bench, series.days, i, totals, regime)
@@ -3252,10 +3363,16 @@ function registerSectorTools(ctx, dataRoot) {
         })
         for (const layer of block.layers) {
           const l = readSectorUnit(series.close, series.volume, series.bench, series.days, i, layer.members, totals)
+          const leader = sectorLeader(series.close, series.volume, series.days, i, layer.members, names)
           layers.push({
             block: block.name,
             name: layer.name,
             quadrant: block.tradable ? sectorQuadrant(l) : '信号',
+            leaderName: leader?.name ?? '-',
+            rel5: leader?.rel5 ?? 0,
+            leaderShare: leader?.leaderShare ?? 0,
+            shareDelta: leader?.shareDelta ?? 0,
+            divergence: sectorDivergence(l, leader),
             r1: l.r1,
             r5: l.r5,
             r20: l.r20,
@@ -3268,7 +3385,7 @@ function registerSectorTools(ctx, dataRoot) {
         }
       }
 
-      exec.report?.(`sector_panel: ${date} 状态=${regime}｜券商=${broker.state}`)
+      exec.report?.(`sector_panel: ${date} 状态=${regime}｜券商=${broker.state}｜水位=${waterLevel.toFixed(2)}×`)
       return {
         date,
         benchmark: SECTOR_BENCH,
@@ -3278,6 +3395,8 @@ function registerSectorTools(ctx, dataRoot) {
         brokerDetail: broker.detail,
         oilSignal: oil.state,
         oilDetail: oil.detail,
+        waterLevel,
+        waterLabel,
         blocks,
         layers,
       }
@@ -3287,8 +3406,9 @@ function registerSectorTools(ctx, dataRoot) {
 
   ctx.tools.register(defineTool({
     name: 'order_calibration',
-    description: '挂单成交率标定：用自选池全部历史日线统计"买单挂 收盘−k×ATR / 卖单挂 收盘+u×ATR"在次日的成交率与成交后'
-      + '5 日表现，并按趋势（收盘>MA20 且 MA5>MA20）分层。用途：先定目标成交率，再反查挂单深度 k——建仓 60~70% → k≈0.3；'
+    description: '挂单成交率标定：用自选池全部历史日线统计"买单挂 收盘−k×ATR / 卖单挂 收盘+u×ATR"在次日的成交率、'
+      + '成交后 5 日表现，以及"没成交"那一侧的 5 日表现（买单没成交=踏空成本，卖单没成交=继续扛跌），并按趋势'
+      + '（收盘>MA20 且 MA5>MA20）分层。用途：先定目标成交率，再反查挂单深度 k——建仓 60~70% → k≈0.3；'
       + '了结持仓 85%+ → u≤0.2；中性 50% → k≈0.5。',
     parameters: {},
     output: {
@@ -3311,6 +3431,7 @@ function registerSectorTools(ctx, dataRoot) {
                 depthPct: { type: 'number', required: true },
                 fillRate: { type: 'number', required: true },
                 outcome: { type: 'number', required: true },
+                missOutcome: { type: 'number', required: true },
               },
             },
           },
@@ -3320,9 +3441,13 @@ function registerSectorTools(ctx, dataRoot) {
         type: 'text',
         text: [
           `挂单成交率标定（样本 ${value.samples} 个"次日"观测）`,
-          '深度 = k×ATR14；买入 outcome = 成交后 5 日收益；卖出 outcome = 卖后 5 日收益（正=卖对了）',
-          `${padCell('方向', 6)}${padCell('趋势', 12)}${padCell('k', 6)}${padCell('深度%', 9)}${padCell('成交率%', 9)}outcome%`,
-          ...value.rows.map((r) => `${padCell(r.side, 6)}${padCell(r.trend, 12)}${padCell(r.k.toFixed(1), 6)}${padCell(r.depthPct.toFixed(2), 9)}${padCell(r.fillRate.toFixed(1), 9)}${r.outcome.toFixed(2)}`),
+          '深度 = k×ATR14；成交后 = 按挂单价成交的 5 日收益（卖出为正=卖对了）',
+          '未成交 = 挂单价没触及时的 5 日收益（买入为踏空成本，卖出为继续扛跌）',
+          `${padCell('方向', 6)}${padCell('趋势', 12)}${padCell('k', 6)}${padCell('深度%', 9)}${padCell('成交率%', 9)}${padCell('成交后%', 10)}${padCell('未成交%', 10)}加权期望%`,
+          ...value.rows.map((r) => {
+            const ev = (r.fillRate * r.outcome + (100 - r.fillRate) * (r.side === '买入' ? 0 : r.missOutcome)) / 100
+            return `${padCell(r.side, 6)}${padCell(r.trend, 12)}${padCell(r.k.toFixed(1), 6)}${padCell(r.depthPct.toFixed(2), 9)}${padCell(r.fillRate.toFixed(1), 9)}${padCell(r.outcome.toFixed(2), 10)}${padCell(r.missOutcome.toFixed(2), 10)}${ev.toFixed(2)}`
+          }),
           '',
           value.note,
         ].join('\n'),
@@ -3343,6 +3468,7 @@ function registerSectorTools(ctx, dataRoot) {
               depthPct: row.depthPct,
               fillRate: row.fillRate,
               outcome: row.outcome,
+              missOutcome: row.missOutcome,
             })
           }
         }
@@ -3350,8 +3476,12 @@ function registerSectorTools(ctx, dataRoot) {
       }
       return {
         samples,
-        note: '用法：先定目标成交率（建仓 60~70% → k≈0.3；了结持仓 85%+ → u≤0.2；中性 50% → k≈0.5），再查表反推挂单价。'
-          + '注意样本期自选池整体下行，绝对结论偏向"卖快买慢"，须叠加 sector_panel 的板块象限使用。',
+        note: '读法：① 买入——未成交列是踏空成本（趋势越强越正），说明挂深会把上涨行情让掉；'
+          + '加权期望对买单衡量的是"最终持有到的东西有多好"（未成交不计收益），不是"该不该挂深"，'
+          + '所以它随 k 变小只反映样本期整体下行、少持有占便宜，不能当成看多时的加仓依据。'
+          + '② 卖出——结论无歧义：贴市价卖出加权期望最优，挂高则成交率断崖下跌且未成交列（继续扛跌）'
+          + '往往 -2%~-4%，把贪价的好处全部吃掉。所以"决定要卖就别贪最后 1%"。',
+      
         rows,
       }
     },
