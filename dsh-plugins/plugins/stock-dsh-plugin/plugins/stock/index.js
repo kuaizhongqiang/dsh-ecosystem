@@ -938,6 +938,7 @@ export function apply(ctx, config) {
   const klineDays = config.klineDays ?? DEFAULT_KLINE_DAYS
   const dataRoot = dataRootOf(config)
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  registerSectorTools(ctx, dataRoot)
 
   // --- stock_quote ---------------------------------------------------------
   ctx.tools.register(defineTool({
@@ -2752,4 +2753,608 @@ function renderPaperSettle(value) {
     }
   }
   return lines.join('\n')
+}
+
+// =========================================================================
+// 四块信号模型（见 playbook.md）：sector_panel / order_calibration
+// 电力设备/航天卫星 = 可交易；券商/石油 = 只做信号、不建头寸。
+// =========================================================================
+
+/** 电力设备 —— 运营/防御子层。 */
+const POWER_DEF = [
+  'sh600900', 'sh600674', 'sh600886', 'sh600011', 'sh600027',
+  'sh600023', 'sh600795', 'sh601985', 'sz003816', 'sh600905',
+]
+/** 电力设备 —— 设备/基建子层。 */
+const POWER_EQ = [
+  'sh600406', 'sz000400', 'sh600312', 'sh601179', 'sh600089',
+  'sh603606', 'sh601567', 'sh601727', 'sh600875', 'sz300001',
+]
+/** 电力设备 —— 锂电新能源子层（不设第五块，故并入电力设备）。 */
+const POWER_NE = ['sz300750', 'sz300014', 'sz002074', 'sz300274', 'sz300124']
+/** 航天卫星 —— 航天/卫星/军工电子。 */
+const SPACE = [
+  'sz002025', 'sh600879', 'sz000547', 'sz000901', 'sz002389',
+  'sh600118', 'sh601698', 'sz001270', 'sz301050', 'sz300101',
+  'sz002935', 'sz300045', 'sz002465', 'sz002151', 'sz300762',
+  'sh688311', 'sh600990', 'sh600562', 'sh688568', 'sh688066',
+]
+/** 券商 —— 信号块（牛市启动）。 */
+const BROKER = [
+  'sh600030', 'sh601688', 'sh601211', 'sz000776', 'sz002736', 'sh600958',
+  'sh601066', 'sh601162', 'sh601236', 'sh601878', 'sh601377', 'sh601881',
+]
+/** 石油 —— 信号块（牛市收尾，仅牛市监听）。 */
+const OIL = ['sh600028', 'sh601857', 'sh600688', 'sh600871']
+
+const SECTOR_BLOCKS = [
+  {
+    key: 'power',
+    name: '电力设备',
+    tradable: true,
+    layers: [
+      { name: '运营/防御', members: POWER_DEF },
+      { name: '设备/基建', members: POWER_EQ },
+      { name: '锂电新能源', members: POWER_NE },
+    ],
+  },
+  { key: 'space', name: '航天卫星', tradable: true, layers: [{ name: '航天卫星', members: SPACE }] },
+  { key: 'broker', name: '券商', tradable: false, layers: [{ name: '券商', members: BROKER }] },
+  { key: 'oil', name: '石油', tradable: false, layers: [{ name: '石油', members: OIL }] },
+]
+
+/** 池内全部标的（面板与标定共用；已移出股池的标的不参与）。 */
+const SECTOR_POOL = [...POWER_DEF, ...POWER_EQ, ...POWER_NE, ...SPACE, ...BROKER, ...OIL]
+/** 市场基准。 */
+const SECTOR_BENCH = 'sh000300'
+/** 券商异动阈值（疑似启动；确认还需连续 2 日 + 大盘站上 MA20）。 */
+const BROKER_TRIGGER = { ret1: 2.5, volMult: 1.5, breadth: 80 }
+/** 石油收尾信号：5 日相对强度抬升阈值（仅牛市生效）。 */
+const OIL_RS20 = 5
+
+/** 读取 K 线缓存。 */
+async function loadSectorCache(dataRoot) {
+  const file = join(dataRoot, 'kline-cache.json')
+  let raw
+  try {
+    raw = await readFile(file, 'utf8')
+  } catch (error) {
+    throw new Error(`sector_panel: 无法读取 K 线缓存 ${file}（${error.message}）；先调用 stock_daily_collect`)
+  }
+  const parsed = JSON.parse(raw)
+  if (parsed === null || typeof parsed !== 'object') throw new Error('sector_panel: K 线缓存格式异常')
+  return parsed
+}
+
+/** 补取基准指数日线；失败返回 null 由调用方降级到缓存值。 */
+async function fetchBenchBars(symbol, timeoutMs) {
+  try {
+    const response = await throttledFetch(`${KLINE_URL}${symbol},day,,,160,qfq`, timeoutMs)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const parsed = await response.json()
+    const data = parsed?.data?.[symbol]
+    const rows = data?.qfqday ?? data?.day
+    if (!Array.isArray(rows)) throw new Error('无数据')
+    return rows.map((row) => ({ date: row[0], close: Number(row[2]) })).filter((b) => Number.isFinite(b.close))
+  } catch {
+    return null
+  }
+}
+
+/** 整理成按日期索引的价格/成交量表。 */
+function buildSectorSeries(cache, benchBars) {
+  const close = {}
+  const volume = {}
+  const dates = new Set()
+  for (const symbol of SECTOR_POOL) {
+    const bars = cache[symbol]?.bars
+    if (!Array.isArray(bars)) continue
+    close[symbol] = {}
+    volume[symbol] = {}
+    for (const bar of bars) {
+      close[symbol][bar.date] = bar.close
+      volume[symbol][bar.date] = bar.volume
+      dates.add(bar.date)
+    }
+  }
+  const bench = {}
+  for (const bar of benchBars) {
+    bench[bar.date] = bar.close
+    dates.add(bar.date)
+  }
+  return { close, volume, bench, days: [...dates].sort() }
+}
+
+/** 某标的在 days[i] 的日收益（向前回溯最多 5 个交易日找基准价）。 */
+function sectorRetAt(close, days, i, symbol) {
+  const series = close[symbol]
+  if (series === undefined) return null
+  const current = series[days[i]]
+  if (current === undefined) return null
+  for (let k = i - 1; k >= Math.max(0, i - 5); k -= 1) {
+    const prev = series[days[k]]
+    if (prev !== undefined && prev !== 0) return current / prev - 1
+  }
+  return null
+}
+
+/** 某标的在 days[i] 的成交额（手 × 价格）。 */
+function sectorAmountAt(close, volume, days, i, symbol) {
+  const px = close[symbol]?.[days[i]]
+  const vol = volume[symbol]?.[days[i]]
+  return px === undefined || vol === undefined ? 0 : vol * px
+}
+
+function sectorMembersRet(close, days, i, members) {
+  const values = members.map((s) => sectorRetAt(close, days, i, s)).filter((v) => v !== null)
+  return values.length === 0 ? null : values.reduce((a, b) => a + b, 0) / values.length
+}
+
+function sectorMembersAmount(close, volume, days, i, members) {
+  return members.reduce((sum, s) => sum + sectorAmountAt(close, volume, days, i, s), 0)
+}
+
+function sectorMembersBreadth(close, days, i, members) {
+  const values = members.map((s) => sectorRetAt(close, days, i, s)).filter((v) => v !== null)
+  return values.length === 0 ? 0 : values.filter((v) => v > 0).length / values.length
+}
+
+function sectorMean(list) {
+  return list.length === 0 ? 0 : list.reduce((a, b) => a + b, 0) / list.length
+}
+
+/** 一个"块/子层"的完整读数。 */
+function readSectorUnit(close, volume, bench, days, i, members, totals) {
+  const r1 = sectorMembersRet(close, days, i, members) ?? 0
+  let sum5 = 0
+  for (let k = 0; k < 5; k += 1) sum5 += sectorMembersRet(close, days, i - k, members) ?? 0
+  let sum20 = 0
+  for (let k = 0; k < 20; k += 1) sum20 += sectorMembersRet(close, days, i - k, members) ?? 0
+  let secCum = 1
+  let benchCum = 1
+  for (let k = 19; k >= 0; k -= 1) {
+    secCum *= 1 + (sectorMembersRet(close, days, i - k, members) ?? 0)
+    const d = bench[days[i - k]]
+    const p = bench[days[i - k - 1]]
+    benchCum *= 1 + (d !== undefined && p !== undefined && p !== 0 ? d / p - 1 : 0)
+  }
+  const rs20 = (secCum / benchCum - 1) * 100
+
+  const amountNow = sectorMembersAmount(close, volume, days, i, members)
+  const shareNow = totals[i] === 0 ? 0 : (amountNow / totals[i]) * 100
+  const priorShares = []
+  for (let k = 1; k <= 20; k += 1) {
+    const idx = i - k
+    if (idx < 0) continue
+    priorShares.push(totals[idx] === 0 ? 0 : (sectorMembersAmount(close, volume, days, idx, members) / totals[idx]) * 100)
+  }
+  const shareBase = sectorMean(priorShares)
+  const volMult = shareBase === 0 ? 0 : shareNow / shareBase
+  const breadth = sectorMembersBreadth(close, days, i, members) * 100
+
+  const secReturns = []
+  const benchReturns = []
+  for (let k = 0; k < 20; k += 1) {
+    const idx = i - k
+    if (idx <= 0) continue
+    const r = sectorMembersRet(close, days, idx, members)
+    if (r === null) continue
+    const d = bench[days[idx]]
+    const p = bench[days[idx - 1]]
+    secReturns.push(r)
+    benchReturns.push(d !== undefined && p !== undefined && p !== 0 ? d / p - 1 : 0)
+  }
+  const mBench = sectorMean(benchReturns)
+  const mSec = sectorMean(secReturns)
+  let beta = 0
+  if (secReturns.length > 5) {
+    const varBench = benchReturns.reduce((a, b) => a + (b - mBench) ** 2, 0) / benchReturns.length
+    const cov = secReturns.reduce((a, r, idx) => a + (r - mSec) * (benchReturns[idx] - mBench), 0) / secReturns.length
+    beta = varBench === 0 ? 0 : cov / varBench
+  }
+  return { r1: r1 * 100, r5: sum5 * 100, r20: sum20 * 100, rs20, sharePct: shareNow, volMult, breadth, beta }
+}
+
+/** 象限判定：S=20日超额，F=成交额占比量能倍数。 */
+function sectorQuadrant(unit) {
+  const strong = unit.rs20 > 0
+  const inflow = unit.volMult >= 1
+  if (strong && inflow) return '主升'
+  if (strong && !inflow) return '抱团'
+  if (!strong && inflow) return '出逃'
+  return '冷落'
+}
+
+/** 挂单规则映射。 */
+function sectorOrderRule(quadrant, regime, tradable) {
+  if (!tradable) return '信号块，不建头寸'
+  if (regime === '熊/下行' && (quadrant === '出逃' || quadrant === '冷落')) return '禁止开多'
+  if (quadrant === '主升') return regime === '牛' ? '允许追突破：买入 k≤0.3 ATR（目标成交率 60~70%）' : '只做回踩：k≈0.4 ATR'
+  if (quadrant === '抱团') return '只做回踩不追高：持有可留，买入 k≈0.4~0.5 ATR'
+  if (quadrant === '出逃') return '禁止开多；持仓卖出贴市价 u≤0.2 ATR（成交率 85%+）'
+  return '不参与'
+}
+
+/** 市场状态机（牛/震荡/熊）。 */
+function sectorRegime(bench, days, i) {
+  const series = days.map((d) => bench[d]).filter((v) => v !== undefined)
+  if (series.length < 21) return { regime: '数据不足', detail: '基准指数样本不足 21 日' }
+  const last = bench[days[i]]
+  if (last === undefined) return { regime: '数据不足', detail: `基准指数缺少 ${days[i]} 数据` }
+  const ma20 = sectorMean(series.slice(-20))
+  const ma20prev = sectorMean(series.slice(-21, -1))
+  const ma60 = series.length >= 60 ? sectorMean(series.slice(-60)) : null
+  const slope = ma20prev === 0 ? 0 : (ma20 / ma20prev - 1) * 100
+  const dev20 = (last / ma20 - 1) * 100
+  const dev60 = ma60 === null ? null : (last / ma60 - 1) * 100
+  let regime
+  if (ma60 !== null && last > ma60 && slope > 0.2) regime = '牛'
+  else if (Math.abs(dev20) <= 2 && Math.abs(slope) <= 0.2) regime = '震荡'
+  else if (last < ma20 && slope <= 0) regime = '熊/下行'
+  else regime = '震荡'
+  const detail = `沪深300 ${last.toFixed(2)}｜MA20 ${ma20.toFixed(2)}（偏离 ${dev20.toFixed(2)}%）`
+    + `｜MA60 ${ma60 === null ? '-' : ma60.toFixed(2)}（偏离 ${dev60 === null ? '-' : `${dev60.toFixed(2)}%`}）`
+    + `｜MA20 斜率 ${slope.toFixed(2)}%/日`
+  return { regime, detail }
+}
+
+/** 券商异动信号（牛市启动，默认判假）。 */
+function sectorBrokerSignal(close, volume, bench, days, i, totals, regime) {
+  const recent = []
+  for (let k = 4; k >= 0; k -= 1) {
+    const idx = i - k
+    if (idx <= 0) continue
+    const unit = readSectorUnit(close, volume, bench, days, idx, BROKER, totals)
+    recent.push({ date: days[idx], ret1: unit.r1, volMult: unit.volMult, breadth: unit.breadth })
+  }
+  const isHit = (d) => d.ret1 >= BROKER_TRIGGER.ret1 && d.volMult >= BROKER_TRIGGER.volMult && d.breadth >= BROKER_TRIGGER.breadth
+  const hits = recent.filter(isHit)
+  const lastTwo = recent.slice(-2)
+  const confirmed = lastTwo.length === 2 && lastTwo.every(isHit) && regime === '牛'
+  let state
+  if (hits.length === 0) state = '未触发'
+  else if (confirmed) state = '已确认（牛市启动）'
+  else state = '疑似启动，待确认（默认判假）'
+  const last = recent[recent.length - 1]
+  const detail = last === undefined
+    ? '无近期数据'
+    : `最新 ${last.date}：${last.ret1 >= 0 ? '+' : ''}${last.ret1.toFixed(2)}%｜量能 ${last.volMult.toFixed(2)}×`
+      + `｜上涨家数 ${last.breadth.toFixed(0)}%（阈值 +${BROKER_TRIGGER.ret1}% / ${BROKER_TRIGGER.volMult}× / ${BROKER_TRIGGER.breadth}%）`
+  return { state, detail }
+}
+
+/** 石油收尾信号（仅牛市生效）。 */
+function sectorOilSignal(close, volume, bench, days, i, totals, regime) {
+  if (regime !== '牛') return { state: '不适用', detail: `当前状态「${regime}」，石油收尾信号仅在牛市监听` }
+  const oil = readSectorUnit(close, volume, bench, days, i, OIL, totals)
+  const brokerUnit = readSectorUnit(close, volume, bench, days, i, BROKER, totals)
+  const active = oil.rs20 > OIL_RS20 && brokerUnit.r5 <= 0
+  return {
+    state: active ? '触发：牛市收尾预警（停止新开仓、只减不加）' : '未触发',
+    detail: `石油 RS20 ${oil.rs20.toFixed(2)}pp（阈值 >${OIL_RS20}）｜券商 5 日 ${brokerUnit.r5.toFixed(2)}%`,
+  }
+}
+
+/** 成交率标定：买单挂 收盘−k×ATR，卖单挂 收盘+u×ATR。 */
+function calibrateOrders(cache, pool) {
+  const samples = { up: [], down: [] }
+  for (const symbol of pool) {
+    const bars = cache[symbol]?.bars
+    if (!Array.isArray(bars) || bars.length < 30) continue
+    const closes = bars.map((b) => b.close)
+    const trs = []
+    for (let idx = 1; idx < bars.length; idx += 1) {
+      const prevClose = bars[idx - 1].close
+      trs.push(Math.max(
+        bars[idx].high - bars[idx].low,
+        Math.abs(bars[idx].high - prevClose),
+        Math.abs(bars[idx].low - prevClose),
+      ))
+      if (idx < 20 || idx + 5 >= bars.length) continue
+      const atr = sectorMean(trs.slice(-14))
+      if (atr === 0) continue
+      const ma20 = sectorMean(closes.slice(idx - 19, idx + 1))
+      const ma5 = sectorMean(closes.slice(idx - 4, idx + 1))
+      const bucket = closes[idx] > ma20 && ma5 > ma20 ? 'up' : 'down'
+      samples[bucket].push({
+        close: closes[idx],
+        atr,
+        nextLow: bars[idx + 1].low,
+        nextHigh: bars[idx + 1].high,
+        f5: bars[idx + 5].close,
+      })
+    }
+  }
+  const ks = [0, 0.3, 0.5, 0.7, 1.0]
+  const table = (bucket, side) => ks.map((k) => {
+    const rows = samples[bucket]
+    const filled = []
+    for (const row of rows) {
+      const limit = side === 'buy' ? row.close - k * row.atr : row.close + k * row.atr
+      const hit = side === 'buy' ? row.nextLow <= limit : row.nextHigh >= limit
+      if (hit) filled.push(side === 'buy' ? row.f5 / limit - 1 : -(row.f5 / limit - 1))
+    }
+    return {
+      k,
+      depthPct: sectorMean(rows.map((r) => (k * r.atr) / r.close)) * 100,
+      fillRate: rows.length === 0 ? 0 : (filled.length / rows.length) * 100,
+      outcome: sectorMean(filled) * 100,
+      samples: rows.length,
+    }
+  })
+  return { up: { buy: table('up', 'buy'), sell: table('up', 'sell') }, down: { buy: table('down', 'buy'), sell: table('down', 'sell') } }
+}
+
+/** 面板文本渲染。 */
+function padCell(text, width) {
+  const value = String(text)
+  return value + ' '.repeat(Math.max(0, width - [...value].length))
+}
+
+function renderSectorPanel(model) {
+  const lines = []
+  lines.push(`【四块信号面板】基准日 ${model.date}`)
+  lines.push(`${padCell('块/子层', 16)}${padCell('1日%', 8)}${padCell('5日%', 8)}${padCell('20日%', 9)}${padCell('RS20', 9)}${padCell('额占比', 8)}${padCell('量能×', 8)}${padCell('上涨%', 7)}${padCell('β', 7)}象限`)
+  for (const block of model.blocks) {
+    const b = block.unit
+    lines.push(`${padCell(block.name, 16)}${padCell(b.r1.toFixed(2), 8)}${padCell(b.r5.toFixed(2), 8)}${padCell(b.r20.toFixed(2), 9)}${padCell(b.rs20.toFixed(2), 9)}${padCell(`${b.sharePct.toFixed(1)}%`, 8)}${padCell(b.volMult.toFixed(2), 8)}${padCell(b.breadth.toFixed(0), 7)}${padCell(b.beta.toFixed(2), 7)}${block.tradable ? block.quadrant : '信号'}`)
+    if (block.layers.length <= 1) continue
+    for (const layer of block.layers) {
+      const l = layer.unit
+      lines.push(`${padCell(`  └${layer.name}`, 16)}${padCell(l.r1.toFixed(2), 8)}${padCell(l.r5.toFixed(2), 8)}${padCell(l.r20.toFixed(2), 9)}${padCell(l.rs20.toFixed(2), 9)}${padCell(`${l.sharePct.toFixed(1)}%`, 8)}${padCell(l.volMult.toFixed(2), 8)}${padCell(l.breadth.toFixed(0), 7)}${padCell(l.beta.toFixed(2), 7)}${layer.quadrant}`)
+    }
+    lines.push(`${padCell('', 16)}※ ${block.name} 为合并读数，实际以子层象限为准`)
+  }
+  lines.push('')
+  lines.push(`大盘状态机：${model.regime}｜${model.regimeDetail}`)
+  lines.push(`券商信号（牛市启动）：${model.brokerSignal}｜${model.brokerDetail}`)
+  lines.push(`石油信号（牛市收尾）：${model.oilSignal}｜${model.oilDetail}`)
+  lines.push('')
+  lines.push('挂单规则：')
+  for (const row of model.rules) lines.push(`  · ${row.name}［${row.quadrant}］→ ${row.rule}`)
+  lines.push('')
+  lines.push('用法：先看状态机（熊市禁止在成长子块开多），再看子层象限定挂单深度——建仓 k≈0.3~0.5 ATR，了结 u≤0.2 ATR。')
+  return lines.join('\n')
+}
+
+/** 注册 sector_panel / order_calibration。 */
+function registerSectorTools(ctx, dataRoot) {
+  ctx.tools.register(defineTool({
+    name: 'sector_panel',
+    description: '四块信号模型面板（电力设备/航天卫星=可交易，券商/石油=只做信号、不建头寸）：输出每块的 1/5/20 日收益、'
+      + '相对沪深300 超额（RS20）、成交额占比及其量能倍数、上涨家数占比、β 与四象限判定；输出大盘状态机（牛/震荡/熊）、'
+      + '券商牛市启动信号、石油牛市收尾信号，以及每块/子层对应的挂单深度规则。每次盘后挂单前用它判定方向与挂单深度。',
+    parameters: {
+      date: { type: 'string', description: '基准日 YYYY-MM-DD，缺省=缓存最新交易日。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          date: { type: 'string', required: true },
+          benchmark: { type: 'string', required: true },
+          regime: { type: 'string', required: true },
+          regimeDetail: { type: 'string', required: true },
+          brokerSignal: { type: 'string', required: true },
+          brokerDetail: { type: 'string', required: true },
+          oilSignal: { type: 'string', required: true },
+          oilDetail: { type: 'string', required: true },
+          blocks: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', required: true },
+                tradable: { type: 'boolean', required: true },
+                quadrant: { type: 'string', required: true },
+                rule: { type: 'string', required: true },
+                r1: { type: 'number', required: true },
+                r5: { type: 'number', required: true },
+                r20: { type: 'number', required: true },
+                rs20: { type: 'number', required: true },
+                sharePct: { type: 'number', required: true },
+                volMult: { type: 'number', required: true },
+                breadth: { type: 'number', required: true },
+                beta: { type: 'number', required: true },
+              },
+            },
+          },
+          layers: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                block: { type: 'string', required: true },
+                name: { type: 'string', required: true },
+                quadrant: { type: 'string', required: true },
+                r1: { type: 'number', required: true },
+                r5: { type: 'number', required: true },
+                r20: { type: 'number', required: true },
+                rs20: { type: 'number', required: true },
+                sharePct: { type: 'number', required: true },
+                volMult: { type: 'number', required: true },
+                breadth: { type: 'number', required: true },
+                beta: { type: 'number', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: renderSectorPanel({
+          date: value.date,
+          regime: value.regime,
+          regimeDetail: value.regimeDetail,
+          brokerSignal: value.brokerSignal,
+          brokerDetail: value.brokerDetail,
+          oilSignal: value.oilSignal,
+          oilDetail: value.oilDetail,
+          blocks: value.blocks.map((b) => ({
+            name: b.name,
+            tradable: b.tradable,
+            quadrant: b.quadrant,
+            unit: b,
+            layers: value.layers.filter((l) => l.block === b.name).map((l) => ({ name: l.name, quadrant: l.quadrant, unit: l })),
+          })),
+          rules: [
+            ...value.blocks.filter((b) => b.tradable).map((b) => ({ name: b.name, quadrant: b.quadrant, rule: b.rule })),
+            ...value.blocks.filter((b) => b.tradable).flatMap((b) => value.layers
+              .filter((l) => l.block === b.name)
+              .map((l) => ({ name: `${b.name}·${l.name}`, quadrant: l.quadrant, rule: sectorOrderRule(l.quadrant, value.regime, true) }))),
+          ],
+        }),
+      }],
+    },
+    async execute(args, exec) {
+      const cache = await loadSectorCache(dataRoot)
+      const fresh = await fetchBenchBars(SECTOR_BENCH, 12_000)
+      const merged = new Map((cache[SECTOR_BENCH]?.bars ?? []).map((b) => [b.date, { date: b.date, close: b.close }]))
+      for (const bar of fresh ?? []) merged.set(bar.date, bar)
+      const series = buildSectorSeries(cache, [...merged.values()].sort((a, b) => (a.date < b.date ? -1 : 1)))
+
+      let i = series.days.length - 1
+      if (args.date !== undefined && args.date !== '') {
+        const found = series.days.indexOf(args.date)
+        if (found < 0) throw new Error(`sector_panel: 缓存中没有 ${args.date} 这个交易日`)
+        i = found
+      }
+      if (i < 21) throw new Error('sector_panel: 缓存交易日不足，先调用 stock_daily_collect')
+      const date = series.days[i]
+
+      const totals = series.days.map((_, idx) => {
+        let sum = 0
+        for (const block of SECTOR_BLOCKS) for (const layer of block.layers) sum += sectorMembersAmount(series.close, series.volume, series.days, idx, layer.members)
+        return sum
+      })
+
+      const { regime, detail: regimeDetail } = sectorRegime(series.bench, series.days, i)
+      const broker = sectorBrokerSignal(series.close, series.volume, series.bench, series.days, i, totals, regime)
+      const oil = sectorOilSignal(series.close, series.volume, series.bench, series.days, i, totals, regime)
+
+      const blocks = []
+      const layers = []
+      for (const block of SECTOR_BLOCKS) {
+        const all = block.layers.flatMap((l) => l.members)
+        const unit = readSectorUnit(series.close, series.volume, series.bench, series.days, i, all, totals)
+        const quadrant = block.tradable ? sectorQuadrant(unit) : '信号'
+        blocks.push({
+          name: block.name,
+          tradable: block.tradable,
+          quadrant,
+          rule: sectorOrderRule(quadrant, regime, block.tradable),
+          ...unit,
+        })
+        for (const layer of block.layers) {
+          const l = readSectorUnit(series.close, series.volume, series.bench, series.days, i, layer.members, totals)
+          layers.push({
+            block: block.name,
+            name: layer.name,
+            quadrant: block.tradable ? sectorQuadrant(l) : '信号',
+            r1: l.r1,
+            r5: l.r5,
+            r20: l.r20,
+            rs20: l.rs20,
+            sharePct: l.sharePct,
+            volMult: l.volMult,
+            breadth: l.breadth,
+            beta: l.beta,
+          })
+        }
+      }
+
+      exec.report?.(`sector_panel: ${date} 状态=${regime}｜券商=${broker.state}`)
+      return {
+        date,
+        benchmark: SECTOR_BENCH,
+        regime,
+        regimeDetail,
+        brokerSignal: broker.state,
+        brokerDetail: broker.detail,
+        oilSignal: oil.state,
+        oilDetail: oil.detail,
+        blocks,
+        layers,
+      }
+    },
+    presentCall: () => ({ card: 'generic', title: 'Sector panel', kind: 'read' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'order_calibration',
+    description: '挂单成交率标定：用自选池全部历史日线统计"买单挂 收盘−k×ATR / 卖单挂 收盘+u×ATR"在次日的成交率与成交后'
+      + '5 日表现，并按趋势（收盘>MA20 且 MA5>MA20）分层。用途：先定目标成交率，再反查挂单深度 k——建仓 60~70% → k≈0.3；'
+      + '了结持仓 85%+ → u≤0.2；中性 50% → k≈0.5。',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          samples: { type: 'number', required: true },
+          note: { type: 'string', required: true },
+          rows: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                side: { type: 'string', required: true },
+                trend: { type: 'string', required: true },
+                k: { type: 'number', required: true },
+                depthPct: { type: 'number', required: true },
+                fillRate: { type: 'number', required: true },
+                outcome: { type: 'number', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: [
+          `挂单成交率标定（样本 ${value.samples} 个"次日"观测）`,
+          '深度 = k×ATR14；买入 outcome = 成交后 5 日收益；卖出 outcome = 卖后 5 日收益（正=卖对了）',
+          `${padCell('方向', 6)}${padCell('趋势', 12)}${padCell('k', 6)}${padCell('深度%', 9)}${padCell('成交率%', 9)}outcome%`,
+          ...value.rows.map((r) => `${padCell(r.side, 6)}${padCell(r.trend, 12)}${padCell(r.k.toFixed(1), 6)}${padCell(r.depthPct.toFixed(2), 9)}${padCell(r.fillRate.toFixed(1), 9)}${r.outcome.toFixed(2)}`),
+          '',
+          value.note,
+        ].join('\n'),
+      }],
+    },
+    async execute() {
+      const cache = await loadSectorCache(dataRoot)
+      const table = calibrateOrders(cache, SECTOR_POOL)
+      const rows = []
+      let samples = 0
+      for (const trend of ['up', 'down']) {
+        for (const side of ['buy', 'sell']) {
+          for (const row of table[trend][side]) {
+            rows.push({
+              side: side === 'buy' ? '买入' : '卖出',
+              trend: trend === 'up' ? '上升趋势' : '非上升',
+              k: row.k,
+              depthPct: row.depthPct,
+              fillRate: row.fillRate,
+              outcome: row.outcome,
+            })
+          }
+        }
+        samples += table[trend].buy.length === 0 ? 0 : table[trend].buy[0].samples
+      }
+      return {
+        samples,
+        note: '用法：先定目标成交率（建仓 60~70% → k≈0.3；了结持仓 85%+ → u≤0.2；中性 50% → k≈0.5），再查表反推挂单价。'
+          + '注意样本期自选池整体下行，绝对结论偏向"卖快买慢"，须叠加 sector_panel 的板块象限使用。',
+        rows,
+      }
+    },
+    presentCall: () => ({ card: 'generic', title: 'Order calibration', kind: 'read' }),
+  }))
 }
