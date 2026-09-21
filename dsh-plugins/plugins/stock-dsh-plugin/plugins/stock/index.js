@@ -13,20 +13,29 @@
  *   `paper_execute_advice` / `paper_trade` / `paper_settle`
  *
  * == 时间模型（时间周期为日，非小时）==
- * 每条建议/挂单都以「日」为单位标注其产生时段 phase 与数据基准日 dataDate：
- * - T0 盘后（交易日 15:00 后；含晚间/周末/节假日）：预测基于 T0 及以前
- *   所有已收盘数据（dataDate = T0 最近交易日）；挂单最早只能在 T+1
- *   （下一交易日）成交，paper_settle 以建议日期之后第一个交易日的
- *   最高/最低价区间核算。
- * - T0 盘中（交易日 9:30–15:00 未收盘）：预测**忽略 T0 当日数据**（当日
- *   K 线未走完），按 T-1 及以前已收盘数据（dataDate = T-1）分析与挂单；
- *   挂单同样顺延到 T+1 核算，绝不用 T0 当天区间（避免马后炮）。
- * - 因此 paper_settle 统一取「建议日期之后第一个交易日」的区间判定成交，
- *   与记录时刻的 phase 无关；phase/dataDate 仅用于审计与展示。
+ * 唯一不变量：**任何判定、记账与展示只许使用"已定稿的日线"**。定稿边界 = 15:05
+ * （收盘 15:00 + 数据源结算余量）；非交易日视为已定稿。
+ * phase 四态（currentPhase）：
+ * - 'pre_market'  交易日 9:30 前
+ * - 'intraday'    上午 9:30–11:30 / 下午 13:00–15:00，当日数据未走完
+ * - 'midday'      午休 11:30–13:00：**上午已定稿、全天未定稿**（午间复核窗口）
+ * - 'after_hours' 15:00 后，或非交易日（周末/节假日）
+ * 各时段的可用数据：
+ * - 定稿后（after_hours 且 ≥15:05，或非交易日）：当日 bar 可进入数据基准日、
+ *   指标、验单与快照（dataDate = 最近定稿交易日）。
+ * - 未定稿（pre_market / intraday / midday / 15:00–15:05）：剔除当日 bar，
+ *   数据基准回退到最近定稿交易日（通常 T-1）；绝不用 T0 当天区间（避免马后炮）。
+ * - 挂单一律以「挂单日之后第一个**已定稿**交易日」验单（T+1），与 phase 无关；
+ *   phase/dataDate 仅用于审计与展示。
+ * 落地约束（防静默出错）：
+ * - kline-cache 只存定稿 bar，并按定稿纪元失效（盘中快照不会被盘后复用）；
+ * - daily/YYYY-MM-DD.json 只在定稿后、且当天是交易日时才写。
  *
  * Data comes exclusively from Tencent's public quote endpoints (no API key):
  * - real-time quotes:  `https://qt.gtimg.cn/q=<symbol>`  (GBK-encoded)
  * - daily K-line (前复权): `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get`
+ * - intraday 1-minute (仅当日): `https://web.ifzq.gtimg.cn/appstock/app/minute/query`
+ *   （⚠️ 盘前/非交易日返回**上一交易日**全天走势，必须校验 date == 今天）
  *
  * The main conversation model stays text-only: these tools fetch and compute
  * numbers, the model reads them and does the interpretation (trends, signals,
@@ -174,7 +183,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 /** Minimal request throttle so bursts stay polite to the public endpoint. */
 let lastRequestAt = 0
 async function throttledFetch(url, timeoutMs) {
-  const gap = REQUEST_GAP_MS - (Date.now() - lastRequestAt)
+  // 时钟回拨保护：间隔用 Date.now() 计算，若系统时钟倒退（NTP 校正/虚拟机恢复/
+  // 测试里拨表），原始间隔会变成"几小时"并把请求挂死。上限就是间隔本身。
+  const gap = Math.min(REQUEST_GAP_MS, REQUEST_GAP_MS - (Date.now() - lastRequestAt))
   if (gap > 0) await sleep(gap)
   lastRequestAt = Date.now()
   return fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
@@ -199,23 +210,37 @@ function decodeGbk(buffer) {
 }
 
 /** Today as YYYY-MM-DD in the local timezone. */
-function today() {
-  const d = new Date()
+function today(now = new Date()) {
   const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
 // ---------------------------------------------------------------------------
-// 时间模型（日周期）：phase / 数据基准日 / 下一交易日
-// 规则（见文件头注释）：
-//   - after_hours（交易日 15:00 后，或非交易日）：数据基准 = 最近已收盘交易日
-//   - intraday / pre_market（交易日未收盘，含盘中与盘前）：忽略 T0 当日数据，
-//     数据基准 = 最近已收盘交易日（通常为 T-1）
-//   - 挂单统一以「建议日期之后第一个交易日」核算（T+1），与 phase 无关
+// 时间模型（日周期）：phase / 数据基准日 / **定稿边界** / 验单窗口
+//
+// 2026-09-21 重做（与 playbook 第 8 层「午间复核」配套）。唯一不变量：
+//   **任何判定、记账与展示，只许使用"已定稿的日线"。**
+//
+//   1) 定稿边界 = 15:05（收盘 15:00 + 数据源结算余量）；周末/节假日视为已定稿。
+//   2) 定稿后当日 bar 才可进入：数据基准日、指标、成交率统计、paper_settle 验单。
+//   3) 未定稿期间（9:30 前 / 上午盘中 / 午休 11:30–13:00 / 下午盘中 / 15:00–15:05）
+//      当日 bar 一律剔除，数据基准回退到"最近定稿交易日"。
+//   4) 挂单一律以「挂单日之后第一个**已定稿**交易日」验单（T+1），与 phase 无关。
+//   5) 日线缓存按"定稿纪元"失效：盘中抓到的（缺当日 bar）与盘后抓到的（含当日 bar）
+//      是两份不同数据，故盘后必然重取 —— 防的是"盘中快照被盘后结算复用"。
+//   6) 快照（daily/YYYY-MM-DD.json）只在定稿后写，且今天必须是交易日。
+//
+// 判定入口只有 barFinalized / finalizedBars 两个（单一判据），forecast、验单、
+// 缓存、快照、indicators 全部走它们，不再各写一套 —— 避免规则漂移。
 // ---------------------------------------------------------------------------
 
-/** A股交易时段：开盘 9:30 / 午休 11:30-13:00 / 收盘 15:00（本地时区）。 */
+/** A股交易时段：开盘 9:30 / 午休 11:30–13:00 / 收盘 15:00（本地时区）。 */
+const MARKET_OPEN_HHMM = 9 * 60 + 30
+const MARKET_MIDDAY_HHMM = 11 * 60 + 30
+const MARKET_REOPEN_HHMM = 13 * 60
 const MARKET_CLOSE_HHMM = 15 * 60 + 0
+/** 日线定稿边界：收盘后再给数据源 5 分钟结算余量。 */
+const DATA_FINAL_HHMM = MARKET_CLOSE_HHMM + 5
 
 /** Local minutes-of-day for a date. */
 function minutesOfDay(date) {
@@ -230,51 +255,68 @@ function isWeekend(d) {
 
 /**
  * Classify the current local moment into a trading phase (日周期, 不细到小时撮合):
- * - 'pre_market'  交易日未开盘（9:30 前，含集合竞价窗口）
- * - 'intraday'    交易时段内（9:30–11:30 / 13:00–15:00），当日数据未走完
- * - 'after_hours' 已收盘（交易日 15:00 后）或非交易日（周末/节假日）
- * 周末/节假日一律视作 after_hours（数据只能取到最近已收盘交易日）。
+ * - 'pre_market'  交易日 9:30 前（含集合竞价窗口）
+ * - 'intraday'    上午 9:30–11:30 / 下午 13:00–15:00，当日数据未走完
+ * - 'midday'      午休 11:30–13:00：**上午已定稿、全天未定稿**（午间复核窗口）
+ * - 'after_hours' 15:00 后，或非交易日（周末/节假日）
  */
 function currentPhase(now = new Date()) {
   if (isWeekend(now)) return 'after_hours'
   const m = minutesOfDay(now)
-  if (m < 9 * 60 + 30) return 'pre_market'
-  if (m >= MARKET_CLOSE_HHMM) return 'after_hours'
-  return 'intraday'
+  if (m < MARKET_OPEN_HHMM) return 'pre_market'
+  if (m < MARKET_MIDDAY_HHMM) return 'intraday'
+  if (m < MARKET_REOPEN_HHMM) return 'midday'
+  if (m < MARKET_CLOSE_HHMM) return 'intraday'
+  return 'after_hours'
+}
+
+/** 当日日线是否已定稿（≥15:05；非交易日恒为已定稿）。 */
+function dailyFinalized(now = new Date()) {
+  return isWeekend(now) || minutesOfDay(now) >= DATA_FINAL_HHMM
+}
+
+/**
+ * 缓存纪元：'final' = 此刻抓取必然含已定稿的当日 bar；'intraday' = 当日未定稿。
+ * 用于让 kline-cache 在盘中→盘后切换时自动失效重取。
+ */
+function fetchEpoch(now = new Date()) {
+  return dailyFinalized(now) ? 'final' : 'intraday'
+}
+
+/**
+ * 该 bar 是否已定稿 —— **全插件唯一的定稿判据**。
+ * `barDate === today` 时必须已过定稿边界；未来的 bar 一律视为未定稿。
+ */
+function barFinalized(barDate, now = new Date()) {
+  const todayStr = today(now)
+  if (barDate > todayStr) return false
+  if (barDate < todayStr) return true
+  return dailyFinalized(now)
+}
+
+/** 只保留已定稿的 bar（剔除"今天"未收盘那一根）。 */
+function finalizedBars(bars, now = new Date()) {
+  return bars.filter((b) => barFinalized(b.date, now))
 }
 
 /**
  * Pick the bars that a forecast may legitimately use at this moment.
- * 盘中/盘前（T0 未收盘）时，若 K 线最后一根恰是 T0 当日（腾讯日 K 会实时
- * 追加当日 bar），必须剔除它——预测只许用 T-1 及以前已收盘数据。
- * 盘后/非交易日则原样返回（最后一根即最近已收盘交易日）。
+ * 未定稿时剔除当日 bar（腾讯日 K 会实时追加当日未走完的 bar）——与验单、缓存、
+ * 快照共用同一个定稿判据。
  * @returns `{ bars, dataDate, note }`
  */
 function barsForForecast(bars, now = new Date()) {
   const phase = currentPhase(now)
-  const last = bars.at(-1)
-  if (last === undefined) return { bars: [], dataDate: null, note: `无K线 ${phase}` }
-  const lastDateIsToday = last.date === today()
-  const dropToday = (phase === 'intraday' || phase === 'pre_market') && lastDateIsToday && bars.length > 1
-  const usable = dropToday ? bars.slice(0, -1) : bars
-  const dataDate = usable.at(-1)?.date ?? null
-  const note = dropToday
-    ? `T0 盘中/盘前：忽略当日 ${last.date} 未收盘数据，数据基准 ${dataDate}`
+  const usable = finalizedBars(bars, now)
+  if (usable.length === 0) return { bars: [], dataDate: null, note: `无已定稿K线 ${phase}` }
+  const dataDate = usable.at(-1).date
+  const dropped = bars.length - usable.length
+  const note = dropped > 0
+    ? `T0 未定稿（${phase}）：忽略当日 ${bars.at(-1).date} 未收盘数据，数据基准 ${dataDate}`
     : phase === 'after_hours'
-      ? `T0 已收盘：数据基准 ${dataDate}`
+      ? `T0 已定稿：数据基准 ${dataDate}`
       : `数据基准 ${dataDate}`
   return { bars: usable, dataDate, note }
-}
-
-/**
- * The first bar strictly AFTER `date` (its T+1 settlement day). Returns
- * undefined when the K-line window does not reach a later trading day yet —
- * callers must then keep the order pending.
- */
-function nextTradingBarAfter(bars, date) {
-  return bars
-    .filter((b) => b.date > date)
-    .sort((a, b) => a.date.localeCompare(b.date))[0]
 }
 
 // ---------------------------------------------------------------------------
@@ -651,17 +693,44 @@ async function loadKlineCache(root) {
   return doc === null || typeof doc !== 'object' ? {} : doc
 }
 
-/** K-line for a symbol with per-day caching (refreshed once per local day). */
+/**
+ * K-line for a symbol with per-**epoch** caching.
+ *
+ * 两条新规则（2026-09-21）：
+ *   1) **只缓存已定稿的 bar**：盘中抓到的当日未走完 bar 会被剥掉，绝不落盘。
+ *      否则盘后 paper_settle 会复用这份盘中快照，把还能成交的挂单误判为作废。
+ *      读取时也再剥一次 —— 兼容旧版本写下的、含未定稿 bar 的历史缓存。
+ *   2) 缓存按定稿纪元（fetchEpoch）失效：盘前/盘中抓的缺当日 bar，定稿后必然重取。
+ * 抓取量取 max(days, DEFAULT_KLINE_DAYS)，避免"少根数请求覆盖多根数缓存"的抖动，
+ * 也让剥掉当日 bar 后仍能满足调用方要的深度。
+ */
 async function klineWithCache(root, symbol, days, timeoutMs) {
+  const now = new Date()
+  const want = Math.max(days, DEFAULT_KLINE_DAYS)
+  const epoch = fetchEpoch(now)
   const cache = await loadKlineCache(root)
   const entry = cache[symbol]
-  if (entry !== undefined && entry.date === today() && entry.bars.length >= days) {
-    return { symbol, name: entry.name, bars: entry.bars.slice(-days) }
+  const reusable = entry !== undefined
+    && entry.date === today(now)
+    && entry.epoch === epoch
+    && Array.isArray(entry.bars)
+    && entry.bars.length >= days - 1        // 定稿当日可能被剥掉一根
+  if (reusable) {
+    return {
+      symbol, name: entry.name,
+      bars: finalizedBars(entry.bars, now).slice(-days),
+      pendingDate: entry.pendingDate ?? null,
+    }
   }
-  const fetched = await fetchKline(symbol, days, timeoutMs)
-  cache[symbol] = { date: today(), name: fetched.name, bars: fetched.bars }
+  const fetched = await fetchKline(symbol, want, timeoutMs)
+  const bars = finalizedBars(fetched.bars, now)
+  // 被剥掉的未定稿 bar（通常就是"今天还没到 15:05"那一根）：报告给调用方，
+  // 让它能把"目标日未定稿"与"还没有更晚的交易日"两种保持挂单区分开。
+  const unfinalized = fetched.bars.filter((b) => !barFinalized(b.date, now))
+  const pendingDate = unfinalized.length > 0 ? unfinalized[unfinalized.length - 1].date : null
+  cache[symbol] = { date: today(now), name: fetched.name, bars, epoch, pendingDate }
   await writeJson(join(root, 'kline-cache.json'), cache)
-  return fetched
+  return { symbol, name: fetched.name, bars: bars.slice(-days), pendingDate }
 }
 
 /** Quote for a symbol with a tiny staleness shield (quotes are cheap; no cache). */
@@ -1377,7 +1446,9 @@ export function apply(ctx, config) {
     name: 'stock_daily_collect',
     description: 'Collect a daily snapshot for the whole watchlist: close/change/volume/amount per stock plus the four '
       + 'main index quotes, and append indicators (MA/MACD/RSI/KDJ/ATR). Writes %DSH_HOME%\\stock\\daily\\YYYY-MM-DD.json '
-      + 'and is idempotent per day (a snapshot already collected today is not overwritten). Returns a text summary.',
+      + 'and is idempotent per day (a snapshot already collected today is not overwritten). '
+      + '只在当日日线定稿后执行（交易日 15:05 起）：盘前/盘中/午休会拒绝（快照只收定稿数据，'
+      + '盘中采集会污染当日文件且盘后不再重采），非交易日也拒绝。返回文本摘要。',
     parameters: {
       force: { type: 'boolean', description: 'Set true to overwrite today\'s snapshot if it already exists (default false).' },
     },
@@ -1414,7 +1485,23 @@ export function apply(ctx, config) {
       if (doc.codes.length === 0) {
         throw new Error('stock_daily_collect: the watchlist is empty; add codes with watchlist_add first')
       }
-      const date = today()
+      // 定稿守卫（2026-09-21）：快照是"定稿日线快照"，盘中采集会让同一天的
+      // 指标（T-1 定稿）与盘中价（T0 实时）混在一个文件里，而且当天幂等会让
+      // 盘后不再采。所以未定稿一律拒绝，把"静默做错"变成"明确报错"。
+      const now = new Date()
+      const date = today(now)
+      if (!dailyFinalized(now)) {
+        throw new Error(`stock_daily_collect: 当日日线尚未定稿（当前 ${currentPhase(now)}，定稿边界 15:05）——`
+          + '快照只收定稿日线，盘中采集会污染当日文件且盘后不再重采。请在 15:05 之后重试；'
+          + '盘中要看半天数据请用 midday_review。')
+      }
+      // 今天必须是交易日：以第一只自选股的定稿日线末根为准（周末/节假日直接拒绝）
+      const probe = await klineWithCache(dataRoot, doc.codes[0], klineDays, timeoutMs)
+      const lastDate = probe.bars.at(-1)?.date ?? null
+      if (lastDate !== date) {
+        throw new Error(`stock_daily_collect: 今天（${date}）不是交易日（最近定稿交易日 ${lastDate ?? '未知'}）——`
+          + '快照按交易日归档，不为非交易日建文件。')
+      }
       const file = join(dataRoot, 'daily', `${date}.json`)
       if (existsSync(file) && args.force !== true) {
         const existing = await readJson(file)
@@ -2566,17 +2653,23 @@ export function apply(ctx, config) {
           continue
         }
         const bars = kline.bars ?? []
-        // 验单判定 bar：统一取「建议日期之后第一个交易日」（T+1 核算，时间周期为日）。
-        // 盘中/盘后挂出的单最早只能在下一交易日成交：用建议日当天区间判定会
-        // 产生马后炮（盘后挂单时当天已收盘；盘中挂单时当天数据未走完）。
-        // 历史挂单（旧数据无 phase）同样按此规则顺延，避免用当日已发生价格回溯。
+        // 验单判定 bar：统一取「建议日期之后第一个交易日」（T+1 核算，时间周期为日），
+        // 且**必须是已定稿的交易日**。盘中/盘后挂出的单最早只能在下一交易日成交：
+        // 用建议日当天区间判定会产生马后炮（盘后挂单时当天已收盘；盘中挂单时当天
+        // 数据未走完）。klineWithCache 已剥掉未定稿的当日 bar，这里再走一次
+        // barFinalized 是双保险（防止旧版本缓存或未来新调用方绕过）。
+        // 历史挂单（旧数据无 phase）同样按此规则顺延。
         const later = bars
-          .filter((b) => b.date > position.date)
+          .filter((b) => b.date > position.date && barFinalized(b.date))
           .sort((a, b) => a.date.localeCompare(b.date))
         let bar = later[0]
         if (bar === undefined) {
+          const pendingDate = kline.pendingDate ?? null
+          const unfinished = pendingDate !== null && pendingDate > position.date
           skipped += 1
-          results.push({ ...base, reason: `无 ${position.date} 之后交易日K线，保持挂单` })
+          results.push({ ...base, reason: unfinished
+            ? `目标交易日（${pendingDate}）日线尚未定稿（定稿边界 15:05），保持挂单`
+            : `无 ${position.date} 之后已定稿交易日K线，保持挂单` })
           continue
         }
         const low = bar.low
