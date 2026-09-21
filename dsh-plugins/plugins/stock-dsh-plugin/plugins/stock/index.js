@@ -7,6 +7,8 @@
  *   `sentiment_pick` (≤5 picks/day), `sentiment_record` / `sentiment_list`
  * - advice & order layer: `advice_calc` (trigger/target/stop/position),
  *   `position_record` / `position_list` / `position_update`
+ * - midday review (只读): `midday_review` —— 用 T+1 上午半天分时复核昨日挂单
+ *   "今天还成不成"（默认保持；上午涨跌无预测力、只吃 dist 与上午振幅两个输入）
  * - paper trading (建议即挂单): `paper_init` / `paper_account` /
  *   `paper_execute_advice` / `paper_trade` / `paper_settle`
  *
@@ -335,17 +337,21 @@ async function fetchQuote(symbol, timeoutMs) {
 }
 
 /**
- * Fetch daily K-line bars (前复权). Bar shape: [date, open, close, high, low, volume].
+ * Fetch daily K-line bars. Bar shape: [date, open, close, high, low, volume].
+ * 复权口径：`adjusted=true`（默认）带 qfq 参数 → 前复权（qfqday）；
+ * `adjusted=false` 不带 qfq → 不复权（day）。两者只在"最近一次除权之后"的
+ * 历史 bar 上有系统偏移，midday_review 正是用这个差异做基准一致性校验。
  * @returns `{ symbol, name, bars }` with the most recent `days` bars.
  */
-async function fetchKline(symbol, days, timeoutMs) {
-  const url = `${KLINE_URL}${symbol},day,,,${days},qfq`
+async function fetchKline(symbol, days, timeoutMs, adjusted = true) {
+  const url = `${KLINE_URL}${symbol},day,,,${days}${adjusted ? ',qfq' : ''}`
   const response = await throttledFetch(url, timeoutMs)
   if (!response.ok) throw new Error(`stock tools: kline endpoint answered ${response.status} for ${symbol}`)
   const parsed = await response.json()
   const data = parsed?.data?.[symbol]
   if (data === undefined) throw new Error(`stock tools: kline endpoint returned no data for ${symbol}`)
-  const bars = (data.qfqday ?? data.day ?? []).map((row) => ({
+  const rows = adjusted ? (data.qfqday ?? data.day ?? []) : (data.day ?? data.qfqday ?? [])
+  const bars = rows.map((row) => ({
     date: row[0],
     open: Number(row[1]),
     close: Number(row[2]),
@@ -355,6 +361,73 @@ async function fetchKline(symbol, days, timeoutMs) {
   }))
   if (bars.length === 0) throw new Error(`stock tools: no K-line bars for ${symbol}`)
   return { symbol, name: data.qt?.[symbol]?.[1] ?? symbol, bars }
+}
+
+/** 腾讯当日分时接口（1 分钟；JSON，非 GBK）。 */
+const MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query?code='
+
+/**
+ * Fetch one symbol's intraday 1-minute series.
+ * 返回 `{ symbol, date, points }`，`points[i] = { time:'HHMM', price, volume }`。
+ * ⚠️ 盘前 / 非交易日该接口返回的是**最近一个交易日**的完整分时——`date` 字段是唯一
+ * 可信的日期来源，调用方必须先校验 `date === 今天`，否则会把上一交易日的全天走势
+ * 当成"今天上午"，静默产生错误判读。volume 为当日累计量。
+ */
+async function fetchMinute(symbol, timeoutMs) {
+  const response = await throttledFetch(MINUTE_URL + symbol, timeoutMs)
+  if (!response.ok) throw new Error(`stock tools: minute endpoint answered ${response.status} for ${symbol}`)
+  const parsed = await response.json()
+  const node = parsed?.data?.[symbol]?.data
+  const rows = node?.data
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error(`stock tools: empty minute response for ${symbol}`)
+  const points = []
+  for (const row of rows) {
+    const f = String(row).split(' ')
+    const price = Number(f[1])
+    if (Number.isFinite(price)) points.push({ time: f[0], price, volume: Number(f[2]) })
+  }
+  if (points.length === 0) throw new Error(`stock tools: no usable minute points for ${symbol}`)
+  const ymd = String(node.date ?? '')
+  return {
+    symbol,
+    date: ymd.length === 8 ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6)}` : null,
+    points,
+  }
+}
+
+/**
+ * 午间判读表：T 日按 k=0.3 ATR 挂单 → T+1 上午未触及 → **下午回到原挂单价的频率**。
+ *
+ * 实测标定（2026-04-28~09-18，自选池 56 只 × 30 分钟线，约 100 个交易日、4,200 个"次日"观测）：
+ *   - 独立交易日仅 75 个（同一天全池被大盘共同驱动）→ 只能当**描述性倾向**，不得当触发规则；
+ *   - 上午涨跌 → 下午涨跌 corr ≈ +0.016（四档无单调性，极端档同样无效）→ **方向信息不可用**；
+ *   - 上午振幅 → 下午振幅 corr ≈ +0.514（宽幅 0.49×、窄幅 0.77×）→ **波动率信息可用**；
+ *   - 控制 dist 后，上午量能对"下午是否回到原价"无增量（32.4% vs 32.5%）→ 不纳入输入。
+ * 故本表只吃两个输入：`dist`（上午收盘距挂单线还需走几个 ATR）与 `ampAtr`（上午振幅/ATR）。
+ */
+const MIDDAY_PM_TOUCH = {
+  buy: [
+    { max: 0.1, narrow: 0.82, wide: 0.60, samples: 32 },
+    { max: 0.3, narrow: 0.32, wide: 0.39, samples: 302 },
+    { max: 0.6, narrow: 0.06, wide: 0.16, samples: 571 },
+    { max: Infinity, narrow: 0.00, wide: 0.01, samples: 789 },
+  ],
+  sell: [
+    { max: 0.1, narrow: 0.64, wide: 0.67, samples: 28 },
+    { max: 0.3, narrow: 0.37, wide: 0.43, samples: 283 },
+    { max: 0.6, narrow: 0.09, wide: 0.21, samples: 753 },
+    { max: Infinity, narrow: 0.03, wide: 0.03, samples: 1197 },
+  ],
+}
+
+/** 上午振幅/ATR 的样本中位数，用于"窄幅 / 宽幅"二分（宽幅 = 下午更可能回到挂单价）。 */
+const MIDDAY_AMP_ATR_MEDIAN = 0.71
+
+/** 查表：下午回到原挂单价的频率（0~1）。`action` 取 buy/sell。 */
+function middayTouchProb(action, distAtr, ampAtr) {
+  const rows = MIDDAY_PM_TOUCH[action === 'buy' ? 'buy' : 'sell']
+  const row = rows.find((r) => distAtr < r.max) ?? rows[rows.length - 1]
+  return ampAtr !== null && ampAtr >= MIDDAY_AMP_ATR_MEDIAN ? row.wide : row.narrow
 }
 
 /**
@@ -2620,6 +2693,267 @@ export function apply(ctx, config) {
     },
     presentCall: args => ({ card: 'generic', title: 'Settle paper orders', kind: 'edit', rawInput: args }),
   }))
+
+  // --- midday_review -------------------------------------------------------
+  // 午间复核（**只读**，不记账）：用 T+1 上午半天（09:30–11:30）的分时，回答
+  // "昨天挂的单，今天还成不成"。
+  // 默认动作＝保持（不撤单、不追价）：实测在"上午未成交"子集里，保持 −0.03% /
+  // 撤单 0.00% / 追价 k=0.3 −0.18% / 贴市价 −0.38%（差异全在噪声内）——保持是
+  // 免费期权（保留下午深跌接到便宜货的尾部），追价两端都亏。
+  // 只吃两个输入：① dist＝上午收盘距挂单线几个 ATR（纯算术）；② 上午振幅/ATR
+  // （半天行情里唯一可用的信息）。上午涨跌/量能均无预测力，故**不用于修正方向**。
+  // 工程约束：绝不写 kline-cache / positions / paper，也绝不使用"今天"的日 K
+  // （腾讯日 K 盘中会实时追加未走完的当日 bar）；记账仍由 paper_settle 盘后完成。
+  ctx.tools.register(defineTool({
+    name: 'midday_review',
+    description: '午间复核（只读，不记账）：对昨日及更早挂出、仍未成交的 pending 挂单，用当天上午（09:30–11:30）'
+      + '分时重算"今天还能不能成交"——输出上午区间/上午收盘、距挂单线几个 ATR、下午回到挂单价的实测频率，'
+      + '并检查持仓止损位是否已在上午被触及。默认建议＝保持（不撤单、不追价）。'
+      + '实测依据：上午涨跌对下午方向 corr≈0.016（不可用），上午振幅对下午振幅 corr≈0.514（可用），上午量能无增量。'
+      + '必须在 11:30 之后调用（上午未走完会拒绝）；不改变任何挂单状态，记账仍由 paper_settle 盘后完成。',
+    parameters: {
+      code: { type: 'string', description: '可选：只复核这一只（600519 / sh600519）。缺省复核全部昨日及更早的未成交挂单。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          date: { type: 'string', required: true },
+          phase: { type: 'string', required: true },
+          minuteDate: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+          reviewed: { type: 'integer', required: true },
+          filledInMorning: { type: 'integer', required: true },
+          stillWaiting: { type: 'integer', required: true },
+          skipped: { type: 'integer', required: true },
+          stopHit: { type: 'array', required: true, items: { type: 'string' } },
+          advice: { type: 'string', required: true },
+          items: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', required: true },
+                symbol: { type: 'string', required: true },
+                name: { type: 'string', required: true },
+                action: { type: 'string', required: true },
+                advicePrice: { type: 'number', required: true },
+                status: { type: 'string', required: true },
+                amLow: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                amHigh: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                amClose: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                amAmpAtr: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                atr: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                distAtr: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                pmTouchProb: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                note: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderMiddayReview(value) }],
+    },
+    async execute(args) {
+      const todayStr = today()
+      const phase = currentPhase()
+      const wantCode = args.code === undefined || args.code === '' ? null : normalizeCode(args.code)
+      const positionsDoc = await loadPositions(dataRoot)
+      const account = await loadPaper(dataRoot)
+
+      // 复核对象：未成交的 order 挂单，且挂单日严格早于今天（今天的挂单不在此复核）
+      const orders = positionsDoc.positions
+        .filter((p) => p.status === 'pending' && (p.kind ?? 'order') === 'order')
+        .filter((p) => String(p.date ?? '') < todayStr)
+        .filter((p) => wantCode === null || p.symbol === wantCode)
+        .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+
+      // 分时按标的取一次，挂单与持仓止损共用
+      const symbols = [...new Set([...orders.map((p) => p.symbol), ...Object.keys(account?.positions ?? {})])]
+      const snap = {}
+      const observedMinuteDates = new Set()
+      for (const symbol of symbols) {
+        try {
+          const minute = await fetchMinute(symbol, timeoutMs)
+          if (minute.date !== null) observedMinuteDates.add(minute.date)
+          if (minute.date !== todayStr) {
+            snap[symbol] = {
+              ok: false,
+              reason: minute.date === null
+                ? '分时接口未返回日期，拒绝按"今天上午"解读'
+                : `分时日期为 ${minute.date}（非今日）——盘前/非交易日该接口返回上一交易日全天走势，拒绝据此解读`,
+            }
+            continue
+          }
+          const am = minute.points.filter((p) => p.time <= '1130')
+          if (am.length === 0) {
+            snap[symbol] = { ok: false, reason: '今日暂无上午分时' }
+            continue
+          }
+          snap[symbol] = {
+            ok: true,
+            complete: am[am.length - 1].time >= '1130',
+            lastTime: am[am.length - 1].time,
+            amLow: Math.min(...am.map((p) => p.price)),
+            amHigh: Math.max(...am.map((p) => p.price)),
+            amClose: am[am.length - 1].price,
+          }
+        } catch (e) {
+          snap[symbol] = { ok: false, reason: `分时获取失败：${e.message}` }
+        }
+      }
+
+      // 止损位：取最近一条 action=buy 且带 stopLoss 的挂单记录（任何状态），指向该标的的持仓风控位
+      const stops = {}
+      for (const p of [...positionsDoc.positions].sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))) {
+        if (p.action === 'buy' && Number.isFinite(p.stopLoss) && p.stopLoss > 0) {
+          stops[p.symbol] = { price: p.stopLoss, name: p.name ?? p.symbol }
+        }
+      }
+      const stopHit = []
+      for (const [symbol, holding] of Object.entries(account?.positions ?? {})) {
+        const s = snap[symbol]
+        const stop = stops[symbol]
+        if (s === undefined || !s.ok || !s.complete || stop === undefined) continue
+        if (s.amLow <= stop.price) {
+          stopHit.push(`${holding.name ?? stop.name}(${symbol}) 上午最低 ${s.amLow}（1 分钟收盘口径）≤ 止损 ${stop.price}`)
+        }
+      }
+
+      // 复权基准一致性：qfq 与不复权在"挂单日"的收盘差 = 最近一次除权的系统偏移。
+      // 非零说明挂单价（前复权算得）与今日分时（实际成交价）不在同一基准，dist 不可直比。
+      const rawCache = {}
+      const rawCloseOf = async (symbol) => {
+        if (rawCache[symbol] === undefined) {
+          try {
+            rawCache[symbol] = (await fetchKline(symbol, 60, timeoutMs, false)).bars
+          } catch {
+            rawCache[symbol] = null
+          }
+        }
+        return rawCache[symbol]
+      }
+
+      const items = []
+      let filledInMorning = 0
+      let stillWaiting = 0
+      let skipped = 0
+      const minuteDate = observedMinuteDates.size === 1 ? [...observedMinuteDates][0] : null
+
+      for (const p of orders) {
+        const item = {
+          id: p.id, symbol: p.symbol, name: p.name ?? p.symbol, action: p.action,
+          advicePrice: Number(p.advicePrice ?? 0), status: 'no_data',
+          amLow: null, amHigh: null, amClose: null, amAmpAtr: null, atr: null,
+          distAtr: null, pmTouchProb: null, note: '',
+        }
+        const s = snap[p.symbol]
+        if (s === undefined || !s.ok) {
+          skipped += 1
+          items.push({ ...item, note: s?.reason ?? '分时不可用' })
+          continue
+        }
+        item.amLow = s.amLow
+        item.amHigh = s.amHigh
+        item.amClose = s.amClose
+        if (!s.complete) {
+          skipped += 1
+          items.push({ ...item, status: 'incomplete_am', note: `上午未走完（分时到 ${s.lastTime}），请在 11:30 之后再复核` })
+          continue
+        }
+
+        // 只用挂单日（含）之前已收盘的日线算 ATR —— 天然排除今日未走完的 bar。
+        // ⚠️ 这里刻意不走 klineWithCache：那个函数会把抓到的（盘中即含今日未走完 bar 的）
+        // 日线写回 kline-cache.json，盘中的 paper_settle 会复用这份污染快照。
+        // 本工具承诺只读，所以只读缓存 / 直连 fetchKline（不落盘）。
+        let bars
+        try {
+          const cached = (await loadKlineCache(dataRoot))[p.symbol]?.bars
+          bars = Array.isArray(cached) && cached.length >= 30
+            ? cached
+            : (await fetchKline(p.symbol, klineDays, timeoutMs)).bars
+          bars = bars.filter((b) => b.date <= p.date)
+        } catch (e) {
+          skipped += 1
+          items.push({ ...item, note: `日线获取失败：${e.message}` })
+          continue
+        }
+        if (bars.length < 15) {
+          skipped += 1
+          items.push({ ...item, note: `挂单日 ${p.date} 之前日线不足（${bars.length} 根），无法算 ATR` })
+          continue
+        }
+        const atrValue = atr(bars.map((b) => b.high), bars.map((b) => b.low), bars.map((b) => b.close))
+        if (atrValue === null || atrValue <= 0) {
+          skipped += 1
+          items.push({ ...item, note: 'ATR 不可用' })
+          continue
+        }
+        item.atr = atrValue
+        const ampAtr = round2((s.amHigh - s.amLow) / atrValue)
+        item.amAmpAtr = ampAtr
+
+        // 基准一致性校验（只在有挂单的标的上做，最贵一次日线请求）
+        const rawBars = await rawCloseOf(p.symbol)
+        const qfqBar = bars[bars.length - 1]
+        const rawBar = Array.isArray(rawBars) ? rawBars.find((b) => b.date === p.date) : undefined
+        let basisWarn = ''
+        if (qfqBar !== undefined && rawBar !== undefined && Number.isFinite(rawBar.close) && rawBar.close > 0) {
+          const delta = (qfqBar.close - rawBar.close) / rawBar.close
+          if (Math.abs(delta) > 0.005) {
+            basisWarn = `｜⚠复权基准不一致：${p.date} 收 前复权 ${qfqBar.close} vs 不复权 ${rawBar.close}`
+              + `（差 ${(delta * 100).toFixed(2)}%，疑似除权）——挂单价与今日分时不在同一基准，dist 与区间不可直接比较`
+          }
+        }
+
+        const limit = item.advicePrice
+        const touched = item.action === 'buy' ? s.amLow <= limit : s.amHigh >= limit
+        if (touched) {
+          filledInMorning += 1
+          items.push({
+            ...item, status: 'filled_am',
+            note: `上午区间 [${s.amLow}, ${s.amHigh}] 已含挂单价 ${limit} → 今天已具备成交条件，`
+              + `盘后 paper_settle 会用全天区间确认并按挂单价记账${basisWarn}`,
+          })
+          continue
+        }
+
+        const dist = round2(item.action === 'buy' ? (s.amClose - limit) / atrValue : (limit - s.amClose) / atrValue)
+        const prob = middayTouchProb(item.action, Math.max(0, dist), ampAtr)
+        const wide = ampAtr >= MIDDAY_AMP_ATR_MEDIAN
+        item.distAtr = dist
+        item.pmTouchProb = prob
+        stillWaiting += 1
+        item.status = dist >= 0.6 ? 'unreachable' : 'waiting'
+        items.push({
+          ...item,
+          note: `距挂单线 ${dist} ATR（上午振幅 ${ampAtr} ATR＝${wide ? '宽幅' : '窄幅'}）→ 下午回到挂单价的实测频率 ≈ `
+            + `${(prob * 100).toFixed(0)}%（${MIDDAY_PM_TOUCH[item.action === 'buy' ? 'buy' : 'sell'].find((r) => Math.max(0, dist) < r.max)?.samples ?? 0} 个样本的分桶，`
+            + `描述性倾向非预测）；默认保持${basisWarn}`,
+        })
+      }
+
+      return {
+        date: todayStr,
+        phase,
+        minuteDate,
+        reviewed: items.length,
+        filledInMorning,
+        stillWaiting,
+        skipped,
+        stopHit,
+        items,
+        advice: '默认动作：保持全部挂单——不撤单、不追价。实测"上午未成交"子集里，保持 −0.03% / 撤单 0.00% / '
+          + '追价 k=0.3 −0.18% / 贴市价 −0.38%（差异在噪声内），而保持保留了"下午深跌接到便宜货"的尾部（免费期权）。'
+          + '只用两类信息能改变动作：① 纯算术的 dist（≥0.6 ATR 时今天基本作废，可用于资金重排与了结决策）；'
+          + '② 上午振幅（宽幅→下午更可能回到挂单价）。上午涨跌与量能没有预测力，不得据此改方向。'
+          + '唯一的方向性通道是事件（跌停/异常放量/板块崩塌/个股消息），且条件应在盘后就写定，中午只做命中判定。',
+      }
+    },
+    presentCall: args => ({ card: 'generic', title: 'Midday review', kind: 'read', rawInput: args }),
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -2752,6 +3086,38 @@ function renderPaperSettle(value) {
       lines.push(`  ${tag(r.result)} ${r.name}(${r.symbol}) 挂单 ${r.advicePrice}（${r.settleDate} ${range}）${r.reason}`)
     }
   }
+  return lines.join('\n')
+}
+
+/** Render a midday review (午间复核) result for the model-facing text block. */
+function renderMiddayReview(value) {
+  const tag = (r) => {
+    if (r === 'filled_am') return '✅上午已触及'
+    if (r === 'waiting') return '⏳下午仍可能'
+    if (r === 'unreachable') return '⛔今天基本作废'
+    if (r === 'incomplete_am') return '⏱上午未走完'
+    return '⏭无数据'
+  }
+  const lines = [
+    `午间复核（T+1 上午半天）：基准日 ${value.date} 时段 ${value.phase} ｜ 分时日期 ${value.minuteDate ?? '-'} ｜ `
+      + `复核 ${value.reviewed} 条 ｜ 上午已触及 ${value.filledInMorning} ｜ 未成交 ${value.stillWaiting} ｜ 跳过 ${value.skipped}`,
+  ]
+  for (const it of value.items ?? []) {
+    const amTxt = it.amLow !== null
+      ? `上午[${it.amLow},${it.amHigh}] 收 ${it.amClose} 振幅 ${it.amAmpAtr ?? '-'}ATR`
+      : '上午数据不可用'
+    const distTxt = it.distAtr !== null
+      ? `｜距挂单线 ${it.distAtr}ATR｜下午回到挂单价 ≈${((it.pmTouchProb ?? 0) * 100).toFixed(0)}%`
+      : ''
+    lines.push(`  ${tag(it.status)} ${it.name}(${it.symbol}) ${it.action === 'buy' ? '买入' : '卖出'}挂单 ${it.advicePrice}｜${amTxt}${distTxt}`)
+    if (it.note !== '') lines.push(`      ${it.note}`)
+  }
+  if ((value.stopHit ?? []).length > 0) {
+    lines.push('止损警戒：')
+    for (const s of value.stopHit) lines.push(`  ⚠ ${s}`)
+  }
+  lines.push('')
+  lines.push(value.advice)
   return lines.join('\n')
 }
 
