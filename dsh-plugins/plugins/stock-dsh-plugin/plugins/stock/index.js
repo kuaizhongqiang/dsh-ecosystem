@@ -7,7 +7,7 @@
  *   `sentiment_pick` (≤5 picks/day), `sentiment_record` / `sentiment_list`
  * - advice & order layer: `advice_calc` (trigger/target/stop/position),
  *   `position_record` / `position_list` / `position_update`
- * - midday review (只读): `midday_review` —— 用 T+1 上午半天分时复核昨日挂单
+ * - midday review (只读): `midday_review` —— 用 T+1 上午 30 分钟K的真实高低复核昨日挂单
  *   "今天还成不成"（默认保持；上午涨跌无预测力、只吃 dist 与上午振幅两个输入）
  * - paper trading (建议即挂单): `paper_init` / `paper_account` /
  *   `paper_execute_advice` / `paper_trade` / `paper_settle`
@@ -34,8 +34,9 @@
  * Data comes exclusively from Tencent's public quote endpoints (no API key):
  * - real-time quotes:  `https://qt.gtimg.cn/q=<symbol>`  (GBK-encoded)
  * - daily K-line (前复权): `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get`
- * - intraday 1-minute (仅当日): `https://web.ifzq.gtimg.cn/appstock/app/minute/query`
- *   （⚠️ 盘前/非交易日返回**上一交易日**全天走势，必须校验 date == 今天）
+ * - 30-minute K-line (真实 OHLC, 不复权): `https://web.ifzq.gtimg.cn/appstock/app/kline/mkline`
+ *   （⚠️ 盘前/非交易日返回**上一交易日**走势，必须校验末根时间戳的日期 == 今天；
+ *    N>800 会被静默降级为 320 根）
  *
  * The main conversation model stays text-only: these tools fetch and compute
  * numbers, the model reads them and does the interpretation (trends, signals,
@@ -405,35 +406,87 @@ async function fetchKline(symbol, days, timeoutMs, adjusted = true) {
   return { symbol, name: data.qt?.[symbol]?.[1] ?? symbol, bars }
 }
 
-/** 腾讯当日分时接口（1 分钟；JSON，非 GBK）。 */
-const MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query?code='
+/**
+ * 腾讯 30 分钟 K 线接口（JSON，**不复权**；当日盘中会追加未走完的当前 bar）。
+ * ⚠️ host 必须是 `ifzq.gtimg.cn`：`web.ifzq.gtimg.cn` 会 301 到 `web3.ifzq.gtimg.cn`
+ * 而两者在 Node fetch 下都直接 `fetch failed`（实测 2026-09-21）——日线用的
+ * `web.ifzq.../fqkline/get` 反而是好的，两个接口 host 不通用，别想当然。
+ */
+const MKLINE_URL = 'https://ifzq.gtimg.cn/appstock/app/kline/mkline?param='
 
 /**
- * Fetch one symbol's intraday 1-minute series.
- * 返回 `{ symbol, date, points }`，`points[i] = { time:'HHMM', price, volume }`。
- * ⚠️ 盘前 / 非交易日该接口返回的是**最近一个交易日**的完整分时——`date` 字段是唯一
- * 可信的日期来源，调用方必须先校验 `date === 今天`，否则会把上一交易日的全天走势
- * 当成"今天上午"，静默产生错误判读。volume 为当日累计量。
+ * Fetch 30-minute bars (真实 OHLC) for one symbol.
+ * 返回 `{ symbol, date, bars }`，`bars[i] = { stamp:'YYYYMMDDHHMM', open, close, high, low }`，
+ * `stamp` 是该 bar 的**结束**时刻（1000/1030/1100/1130 → 上午四根）。
+ *
+ * ⚠️ 三条坑，全部实测确认：
+ *  1) 盘前 / 非交易日返回的是**上一交易日**的 K 线 —— 末根的 `stamp` 前缀是唯一可信的
+ *     日期来源，调用方必须先校验，否则会把上一交易日的走势当成"今天上午"。
+ *  2) `param=...,m30,,N` 的 N 超过约 800 会被接口**静默降级**为 320 根（不报错），
+ *     故这里固定取 320（够覆盖 40 个交易日）。
+ *  3) mkline 是**不复权**，而日线缓存是前复权：两者只在除权前后有系统偏移。
+ *     当日盘中用它与当日实际成交价同基准，所以复核用它是对的；跨除权比较时
+ *     调用方需自行做基准一致性校验（见 midday_review / paper_settle）。
+ *
+ * 为什么不用 1 分钟分时：分时每分钟只给**一个价**（该分钟最新价），拿它取 min/max
+ * 会**系统性低估**区间——实测 2026-09-21 华能国际：分时 [6.75, 6.80]、
+ * 30 分钟 K [6.75, 6.81]、日 K [6.75, 6.82]。区间低估会直接把"已触及"读成"未触及"。
  */
-async function fetchMinute(symbol, timeoutMs) {
-  const response = await throttledFetch(MINUTE_URL + symbol, timeoutMs)
-  if (!response.ok) throw new Error(`stock tools: minute endpoint answered ${response.status} for ${symbol}`)
+async function fetchM30(symbol, timeoutMs) {
+  const response = await throttledFetch(`${MKLINE_URL}${symbol},m30,,320`, timeoutMs)
+  if (!response.ok) throw new Error(`stock tools: m30 endpoint answered ${response.status} for ${symbol}`)
   const parsed = await response.json()
-  const node = parsed?.data?.[symbol]?.data
-  const rows = node?.data
-  if (!Array.isArray(rows) || rows.length === 0) throw new Error(`stock tools: empty minute response for ${symbol}`)
-  const points = []
-  for (const row of rows) {
-    const f = String(row).split(' ')
-    const price = Number(f[1])
-    if (Number.isFinite(price)) points.push({ time: f[0], price, volume: Number(f[2]) })
-  }
-  if (points.length === 0) throw new Error(`stock tools: no usable minute points for ${symbol}`)
-  const ymd = String(node.date ?? '')
+  const node = parsed?.data?.[symbol]
+  const rows = node?.m30 ?? node?.m30qfq
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error(`stock tools: empty m30 response for ${symbol}`)
+  const bars = rows
+    .map((row) => ({
+      stamp: String(row[0]),
+      open: Number(row[1]),
+      close: Number(row[2]),
+      high: Number(row[3]),
+      low: Number(row[4]),
+    }))
+    .filter((b) => b.stamp.length >= 12 && Number.isFinite(b.close) && b.low > 0)
+  if (bars.length === 0) throw new Error(`stock tools: no usable m30 bars for ${symbol}`)
+  const last = bars[bars.length - 1]
   return {
     symbol,
-    date: ymd.length === 8 ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6)}` : null,
-    points,
+    date: `${last.stamp.slice(0, 4)}-${last.stamp.slice(4, 6)}-${last.stamp.slice(6, 8)}`,
+    bars,
+  }
+}
+
+/**
+ * 挂单价是否**只被日 K 极值兜住**（30 分钟 K 的可成交区间里看不到这个价）→ true 表示
+ * "边界成交，不可证实"。**只在已判定 inRange 时调用，是对判定的标注，不改变判定。**
+ *
+ * 背景（2026-09-21 实测，3,063 个可比次日样本）：日 K 的 [low, high] 系统性宽于
+ * 分钟级可成交区间 —— 27% 的交易日日 K 极值超出 30 分钟 K 极值（p90 0.14%，极端 1.51%），
+ * 且这批里 **0% 是开盘价/竞价撮合价就越过挂单线**的，说明该极值不是竞价成交，
+ * 最可能是竞价阶段的**虚拟参考价**被计入，或两接口口径不同。但它在**挂单判决**上的
+ * 影响很小（"仅日K命中"只占判成交的 0.6%~2.4%），所以判定口径保持不动 —— 动它就要
+ * 重标定 playbook 第 1/7 层的整张成交率表。这里只把那一小撮标出来，让人知道
+ * 这笔成交"数字上有、分钟数据里看不到"。
+ *
+ * 三道自身校验，任一不过即返回 false（宁可漏标，不可误标）：
+ *   1) 必须拿到结算日当天的 30 分钟 K（久远的历史单拿不到 → 跳过）；
+ *   2) 30 分钟 K 当日末根收盘须与日 K 收盘对得上（偏差 >0.5% 说明跨除权、基准不同 → 跳过）；
+ *   3) 当天至少 6 根 30 分钟 K（数据不全 → 跳过）。
+ */
+async function boundaryOnlyHit(symbol, bar, advicePrice, timeoutMs) {
+  try {
+    const m30 = await fetchM30(symbol, timeoutMs)
+    const ymd = String(bar.date).replace(/-/g, '')
+    const dayBars = m30.bars.filter((b) => b.stamp.startsWith(ymd))
+    if (dayBars.length < 6) return false
+    const m30Close = dayBars[dayBars.length - 1].close
+    if (m30Close <= 0 || Math.abs(m30Close - bar.close) / bar.close > 0.005) return false
+    const m30Low = Math.min(...dayBars.map((b) => b.low))
+    const m30High = Math.max(...dayBars.map((b) => b.high))
+    return advicePrice < m30Low || advicePrice > m30High
+  } catch {
+    return false
   }
 }
 
@@ -2602,6 +2655,7 @@ export function apply(ctx, config) {
                 low: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
                 high: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
                 result: { type: 'string', required: true },
+                boundaryHit: { type: 'boolean', required: true },
                 shares: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
                 price: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
                 amount: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
@@ -2636,7 +2690,8 @@ export function apply(ctx, config) {
         const base = {
           id: position.id, symbol, name: position.name ?? symbol,
           action: position.action, advicePrice, settleDate: null,
-          low: null, high: null, result: 'skipped', shares: null, price: null, amount: null, reason: '',
+          low: null, high: null, result: 'skipped', boundaryHit: false,
+          shares: null, price: null, amount: null, reason: '',
         }
         // 预测观察（kind=prediction）不参与验单成交，保持 pending 供人工跟进
         if ((position.kind ?? 'order') === 'prediction') {
@@ -2678,6 +2733,16 @@ export function apply(ctx, config) {
         base.settleDate = bar.date
         base.low = low
         base.high = high
+
+        // 边界成交自查（**只标注，不改变判定**）：日 K 的 [low, high] 会比分钟级可成交
+        // 区间更宽 —— 实测 27% 的交易日日 K 极值超出 30 分钟 K 的极值（p90 0.14%，
+        // 极端 1.5%）。这多半来自集合竞价虚拟价或两个接口的口径差异，**不是可证实的
+        // 成交价**；若挂单价只被日 K 极值兜住，就标记为"边界成交，不可证实"。
+        // 影响很小（历史只占判成交的 0.6%~2.4%），所以判定口径不动 —— 动了就要重标定
+        // playbook 第 1/7 层的整张成交率表。
+        if (inRange) {
+          base.boundaryHit = await boundaryOnlyHit(symbol, bar, advicePrice, timeoutMs)
+        }
 
         if (!inRange) {
           // 挂单作废 + 记录偏离
@@ -2756,6 +2821,10 @@ export function apply(ctx, config) {
         base.price = price
         base.amount = amount
         base.reason = `挂单价 ${price} 落入 ${bar.date} 区间 [${low}, ${high}]，按挂单价${position.action === 'buy' ? '买入' : '卖出'}`
+        if (base.boundaryHit) {
+          base.reason += '｜⚠ 边界成交：该价仅由日K极值兜住，30分钟K的可成交区间内未见此价'
+            + '（疑似集合竞价虚拟价或两接口口径差），**不可用分钟数据证实**'
+        }
         if (!preview) {
           const trade = {
             id: `t${Date.now()}${Math.floor(Math.random() * 1000)}`,
@@ -2788,7 +2857,7 @@ export function apply(ctx, config) {
   }))
 
   // --- midday_review -------------------------------------------------------
-  // 午间复核（**只读**，不记账）：用 T+1 上午半天（09:30–11:30）的分时，回答
+  // 午间复核（**只读**，不记账）：用 T+1 上午半天（09:30–11:30）的 30 分钟 K，回答
   // "昨天挂的单，今天还成不成"。
   // 默认动作＝保持（不撤单、不追价）：实测在"上午未成交"子集里，保持 −0.03% /
   // 撤单 0.00% / 追价 k=0.3 −0.18% / 贴市价 −0.38%（差异全在噪声内）——保持是
@@ -2800,7 +2869,7 @@ export function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: 'midday_review',
     description: '午间复核（只读，不记账）：对昨日及更早挂出、仍未成交的 pending 挂单，用当天上午（09:30–11:30）'
-      + '分时重算"今天还能不能成交"——输出上午区间/上午收盘、距挂单线几个 ATR、下午回到挂单价的实测频率，'
+      + '30 分钟K的真实高低重算"今天还能不能成交"——输出上午区间/上午收盘、距挂单线几个 ATR、下午回到挂单价的实测频率，'
       + '并检查持仓止损位是否已在上午被触及。默认建议＝保持（不撤单、不追价）。'
       + '实测依据：上午涨跌对下午方向 corr≈0.016（不可用），上午振幅对下午振幅 corr≈0.514（可用），上午量能无增量。'
       + '必须在 11:30 之后调用（上午未走完会拒绝）；不改变任何挂单状态，记账仍由 paper_settle 盘后完成。',
@@ -2814,7 +2883,7 @@ export function apply(ctx, config) {
         properties: {
           date: { type: 'string', required: true },
           phase: { type: 'string', required: true },
-          minuteDate: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+          barDate: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
           reviewed: { type: 'integer', required: true },
           filledInMorning: { type: 'integer', required: true },
           stillWaiting: { type: 'integer', required: true },
@@ -2863,38 +2932,44 @@ export function apply(ctx, config) {
         .filter((p) => wantCode === null || p.symbol === wantCode)
         .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
 
-      // 分时按标的取一次，挂单与持仓止损共用
+      // 30 分钟 K 按标的取一次，挂单与持仓止损共用。
+      // 用真实 OHLC 而不是 1 分钟分时：分时每分钟只有一个价，取 min/max 会低估区间，
+      // 会把"上午已触及"读成"未触及"（2026-09-21 华能国际实测即如此）。
       const symbols = [...new Set([...orders.map((p) => p.symbol), ...Object.keys(account?.positions ?? {})])]
       const snap = {}
-      const observedMinuteDates = new Set()
+      const observedBarDates = new Set()
       for (const symbol of symbols) {
         try {
-          const minute = await fetchMinute(symbol, timeoutMs)
-          if (minute.date !== null) observedMinuteDates.add(minute.date)
-          if (minute.date !== todayStr) {
+          const m30 = await fetchM30(symbol, timeoutMs)
+          observedBarDates.add(m30.date)
+          if (m30.date !== todayStr) {
             snap[symbol] = {
               ok: false,
-              reason: minute.date === null
-                ? '分时接口未返回日期，拒绝按"今天上午"解读'
-                : `分时日期为 ${minute.date}（非今日）——盘前/非交易日该接口返回上一交易日全天走势，拒绝据此解读`,
+              reason: `30分钟K线日期为 ${m30.date ?? '未知'}（非今日）——盘前/非交易日该接口返回上一交易日走势，拒绝据此解读`,
             }
             continue
           }
-          const am = minute.points.filter((p) => p.time <= '1130')
+          const ymd = todayStr.replace(/-/g, '')
+          const todayBars = m30.bars.filter((b) => b.stamp.startsWith(ymd))
+          const am = todayBars.filter((b) => b.stamp.slice(8) <= '1130')
           if (am.length === 0) {
-            snap[symbol] = { ok: false, reason: '今日暂无上午分时' }
+            snap[symbol] = { ok: false, reason: '今日暂无上午 30 分钟 K' }
             continue
           }
+          const lastAm = am[am.length - 1]
+          const lastTime = lastAm.stamp.slice(8)
           snap[symbol] = {
             ok: true,
-            complete: am[am.length - 1].time >= '1130',
-            lastTime: am[am.length - 1].time,
-            amLow: Math.min(...am.map((p) => p.price)),
-            amHigh: Math.max(...am.map((p) => p.price)),
-            amClose: am[am.length - 1].price,
+            // 上午走完 = 已有 1130 那根，且墙上时间已过 11:30（11:30:00–11:30:59 那根可能还在成型）
+            complete: lastTime === '1130' && minutesOfDay(new Date()) >= 11 * 60 + 31,
+            lastTime,
+            amBars: am.length,
+            amLow: Math.min(...am.map((b) => b.low)),
+            amHigh: Math.max(...am.map((b) => b.high)),
+            amClose: lastAm.close,
           }
         } catch (e) {
-          snap[symbol] = { ok: false, reason: `分时获取失败：${e.message}` }
+          snap[symbol] = { ok: false, reason: `30分钟K线获取失败：${e.message}` }
         }
       }
 
@@ -2911,12 +2986,12 @@ export function apply(ctx, config) {
         const stop = stops[symbol]
         if (s === undefined || !s.ok || !s.complete || stop === undefined) continue
         if (s.amLow <= stop.price) {
-          stopHit.push(`${holding.name ?? stop.name}(${symbol}) 上午最低 ${s.amLow}（1 分钟收盘口径）≤ 止损 ${stop.price}`)
+          stopHit.push(`${holding.name ?? stop.name}(${symbol}) 上午最低 ${s.amLow}（30分钟K最低）≤ 止损 ${stop.price}`)
         }
       }
 
       // 复权基准一致性：qfq 与不复权在"挂单日"的收盘差 = 最近一次除权的系统偏移。
-      // 非零说明挂单价（前复权算得）与今日分时（实际成交价）不在同一基准，dist 不可直比。
+      // 非零说明挂单价（前复权算得）与今日 30 分钟K（实际成交价）不在同一基准，dist 不可直比。
       const rawCache = {}
       const rawCloseOf = async (symbol) => {
         if (rawCache[symbol] === undefined) {
@@ -2933,7 +3008,7 @@ export function apply(ctx, config) {
       let filledInMorning = 0
       let stillWaiting = 0
       let skipped = 0
-      const minuteDate = observedMinuteDates.size === 1 ? [...observedMinuteDates][0] : null
+      const barDate = observedBarDates.size === 1 ? [...observedBarDates][0] : null
 
       for (const p of orders) {
         const item = {
@@ -2945,7 +3020,7 @@ export function apply(ctx, config) {
         const s = snap[p.symbol]
         if (s === undefined || !s.ok) {
           skipped += 1
-          items.push({ ...item, note: s?.reason ?? '分时不可用' })
+          items.push({ ...item, note: s?.reason ?? '30分钟K不可用' })
           continue
         }
         item.amLow = s.amLow
@@ -2953,7 +3028,7 @@ export function apply(ctx, config) {
         item.amClose = s.amClose
         if (!s.complete) {
           skipped += 1
-          items.push({ ...item, status: 'incomplete_am', note: `上午未走完（分时到 ${s.lastTime}），请在 11:30 之后再复核` })
+          items.push({ ...item, status: 'incomplete_am', note: `上午未走完（30分钟K止于 ${s.lastTime}，仅 ${s.amBars} 根），请在 11:30 之后再复核` })
           continue
         }
 
@@ -2997,7 +3072,7 @@ export function apply(ctx, config) {
           const delta = (qfqBar.close - rawBar.close) / rawBar.close
           if (Math.abs(delta) > 0.005) {
             basisWarn = `｜⚠复权基准不一致：${p.date} 收 前复权 ${qfqBar.close} vs 不复权 ${rawBar.close}`
-              + `（差 ${(delta * 100).toFixed(2)}%，疑似除权）——挂单价与今日分时不在同一基准，dist 与区间不可直接比较`
+              + `（差 ${(delta * 100).toFixed(2)}%，疑似除权）——挂单价与今日 30 分钟K不在同一基准，dist 与区间不可直接比较`
           }
         }
 
@@ -3007,7 +3082,7 @@ export function apply(ctx, config) {
           filledInMorning += 1
           items.push({
             ...item, status: 'filled_am',
-            note: `上午区间 [${s.amLow}, ${s.amHigh}] 已含挂单价 ${limit} → 今天已具备成交条件，`
+            note: `上午区间 [${s.amLow}, ${s.amHigh}]（${s.amBars} 根 30 分钟 K 的真实高低）已含挂单价 ${limit} → 今天已具备成交条件，`
               + `盘后 paper_settle 会用全天区间确认并按挂单价记账${basisWarn}`,
           })
           continue
@@ -3031,7 +3106,7 @@ export function apply(ctx, config) {
       return {
         date: todayStr,
         phase,
-        minuteDate,
+        barDate,
         reviewed: items.length,
         filledInMorning,
         stillWaiting,
@@ -3192,7 +3267,7 @@ function renderMiddayReview(value) {
     return '⏭无数据'
   }
   const lines = [
-    `午间复核（T+1 上午半天）：基准日 ${value.date} 时段 ${value.phase} ｜ 分时日期 ${value.minuteDate ?? '-'} ｜ `
+    `午间复核（T+1 上午半天）：基准日 ${value.date} 时段 ${value.phase} ｜ 30分钟K日期 ${value.barDate ?? '-'} ｜ `
       + `复核 ${value.reviewed} 条 ｜ 上午已触及 ${value.filledInMorning} ｜ 未成交 ${value.stillWaiting} ｜ 跳过 ${value.skipped}`,
   ]
   for (const it of value.items ?? []) {
