@@ -48,5 +48,10 @@ document-read 会探测 python 解析依赖(缺则提示
 
 ## 5. 从旧单包迁移
 
-旧单工具包已 DEPRECATED:先装本包,再跑仓库根 `uninstall-old.ps1` 清理旧载荷与 patch 节。
+旧单工具包已 DEPRECATED:先装本包,再跑仓库根 `uninstall-old.ps1` 清理旧载荷、patch 节**与旧技能**
+(技能清理已**默认执行**,要保留旧技能加 `-KeepSkills`)。迁移后应重启 web。
+
+**这一步必须做**:技能是「给 Agent 看的安装说明书」,本机若还留着 `install-describe-image` 之类旧技能,
+会话里说一句「装 xxx」就可能把**已下线**的服务装回去(旧包已不在仓库,会装到来路不明的载荷,见 issue #31)。
+图片读取本身不需要任何工具 —— 主模型原生多模态直读。
 

@@ -20,6 +20,11 @@
 
 现状：所有插件（describe-image / unity-mcp / stock）均无 version 字段。
 
+> **历史引用说明（2026-09 补记）**：本文提到的 `describe-image` 已**下线**（图片改由主模型原生
+> 多模态直读；服务、技能、载荷均已从仓库移除，见 `dsh-plugins/README.md`）。下文 §1 存量补齐清单
+> 与 §8「照 describe-image 模式」都是当时的记录，**不改历史**；实现新插件请参照**现存**包
+> （如 `dsh-deepseek-dsh-plugin/install.ps1`、`dsh-image-dsh-plugin/install.ps1`）。
+
 ### 规范
 
 1. **`package.json` 是版本的单一事实来源**：

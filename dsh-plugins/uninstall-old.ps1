@@ -4,14 +4,19 @@
 # 动作:
 #   1. 删除 %DSH_HOME%\profiles\web\plugins\<svc> 旧载荷目录;
 #   2. 从 cordis.patch.yml 剥离旧 patch 节(按旧节头精确匹配);
-#   3. -Skills 同时删除旧 install-* 技能目录(PM4 切 7 技能后可先手动清理)。
+#   3. 清理旧技能目录 —— **默认执行**,`-KeepSkills` 可保留。
+#
+# 为什么技能清理默认化(issue #31):技能是「给 Agent 看的安装说明书」。仓库侧删除旧包只是
+# 删掉了货源,本机若还留着 `install-<old>`,会话里说一句「装 describe-image」就可能把已下线
+# 的服务装回去(而旧包已不在仓库,会装到一份来路不明的载荷)。因此迁移必须连技能一起清。
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File .\uninstall-old.ps1 [-Skills]
+#   powershell -ExecutionPolicy Bypass -File .\uninstall-old.ps1
+#   powershell -ExecutionPolicy Bypass -File .\uninstall-old.ps1 -KeepSkills
 #
-# 注意:先安装新合并包(dsh-media / dsh-deepseek)再运行本脚本,避免服务真空期。
+# 注意:先安装新合并包(dsh-media / dsh-deepseek / dsh-launcher)再运行本脚本,避免服务真空期。
 
-param([switch]$Skills)
+param([switch]$KeepSkills)
 
 $ErrorActionPreference = 'Stop'
 
@@ -73,7 +78,16 @@ foreach ($t in $old) {
   }
 }
 
-if ($Skills) {
+$leftoverSkills = @($oldSkills | Where-Object { Test-Path (Join-Path $skillsDir $_) })
+if ($KeepSkills) {
+  if ($leftoverSkills.Count -gt 0) {
+    Write-Host ''
+    Write-Host "-KeepSkills:保留 $($leftoverSkills.Count) 个旧技能:" -ForegroundColor Yellow
+    foreach ($s in $leftoverSkills) { Write-Host "    $s" -ForegroundColor Yellow }
+    Write-Host '  注意:只要它们还在,会话里仍可能据此装回已下线的旧包。' -ForegroundColor Yellow
+  }
+} else {
+  Write-Host ''
   foreach ($s in $oldSkills) {
     $d = Join-Path $skillsDir $s
     if (Test-Path $d) {
