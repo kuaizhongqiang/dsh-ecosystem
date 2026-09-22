@@ -1,5 +1,44 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-22(issue #31 describe-image 收尾 + issue #32 generate_image 出图能力)
+
+- **issue #31 定性**:`describe_image` 的**载荷与 patch 条目**当天 09:04 已清除(备份
+  `cordis.patch.yml.bak-20260922-090408-pre-describe-removal`),但**清理没有闭环** —— 本机
+  `%DSH_HOME%\skills\install-describe-image` 仍在(另有 5 个 PM4 旧技能)。技能就是「给 Agent 看的
+  安装说明书」:仓库删包只删了货源,本机留着技能仍可把已下线服务装回来(且旧包已不在仓库,会装到
+  来路不明的载荷)。仓库侧另有死引用:`dsh-vscode/media/webview.html` 的 `describe_image` 图标映射。
+- **#31 改动**:`uninstall-old.ps1` 的旧技能清理由可选 `-Skills` 改为**默认执行**(新增 `-KeepSkills`;
+  保留时打印残留清单并警示);`webview.html` 去掉 `describe_image` 图标键;
+  `github-dsh-plugin/DESIGN.md` 增「历史引用说明」段(**不改历史正文**,只标注已下线与现行范本);
+  dsh-plugins README 与 `install-media` SKILL 补「迁移必须连技能一起清」。回归:`verify-pm2` 新增 §6
+  (默认清旧技能 / 新技能不受影响 / `-KeepSkills` 保留 / 仓库无可安装 describe-image 的包目录)。
+- **issue #32 新能力**:新包 `dsh-plugins/plugins/dsh-image-dsh-plugin/`(服务 `image-gen`,工具
+  `generate_image`,载荷 v0.1.0),调火山方舟 `POST /api/v3/images/generations` 上的 **Doubao Seedream
+  5.0**(`doubao-seedream-5-0-260128`;旗舰 `doubao-seedream-5-0-pro-260628` 可配)。**一个工具三模式**
+  ——由 `image` 字段决定(不给=文生图 / 1 张=图生图 / 2~14 张=多图融合),另支持**组图**(`count>1` →
+  `sequential_image_generation: auto` + `max_images`)、`size`(档位/预设/像素)、`seed`、`watermark`
+  (默认关)、`output_format`、`web_search`(5.0 的 `tools`)、`optimize_prompt`,以及 `extra` JSON
+  直通。参考图支持本地路径(插件读文件转 data URI —— 接口不支持文件上传)、公网 URL、data URI。
+  **结果一律落盘**再回 `paths[]`(`url` 下载 / `b64_json` 直接解码;官方 url 仅 24h 有效),输出遵守
+  PLUGIN-SPEC §7(无损 JSON)。
+- **#32 配套**:独立成包的理由 = **独立凭证 `ARK_API_KEY`**(与 dsh-media 的 `MIMO_API_KEY` 不同源,
+  对齐 D7「按凭证聚合」);`install.ps1`(幂等 / `-Only` / `-Uninstall` / 写后跑 `validate-patch.mjs`)、
+  `.env.example`(只有键名)、README(参数表 + 排查 + 网关替换法:baseURL / imageField / apiKeyEnv)、
+  技能 `install-image`;`PLUGIN-SPEC` §1 增「生成 | dsh-image」层;launcher 默认清单纳入 dsh-image
+  (8 → 9 包,`verify-m1` 1-2 同步)。
+- **回归门(新)**:`dsh-plugins/scripts/verify-image.mjs` —— 安装/幂等/卸载 + 临时桩
+  `@deepseek-ai/{dsh-tools,dsh-credentials,schemastery}` 直载真载荷,断言三模式请求体形状
+  (文生图无 `image` / 单图为字符串 / 多图为数组)、组图参数、`size` 归一、落盘路径 `-N` 后缀、
+  mode 一致性、本地图 data URI;**桩 fetch 端到端**(不触网)断言落盘字节、Bearer 头、组图 3 张、
+  缺凭证 / 401 的可读诊断。`verify-pm4` 技能集合 9 → 10。
+- **门结果**:pm2 **29/0**、pm3 **19/0**、pm4 **9/0**、verify-image **42/0**、伞仓 `verify-release` OK、
+  launcher `verify-m1` **15/0**(`verify-m7`/`verify-m8` 的 lock 类断言仍失败,属 M8「版本 lock」远期项,
+  与本次改动无关)。
+- **流程**:两个 issue(#31 / #32)→ 分支 `feat/31-32-image-tools` → PR → merge → 合并后在 main 重钉
+  `ecosystem.json` 插件源(commit 指向含本改动的提交)。
+- **待办(需用户)**:真机验收要先配 `ARK_API_KEY`(本机现无方舟凭证):文生图 1 张 / 单图生图 / 3 张组图;
+  下一轮全量发布才会把新 pin 带给用户机。
+
 ## 2026-09-22(harness 子模块 bump + issue #30 launcher_status 输出契约)
 
 - **子模块 bump(官方 tag 人工确认)**:`deepseek-harness` 指针 `47f94385`(2026-08-13,`#2519 feat/npm-public`)

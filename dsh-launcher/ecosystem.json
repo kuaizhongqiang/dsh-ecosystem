@@ -60,6 +60,13 @@
         }
       },
       {
+        "id": "dsh-image",
+        "dir": "dsh-plugins/plugins/dsh-image-dsh-plugin",
+        "sha256": {
+          "install.ps1": "136afae785253a5f9f9d9faa6828816d533771d299efc8ef8589259454a7f3cd"
+        }
+      },
+      {
         "id": "agent-memory",
         "dir": "dsh-plugins/plugins/agent-memory-dsh-plugin",
         "sha256": {

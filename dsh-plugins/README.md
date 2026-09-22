@@ -12,9 +12,13 @@
   - plugins/dsh-media-dsh-plugin —— 感知四合一(audio-read/audio-speak/video-read/document-read),`-Only` 子集安装(图片由主模型原生多模态直读,不再内置 describe_image)
   - plugins/dsh-deepseek-dsh-plugin —— DeepSeek 账户二合一(balance/recharge)
   - plugins/dsh-launcher-dsh-plugin —— launcher 桥接(restart/status/connections/open/check_update,依赖 M5/M6 seam)
-- **迁移**:旧 7 包已标 `DEPRECATED.md`(保留一个版本周期);仓库根 uninstall-old.ps1 清理旧载荷与 patch 节
-- **技能 11→7**:install-media / install-deepseek / install-launcher 新增,旧 7 技能删除
-- 验证:`node scripts/verify-pm2.mjs`(23 用例)、`verify-pm3.mjs`(13)、`verify-pm4.mjs`(8)
+  - plugins/dsh-image-dsh-plugin —— 图片生成(`generate_image`,豆包 Seedream 5.0 / 火山方舟;文生图 · 图生图 · 多图融合 · 组图,结果落盘),独立凭证 `ARK_API_KEY`
+- **迁移**:旧 7 包已标 `DEPRECATED.md`(保留一个版本周期);仓库根 uninstall-old.ps1 清理旧载荷、patch 节
+  **与旧技能**(技能清理**默认执行**,`-KeepSkills` 可保留)—— 仓库删包 ≠ 本机干净:留着旧技能,
+  会话里仍可据此把已下线的服务装回来(issue #31)
+- **技能**:11→7 后新增 install-ue-mcp / install-memory / install-image,当前 10 个;旧 7 技能删除
+- 验证:`node scripts/verify-pm2.mjs`(安装/幂等/卸载/迁移)、`verify-pm3.mjs`(launcher 桥接 + 输出契约)、
+  `verify-pm4.mjs`(技能集合与清单一致性)、`verify-image.mjs`(图片生成插件)
 
 ## 目录结构
 
@@ -24,6 +28,7 @@ dsh-plugins/
 │   ├── dsh-media-dsh-plugin/    感知合并包（音频/语音/视频/文档）
 │   ├── dsh-deepseek-dsh-plugin/ DeepSeek 账户合并包（余额/充值）
 │   ├── dsh-launcher-dsh-plugin/ launcher 桥接（重启/状态/连接）
+│   ├── dsh-image-dsh-plugin/    图片生成（Seedream 5.0；文生图/图生图/组图）
 │   ├── credentials-dsh-plugin/
 │   ├── unity-mcp-dsh-plugin/
 │   ├── ue-mcp-dsh-plugin/
@@ -42,6 +47,7 @@ dsh-plugins/
 │   ├── install-media/SKILL.md
 │   ├── install-deepseek/SKILL.md
 │   ├── install-launcher/SKILL.md
+│   ├── install-image/SKILL.md
 │   ├── install-unity-mcp/SKILL.md
 │   ├── install-ue-mcp/SKILL.md
 │   ├── install-credentials/SKILL.md
@@ -76,6 +82,7 @@ dsh-plugins/
 | 插件 | 功能 | 额外依赖 | 安装技能 |
 |------|------|----------|----------|
 | [dsh-media](plugins/dsh-media-dsh-plugin/README.md) | 感知合并包：`transcribe_audio`/`understand_audio`/`speak_text`/`read_video`/`read_document`（音频 · 语音 · 视频 · 文档）。图片无需工具——主模型原生多模态直读 | `MIMO_API_KEY`（文档内嵌图描述另需 vision 端点） | `install-media` |
+| [dsh-image](plugins/dsh-image-dsh-plugin/README.md) | 图片生成：`generate_image`（豆包 Seedream 5.0 / 火山方舟）——文生图 / 图生图（1 张参考图）/ 多图融合（2~14 张）/ 组图（`count`），支持 `web_search` 时效提示词与 `extra` 参数直通；结果一律落盘为文件 | `ARK_API_KEY`（火山方舟 API Key；走中转网关可复用已有 key 名） | `install-image` |
 | [unity-mcp](plugins/unity-mcp-dsh-plugin/README.md) | MCP for Unity 桥：模型获得 `mcp__unity__*`（48 个 Unity Editor 工具），自带监督器自动拉起服务器 | Unity 项目 + MCP for Unity 客户端包 + uv/uvx | `install-unity-mcp` |
 | [ue-mcp](plugins/ue-mcp-dsh-plugin/README.md) | UE 内置 Unreal MCP 桥：模型获得 `mcp__unreal__*` 工具（list_toolsets/describe_toolset/call_tool 驱动编辑器场景、Actor、蓝图、PIE 等），自带监督器按配置拉起 `UnrealEditor -ModelContextProtocolStartServer` | UE 5.8+ 工程（已启用 ModelContextProtocol/AllToolsets 插件） | `install-ue-mcp` |
 | [dsh-deepseek](plugins/dsh-deepseek-dsh-plugin/README.md) | DeepSeek 账户合并包：`deepseek_balance` 余额查询（官方 `GET /user/balance`）+ `deepseek_recharge` 充值辅助（打开平台充值页） | `DEEPSEEK_API_KEY` | `install-deepseek` |
@@ -85,7 +92,8 @@ dsh-plugins/
 
 > 单工具旧包（`audio-read` / `audio-speak` / `video-read` / `document-read` /
 > `deepseek-balance` / `deepseek-recharge`）为 DEPRECATED，只作历史保留，不要新装；
-> `describe-image` 已**删除**——图片由主模型原生多模态直读，不需要外挂工具。
+> `describe-image` 已**删除**——图片由主模型原生多模态直读，不需要外挂工具。本机若还残留
+> `install-describe-image` 等旧技能，跑仓库根 `uninstall-old.ps1`（技能清理已默认执行）。
 
 ## 环境要求（目标电脑）
 
