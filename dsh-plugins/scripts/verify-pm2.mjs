@@ -112,6 +112,27 @@ async function main() {
     ok(r.status === 0 && patch(home).includes('tool-audio-read'), '5-6 新包接管同服务');
   }
 
+  console.log('6. uninstall-old.ps1 旧技能清理(issue #31:仓库删包 ≠ 本机干净)');
+  {
+    const home = makeHome(base, 'skills');
+    const skillsDir = join(home, 'skills');
+    for (const name of ['install-describe-image', 'install-audio-read', 'install-media']) {
+      mkdirSync(join(skillsDir, name), { recursive: true });
+      writeFileSync(join(skillsDir, name, 'SKILL.md'), '# stub\n', 'utf8');
+    }
+    let r = ps(oldUn, [], { DSH_HOME: home });
+    ok(r.status === 0, '6-1 退出码 0');
+    ok(!existsSync(join(skillsDir, 'install-describe-image')) && !existsSync(join(skillsDir, 'install-audio-read')), '6-2 旧技能默认清理(无需 -Skills)');
+    ok(existsSync(join(skillsDir, 'install-media')), '6-3 新技能不受影响');
+
+    const home2 = makeHome(base, 'keeps');
+    mkdirSync(join(home2, 'skills', 'install-describe-image'), { recursive: true });
+    r = ps(oldUn, ['-KeepSkills'], { DSH_HOME: home2 });
+    ok(r.status === 0 && existsSync(join(home2, 'skills', 'install-describe-image')), '6-4 -KeepSkills 保留旧技能');
+
+    ok(!existsSync(join(pluginsDir, 'describe-image-dsh-plugin')), '6-5 仓库无可安装 describe-image 的包目录');
+  }
+
   rmSync(base, { recursive: true, force: true });
   console.log(`\n结果:${passed} 通过,${failures} 失败`);
   process.exit(failures === 0 ? 0 : 1);
