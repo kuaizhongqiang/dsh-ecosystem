@@ -14,7 +14,9 @@
 #   powershell -ExecutionPolicy Bypass -File .\uninstall-old.ps1
 #   powershell -ExecutionPolicy Bypass -File .\uninstall-old.ps1 -KeepSkills
 #
-# 注意:先安装新合并包(dsh-media / dsh-deepseek / dsh-launcher)再运行本脚本,避免服务真空期。
+# 顺序:两种顺序都安全。新合并包与旧包**共用同名载荷目录**(如 plugins\audio-read),只有 patch 节头
+# 不同,因此本脚本带「接管保护」:若 patch 里已存在新包的 `dsh-media: <svc>` / `dsh-deepseek: <svc>` 节,
+# 就**只剥旧节头、保留载荷**,不会把刚装好的新包打瘫(issue #34)。
 
 param([switch]$KeepSkills)
 
@@ -56,15 +58,29 @@ function Remove-PatchSection([string]$text, [string]$header) {
   return (($out -join "`n").TrimEnd())
 }
 
+# 接管关系:旧 svc → 可能已接管同一载荷目录的新包节头。describe-image 无接管方(确实已下线)。
+$takeover = @{
+  'audio-read'        = 'dsh-media: audio-read'
+  'audio-speak'       = 'dsh-media: audio-speak'
+  'video-read'        = 'dsh-media: video-read'
+  'document-read'     = 'dsh-media: document-read'
+  'deepseek-balance'  = 'dsh-deepseek: deepseek-balance'
+  'deepseek-recharge' = 'dsh-deepseek: deepseek-recharge'
+}
+
 Write-Host "清理 deprecated 旧包(DSH_HOME=$dshHome)……" -ForegroundColor Cyan
+$patchText = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
 foreach ($t in $old) {
   $svc = $t.svc
   $dir = Join-Path $profileDir ("plugins\" + $svc)
-  if (Test-Path $dir) {
+  $owned = $takeover.ContainsKey($svc) -and $patchText.Contains($takeover[$svc])
+  if (-not (Test-Path $dir)) {
+    Write-Host "SKIP payload not present: $svc" -ForegroundColor Yellow
+  } elseif ($owned) {
+    Write-Host "KEEP payload $svc (已被新包接管:$($takeover[$svc]);只剥旧节头)" -ForegroundColor Cyan
+  } else {
     Remove-Item $dir -Recurse -Force
     Write-Host "OK  removed payload $svc" -ForegroundColor Green
-  } else {
-    Write-Host "SKIP payload not present: $svc" -ForegroundColor Yellow
   }
   if (Test-Path $patchFile) {
     $raw = Get-Content $patchFile -Raw

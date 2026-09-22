@@ -133,6 +133,28 @@ async function main() {
     ok(!existsSync(join(pluginsDir, 'describe-image-dsh-plugin')), '6-5 仓库无可安装 describe-image 的包目录');
   }
 
+  console.log('7. 接管保护:先装新包再跑迁移,载荷不被误删(issue #34)');
+  {
+    const home = makeHome(base, 'takeover');
+    let r = ps(join(pluginsDir, 'dsh-media-dsh-plugin', 'install.ps1'), ['-Only', 'audio-read'], { DSH_HOME: home });
+    ok(r.status === 0, '7-1 新包(dsh-media)安装成功,接管 plugins\\audio-read');
+    // 再造一次「旧包也装过」的现场:补写旧节头
+    const pf = join(home, 'profiles', 'web', 'cordis.patch.yml');
+    writeFileSync(pf, readFileSync(pf, 'utf8') + '\n# --- audio reading tools (native dsh) ---\n- insert:\n    - id: tool-audio-read-legacy\n      name: "./plugins/audio-read/index.js"\n', 'utf8');
+    r = ps(oldUn, [], { DSH_HOME: home });
+    ok(r.status === 0, '7-2 迁移退出码 0');
+    ok(existsSync(join(home, 'profiles', 'web', 'plugins', 'audio-read', 'index.js')), '7-3 被接管的载荷保留(KEEP)');
+    const p = patch(home);
+    ok(p.includes('dsh-media: audio-read') && !p.includes('audio reading tools'), '7-4 新节保留、旧节剥离');
+
+    const home2 = makeHome(base, 'orphan');
+    const orphan = join(home2, 'profiles', 'web', 'plugins', 'describe-image');
+    mkdirSync(orphan, { recursive: true });
+    writeFileSync(join(orphan, 'index.js'), '// legacy payload\n', 'utf8');
+    r = ps(oldUn, [], { DSH_HOME: home2 });
+    ok(r.status === 0 && !existsSync(orphan), '7-5 无接管方的旧载荷(describe-image)照常删除');
+  }
+
   rmSync(base, { recursive: true, force: true });
   console.log(`\n结果:${passed} 通过,${failures} 失败`);
   process.exit(failures === 0 ? 0 : 1);
