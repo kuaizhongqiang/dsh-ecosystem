@@ -102,7 +102,7 @@ async function main() {
   try {
     const { manifest, label } = await eco.loadManifest();
     ok(label.includes('默认'), '1-1 默认清单来源 = 内嵌');
-    ok(manifest.plugins.packages.length === 8, '1-2 默认清单含 8 个插件包(7 + agent-memory)');
+    ok(manifest.plugins.packages.length === 9, '1-2 默认清单含 9 个插件包(7 + agent-memory + dsh-image)');
     // 期望值取仓库清单(单一事实来源),避免发布 re-pin 后此处硬编码过期(原硬编码 9f47279 自 9/9 pin 起即失败)。
     const repoManifest = JSON.parse(readFileSync(new URL('../ecosystem.json', import.meta.url), 'utf8'));
     ok(manifest.plugins.source.commit === repoManifest.plugins.source.commit,

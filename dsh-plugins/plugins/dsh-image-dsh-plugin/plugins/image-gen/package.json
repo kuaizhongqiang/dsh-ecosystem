@@ -1,0 +1,6 @@
+{
+  "name": "dsh-profile-web-plugin-image-gen",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0"
+}
