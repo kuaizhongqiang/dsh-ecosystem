@@ -1,5 +1,27 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-22(已发 v0.10.0 —— issue #30 / #31 / #32 / #34 全量下发)
+
+- **发布准备**(commit `543abc8`):launcher / vscode / desktop 三组件 0.9.4 → **0.10.0**(与 tag 一致,
+  CI 逐组件断言)。语义按 RELEASING:修复 → patch、生态功能 → minor;本轮含新能力(新增 dsh-image
+  图片生成插件与 `generate_image` 工具),故取 **minor**。
+- **插件集随本轮 pin** = `12e8545b`:含 #32 新包 dsh-image、#31 describe-image 残留清理、#34 迁移脚本
+  接管保护、#30 launcher_status 无损 JSON 修复;launcher 默认清单 8 → **9 包**。
+- **本地质量门**:dsh-plugins `verify-pm2` **34/0**、`verify-pm3` **19/0**、`verify-pm4` **9/0**、
+  `verify-image` **42/0**;伞仓 `verify-release.mjs` OK;launcher `verify-m1` **15/0**。
+  launcher 的 tsc/build 与 vscode / desktop 构建本机无 node_modules(desktop 另受 os:win32 限制),
+  由 CI windows-latest 覆盖(与 v0.9.4 记录一致)。
+- **发布**:`git tag -a v0.10.0` → CI run `35690466950` **五个 job 全绿**(Init / Verify plugins manifest /
+  vscode / desktop / launcher,**3m17s**)。
+- **上线核验(不凭界面判断)**:Release `dsh-ecosystem v0.10.0` 资产齐备 —— `dsh-launcher.exe`、
+  `dsh-launcher-setup-0.10.0.exe`、`dsh-desktop-0.10.0-setup.exe` + blockmap + `latest.yml`、
+  `dsh-vscode-0.10.0.vsix`;Open VSX `latest = 0.10.0`;npm `@kuaizhongqiang/dsh-desktop = 0.10.0`。
+- **issue 收口**:#31 / #32 / #34 随 PR #33 / #35 自动关闭;#30 由本次发布确认后关闭(附复查建议)。
+- **待办(需用户)**:①升级 launcher 到 0.10.0 并跑一次 pull,才会拿到新插件载荷与带回退保护的迁移脚本;
+  ②本机 `%DSH_HOME%\skills` 的 6 个旧技能随后可安全清理(`uninstall-old.ps1`);
+  ③出图验收要先配 `ARK_API_KEY`。M0–M8 / PM1–PM4 旧里程碑 issue(#3、#5–#16)按 WORKLOG 除 M8(远期,
+  `verify-m8` 的 lock 断言仍红)外均已落地 —— 是否关闭由用户决定,**未擅自关闭**。
+
 ## 2026-09-22(issue #31 describe-image 收尾 + issue #32 generate_image 出图能力)
 
 - **issue #31 定性**:`describe_image` 的**载荷与 patch 条目**当天 09:04 已清除(备份
