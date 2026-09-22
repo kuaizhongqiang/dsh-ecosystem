@@ -31,12 +31,21 @@
   (文生图无 `image` / 单图为字符串 / 多图为数组)、组图参数、`size` 归一、落盘路径 `-N` 后缀、
   mode 一致性、本地图 data URI;**桩 fetch 端到端**(不触网)断言落盘字节、Bearer 头、组图 3 张、
   缺凭证 / 401 的可读诊断。`verify-pm4` 技能集合 9 → 10。
-- **门结果**:pm2 **29/0**、pm3 **19/0**、pm4 **9/0**、verify-image **42/0**、伞仓 `verify-release` OK、
+- **#34(在 #31 的验收路径上发现,同批修掉)**:`uninstall-old.ps1` 会**无条件删除** `plugins\<svc>`,而
+  PM2 合并后新包与旧包**共用同名目录**(`plugins\audio-read` 等),只有 patch 节头不同 —— 于是「先装新包
+  再跑迁移」会把刚装好的新包载荷删掉(patch 新节还在),插件指向不存在的 `index.js`。脚本自带的提示与
+  `install-media` SKILL 写的正是这个危险顺序,而 `verify-pm2` §5 只覆盖了安全顺序,所以一直全绿。
+  修法:迁移脚本加**接管保护**(patch 里已有 `dsh-media: <svc>` / `dsh-deepseek: <svc>` 节 → 只剥旧节、
+  保留载荷;`describe-image` 无接管方照常删除),两种顺序都安全;文档顺序同步;`verify-pm2` 新增 §7。
+- **门结果**:pm2 **34/0**、pm3 **19/0**、pm4 **9/0**、verify-image **42/0**、伞仓 `verify-release` OK、
   launcher `verify-m1` **15/0**(`verify-m7`/`verify-m8` 的 lock 类断言仍失败,属 M8「版本 lock」远期项,
   与本次改动无关)。
-- **流程**:两个 issue(#31 / #32)→ 分支 `feat/31-32-image-tools` → PR → merge → 合并后在 main 重钉
-  `ecosystem.json` 插件源(commit 指向含本改动的提交)。
-- **待办(需用户)**:真机验收要先配 `ARK_API_KEY`(本机现无方舟凭证):文生图 1 张 / 单图生图 / 3 张组图;
+- **流程**:三个 issue(#31 / #32 / #34)→ 分支 → PR → merge → 合并后在 main 重钉 `ecosystem.json`
+  插件源(commit 前移到含本改动的提交):PR **#33**(`feat/31-32-image-tools`,merge 后 main = `5eef95a`)、
+  PR **#35**(`fix/34-uninstall-old-takeover`)。
+- **待办(需用户)**:本机 `%DSH_HOME%\skills` 仍有 6 个旧技能待清 —— **本轮已具备安全清理条件**
+  (PR #35 的接管保护先落库再去跑 `uninstall-old.ps1`,旧版本会连 `plugins\audio-read` 等新包载荷一起删掉);
+  出图验收要先配 `ARK_API_KEY`(本机现无方舟凭证):文生图 1 张 / 单图生图 / 3 张组图;
   下一轮全量发布才会把新 pin 带给用户机。
 
 ## 2026-09-22(harness 子模块 bump + issue #30 launcher_status 输出契约)
