@@ -16,7 +16,7 @@
 | [dsh-vscode](dsh-vscode.md) | 伞仓内目录 | L4 周边(VSCode 扩展,Open VSX) | `1756889` | 0.8.0 | [→](dsh-vscode.md) |
 | [dsh-desktop](dsh-desktop.md) | 伞仓内目录 | L4 周边(Electron 桌面壳) | `250abfb` | 0.8.0 | [→](dsh-desktop.md) |
 | [agent-memory](agent-memory.md) | 伞仓内目录 + L3 插件包 | L5 记忆层(桥 + 接入器;引擎为第三方上游) | `4080826` | 0.3.0 | [→](agent-memory.md) |
-| [deepseek-harness](deepseek-harness.md) | **git 子模块** | L2 核心(dsh 本体,官方只读) | `47f94385` | — | [→](deepseek-harness.md) |
+| [deepseek-harness](deepseek-harness.md) | **git 子模块** | L2 核心(dsh 本体,官方只读) | `ddefc45f` | — | [→](deepseek-harness.md) |
 
 > 生态分层:见 [ECOSYSTEM-PLAN.md](../ECOSYSTEM-PLAN.md) §1(L0–L6)与 §3(决策 D1–D8)。
 

@@ -5,7 +5,7 @@
 | 上游仓 | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)(**非自有仓**) |
 | 形态 | **git 子模块(伞仓唯一)**——默认未检出,需要时 `git submodule update --init deepseek-harness` |
 | 生态位 | L2 核心(dsh 本体) |
-| 子模块指针 | `47f94385`(`47f943859bef60e4160492346772ded9b24f765a`;权威值 `git submodule status`) |
+| 子模块指针 | `ddefc45f`(`ddefc45fbc7f8e46dd73185e68295696d1297887`;= 官方 tag `dsh-v0.1.6-alpha.2`,2026-09-22 bump;权威值 `git submodule status`) |
 | 消费方式 | **只读消费**:bump 只跟随官方 main/tag,永不改写、不 fork 推进 |
 
 ## 角色

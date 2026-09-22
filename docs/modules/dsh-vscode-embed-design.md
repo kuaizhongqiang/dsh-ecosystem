@@ -9,8 +9,8 @@
 >
 > **依据版本（重要）**：dsh-vscode `0.8.5`（伞仓目录内 package.json）；deepseek-harness
 > **以本地工作副本 `/home/kuai/deepseek-harness` 为准**（`dsh-v0.1.5-alpha.1-2-g767b1e7673`）；
-> 伞仓 `deepseek-harness` 子模块指针 `47f94385`（= `dsh-v0.1.0-rc.7~24`，**较旧**），两处不一致时
-> 本文件以较新的本地工作副本为准并逐条标注。`dsh web` 行为经对本地 `http://127.0.0.1:3080`
+> 伞仓 `deepseek-harness` 子模块指针 `ddefc45f`（= `dsh-v0.1.6-alpha.2`，2026-09-22 bump，现**新于**该
+> 工作副本），两处不一致时本文件事实与行号仍**以本地工作副本为准**并逐条标注。`dsh web` 行为经对本地 `http://127.0.0.1:3080`
 > 的**只读探测**验证（见附录 A）。
 >
 > 证据格式：`仓:路径:行号`（`vscode/`=dsh-vscode 目录；`harness/`=deepseek-harness 工作副本）。
@@ -391,8 +391,8 @@ seam 未就绪的明确降级，伞仓不空转。
   `packages/util/workspace-path/src/file-address.ts:14`（dsh-resource 文件地址）。
 - `packages/client/hmr/src/client/index.ts:166`（唯一浏览器 EventSource：开发期 HMR）；
   `packages/client/connection/src/recovery-config.ts:8-21`（浏览器重连时序）。
-- 旧子模块快照：伞仓 `git submodule status deepseek-harness` = `47f943859b`（dsh-v0.1.0-rc.7~24）——
-  本文件事实以本地工作副本为准。
+- 子模块快照：伞仓 `git submodule status deepseek-harness` = `ddefc45fbc`（`dsh-v0.1.6-alpha.2`，
+  2026-09-22 bump）——本文件事实与行号仍以本地工作副本为准。
 
 ---
 
