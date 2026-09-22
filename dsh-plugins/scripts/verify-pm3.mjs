@@ -5,14 +5,15 @@
 //   2. -Uninstall:载荷删除 + patch 节剥离
 //   3. index.js 结构:5 个 defineTool、name=tool-launcher、发现链关键词
 //   4. 无 dsh 依赖可静态解析(node --check 等价:用 vm/acorn 不可用时降级为正则)
+//   5. launcher_status 输出契约:无损 JSON(无 undefined 值)、token 不回显(issue #30 回归)
 //
 // 用法:node scripts/verify-pm3.mjs
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const pkg = join(root, 'plugins', 'dsh-launcher-dsh-plugin');
@@ -80,6 +81,59 @@ async function main() {
       if (no !== nc) balanced = false;
     }
     ok(balanced, '4-1 括号平衡(粗检)');
+  }
+
+  console.log('5. launcher_status 输出契约(无损 JSON / 不回显 token —— issue #30 回归)');
+  {
+    // 载荷 import 依赖 @deepseek-ai/dsh-tools(宿主包),本仓不装依赖 → 在临时目录放桩件后直载真身
+    const stub = mkdtempSync(join(base, 'stub-'));
+    const depDir = join(stub, 'node_modules', '@deepseek-ai', 'dsh-tools');
+    mkdirSync(depDir, { recursive: true });
+    writeFileSync(join(depDir, 'package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh-tools', version: '0.0.0', type: 'module', main: 'index.mjs' }), 'utf8');
+    writeFileSync(join(depDir, 'index.mjs'), 'export const defineTool = (def) => def;\n', 'utf8');
+    writeFileSync(join(stub, 'plugin.mjs'), readFileSync(join(pkg, 'plugins', 'launcher', 'index.js'), 'utf8'), 'utf8');
+
+    // seam 文件刻意留缺:注册缺 launcherExe/api;旧意图缺 byPid;连接带 token(都必须不出现在输出里)
+    const home = makeHome(base);
+    writeFileSync(join(home, 'connections.json'), JSON.stringify({
+      version: 1,
+      active: 'local-3080',
+      connections: [{ id: 'local-3080', kind: 'local', name: '本机', port: 3080, token: 'super-secret-token' }],
+    }), 'utf8');
+    writeFileSync(join(home, 'launcher-registration.json'), JSON.stringify({
+      updatedAt: new Date().toISOString(), launcherVersion: '0.9.4', pid: process.pid, running: true,
+    }), 'utf8');
+    writeFileSync(join(home, '.dsh-restart-intent.json'), JSON.stringify({
+      version: 1, requestedAt: new Date().toISOString(), reason: '旧意图文件(无 byPid)',
+    }), 'utf8');
+
+    const prevHome = process.env.DSH_HOME;
+    process.env.DSH_HOME = home;
+    try {
+      const mod = await import(pathToFileURL(join(stub, 'plugin.mjs')).href);
+      const tools = [];
+      mod.apply({ tools: { register: (t) => tools.push(t) }, get: () => undefined });
+      const status = tools.find((t) => t.name === 'launcher_status');
+      ok(!!status, '5-1 注册 launcher_status');
+      const res = await status.execute({});
+
+      const bad = [];
+      const scan = (v, path) => {
+        if (v === undefined) { bad.push(path); return; }
+        if (Array.isArray(v)) { v.forEach((x, i) => scan(x, `${path}[${i}]`)); return; }
+        if (v && typeof v === 'object') Object.keys(v).forEach((k) => scan(v[k], `${path}.${k}`));
+      };
+      scan(res, '$');
+      ok(bad.length === 0, `5-2 输出无 undefined 值(应无损 JSON)${bad.length ? ` —— 发现 ${bad.join(', ')}` : ''}`);
+      ok(JSON.stringify(res.detail) === JSON.stringify(JSON.parse(JSON.stringify(res.detail))), '5-3 detail JSON 往返无损');
+      ok(!('token' in res.detail.connection.active), '5-4 连接 token 不回显(D2 红线)');
+      ok(!('byPid' in res.detail.restartIntent), '5-5 旧意图缺 byPid 时不写该键');
+      ok(!('api' in res.detail.launcher), '5-6 注册缺 api 时不写该键');
+    } finally {
+      if (prevHome === undefined) delete process.env.DSH_HOME;
+      else process.env.DSH_HOME = prevHome;
+    }
   }
 
   rmSync(base, { recursive: true, force: true });

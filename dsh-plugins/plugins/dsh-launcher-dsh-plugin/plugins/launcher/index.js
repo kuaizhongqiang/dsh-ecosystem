@@ -89,6 +89,39 @@ function redact(url) {
   return String(url ?? '').replace(/([?&]token=)[^&]+/gi, '$1***')
 }
 
+/**
+ * 工具输出必须是「无损 JSON」:dsh 侧按**自有属性**校验工具结果,值为 `undefined` 的键会被
+ * 判为非法输出(JSON.stringify 只是静默丢键,救不了 —— 见 issue #30:launcher_status 因此 100% 不可用)。
+ * 这里在返回前递归清洗:对象剔除 undefined 属性,数组把 undefined 项收窄为 null,
+ * NaN/Infinity 归一为 null(Date 转 ISO,不留空壳对象)。
+ */
+function jsonSafe(value) {
+  if (value === null) return null
+  if (value instanceof Date) return value.toISOString()
+  if (Array.isArray(value)) return value.map((v) => {
+    const safe = jsonSafe(v)
+    return safe === undefined ? null : safe
+  })
+  if (typeof value === 'object') {
+    const out = {}
+    for (const key of Object.keys(value)) {
+      const safe = jsonSafe(value[key])
+      if (safe !== undefined) out[key] = safe
+    }
+    return out
+  }
+  if (typeof value === 'number' && !Number.isFinite(value)) return null
+  if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') return undefined
+  return value
+}
+
+/** 连接对象脱敏:剔除 token 键(D2 红线:token 不出本机、输出不回显)。 */
+function stripToken(conn) {
+  if (!conn || typeof conn !== 'object') return conn
+  const { token: _token, ...rest } = conn
+  return rest
+}
+
 /** 激活连接解析:connections.json 优先;否则按 launch-token 端口合成默认。 */
 function resolveActiveConnection() {
   const file = readJson(connectionsPath())
@@ -242,7 +275,7 @@ export function apply(ctx) {
             }
           : { present: false, hint: '未注册(dsh 非由 launcher 拉起,或 launcher 版本过旧)' },
         env: { DSH_LAUNCHER_EXE: process.env.DSH_LAUNCHER_EXE ?? '' },
-        connection: { fromFile, active: { ...active, token: undefined }, count: list.length },
+        connection: { fromFile, active: stripToken(active), count: list.length },
         launchToken: token
           ? { present: true, port: token.port, url: redact(token.url), managedBy: token.managedBy ?? '' }
           : { present: false },
@@ -250,9 +283,9 @@ export function apply(ctx) {
           ? {
               present: true,
               preProcess,
-              requestedAt: intent.requestedAt,
+              requestedAt: intent.requestedAt ?? '',
               reason: intent.reason ?? '',
-              byPid: intent.byPid ?? undefined,
+              byPid: intent.byPid,
             }
           : { present: false },
         dshPid: process.pid,
@@ -269,7 +302,8 @@ export function apply(ctx) {
           : `;存在重启意图:${why}`
       }
       if (cleared) summary += ';重启意图已确认并清除'
-      return { summary, detail }
+      // 出口统一清洗(issue #30):值为 undefined 的键会被 dsh 判为非法输出,工具整条失效
+      return { summary, detail: jsonSafe(detail) }
     },
     presentCall: (a) => ({ card: 'generic', title: 'launcher_status', kind: 'read', rawInput: a }),
   }))

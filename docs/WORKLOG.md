@@ -1,5 +1,32 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-22(harness 子模块 bump + issue #30 launcher_status 输出契约)
+
+- **子模块 bump(官方 tag 人工确认)**:`deepseek-harness` 指针 `47f94385`(2026-08-13,`#2519 feat/npm-public`)
+  → **`ddefc45f`(= `dsh-v0.1.6-alpha.2`,2026-09-17 官方 release merge)**。本仓不构建 harness(CI、`scripts/`
+  均不引用该目录),故验证口径 = 锁定的**确实是官方 tag 提交**(`git rev-parse dsh-v0.1.6-alpha.2^{commit}`
+  与 gitlink 一致)+ gitlink 可解析;未做本机构建验证(与本仓 CI 无关,如实记录)。指针记录同步三处:
+  根 `README.md` 组件清单、`docs/modules/README.md`、`docs/modules/deepseek-harness.md`;
+  `docs/modules/dsh-vscode-embed-design.md` 的「依据版本」相应改写 —— bump 后伞仓指针**新于**该文档依据的
+  本地工作副本 `dsh-v0.1.5-alpha.1-2-g767b1e7673`,该文档事实与行号仍以本地工作副本为准。
+- **issue #30 定性复核**:`launcher_status` 的 `detail` 里 `{ ...active, token: undefined }`(原 L245)与
+  `byPid: intent.byPid ?? undefined`(原 L255)是**值为 `undefined` 的自有属性**;dsh 侧按自有属性校验工具结果,
+  带 `undefined` 即判 `value is not lossless JSON` → 工具**整条不可用**(含 `clearRestartIntent` 分支),
+  「重启/连接/升级」链上唯一状态查询入口失效。`JSON.stringify` 的静默丢键掩盖了这一点,故不能靠序列化兜底。
+- **修复**(`dsh-plugins/plugins/dsh-launcher-dsh-plugin/plugins/launcher/index.js`,载荷 0.1.0 → **0.1.1**):
+  1. 新增 `jsonSafe()`:**出口递归清洗** —— 对象剔除 `undefined` 属性、数组项 `undefined` 与 `NaN`/`Infinity`
+     归 `null`、`Date` 转 ISO;统一 `return { summary, detail: jsonSafe(detail) }`,从根上覆盖同类回归
+     (注册缺 `api`/`pid`/`updatedAt`、`launchToken.port`、`restartIntent.requestedAt` 等同样可能缺)。
+  2. 新增 `stripToken()`:连接对象按解构剔除 `token` 键(D2 红线),不再用「写 `undefined` 当脱敏」。
+  3. `byPid` 去掉无意义的 `?? undefined`;`requestedAt` 与 `reason` 口径对齐(`?? ''`)。
+- **回归门**:`dsh-plugins/scripts/verify-pm3.mjs` 新增 §5 —— 临时目录桩 `@deepseek-ai/dsh-tools` 后**直载真载荷**,
+  用「带 token 的 connections.json + 缺 `byPid` 的旧意图文件 + 缺 `api` 的注册文件」跑 `launcher_status.execute`,
+  再递归扫输出路径上的 `undefined` 值。结果 **19 通过 / 0 失败**(原 13 项全绿)。
+- **硬约束落文档**:`dsh-plugins/docs/PLUGIN-SPEC.md` 新增 §7「工具返回值硬约束:输出必须是无损 JSON」
+  (禁止 undefined 占位、外部文件字段出口过 `jsonSafe`、回归范式指向 verify-pm3 §5);launcher 插件 README
+  补「输出契约」小节。
+- **待办**:`dsh-launcher/ecosystem.json` 插件源 pin 随本修复 commit 重钉(下一轮全量发布下发)。
+
 ## 2026-09-13(已发 v0.9.4 —— issue #29 code-graph 修复下发)
 
 - **发布准备**（commit `4de4654`）：launcher / vscode / desktop 三组件 0.9.3 → **0.9.4**（与 tag 一致，

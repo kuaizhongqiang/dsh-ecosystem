@@ -20,6 +20,13 @@
 重启后恢复会话时,`launcher_status` 若显示「⚠️ 上次重启意图」即提示先 `update_goal resume`
 再继续被中断工作,完成后用 `clearRestartIntent=true` 清除。详见 `skills/install-launcher/SKILL.md` §3a。
 
+## 输出契约(issue #30)
+
+工具返回值一律**无损 JSON**:`launcher_status` 的 `detail` 在出口经 `jsonSafe()` 递归清洗
+(对象 `undefined` 属性剔除、数组项与 `NaN`/`Infinity` 归 `null`),连接对象经 `stripToken()` 剔除 `token`。
+dsh 侧把「含 `undefined` 值的结果」判为非 lossless JSON 并让**整条工具失效**(这正是 issue #30 的现象);
+新增字段照此接入,勿再写 `x ?? undefined` 之类的占位。
+
 ## 安装
 
 ```powershell

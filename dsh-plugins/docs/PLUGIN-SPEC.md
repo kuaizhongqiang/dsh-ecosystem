@@ -55,3 +55,18 @@ plugins/<pkg>-dsh-plugin/
 1. 合并包落地后,旧包根加 `DEPRECATED.md`(指明并入目标与迁移步骤),保留一个版本周期;
 2. 仓库根 `uninstall-old.ps1` 负责旧载荷/patch 节(可选 -Skills 连技能一起清);
 3. 下一个大版本删除旧包目录。
+
+## 7. 工具返回值硬约束:输出必须是「无损 JSON」
+
+工具 `execute` 的返回值**不得含 `undefined`**(对象属性与数组元素都算)。dsh 侧按**自有属性**校验结果,
+带 `undefined` 值的键会被判为非法输出(`value is not lossless JSON`),**整个工具不可用**;
+`JSON.stringify` 只是静默丢键,掩盖不了这条判定(issue #30:`launcher_status` 因此 100% 失效)。
+
+- 组装字段时**不要**写 `{ token: undefined }` / `x ?? undefined` 这类「占位、指望序列化丢掉」的写法 ——
+  要脱敏/省略的键**直接不写**(剔除用解构:`const { token: _omit, ...rest } = conn`);
+  可选字段确实为空时显式给 `null`。
+- 字段来自外部文件或结构较复杂的工具(如读 `%DSH_HOME%` 下 seam 文件),一律在 `return` 前做一次
+  **递归清洗** —— 参考 `plugins/launcher/index.js` 的 `jsonSafe()`(剔除 undefined 属性、
+  数组项 undefined 与 NaN/Infinity 归 `null`、Date 转 ISO)。
+- 回归门:`scripts/verify-pm3.mjs` §5 是范式(临时桩 `@deepseek-ai/dsh-tools` 直载真载荷 + 递归扫
+  输出路径上的 `undefined`);新增/改造读取外部文件的工具时照此补断言。
