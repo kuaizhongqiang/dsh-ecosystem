@@ -14,6 +14,7 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -226,6 +227,108 @@ function isNewer(a, b) {
   if (a.major !== b.major) return a.major > b.major
   if (a.minor !== b.minor) return a.minor > b.minor
   return a.patch > b.patch
+}
+
+// --- dsh-cli（L1.5 入口层）的安装 / 更新入口 ---------------------------------
+// 主人 2026-09-24 追加要求：launcher 必须同时具备 dsh-cli 的【安装入口】与【更新入口】。
+// 设计：exe 由伞仓 Release 提供（资产名 dshcli.exe 为稳定别名，dshcli-<ver>.exe 带版本）；
+//      安装落 %DSH_HOME%\bin\dshcli.exe，旁边留一份 dshcli.install.json 记版本/大小/来源（**不含任何 token**）。
+
+const CLI_REPO = 'kuaizhongqiang/dsh-ecosystem'
+
+function cliBinDir() {
+  return join(dshHome(), 'bin')
+}
+
+function cliExePath() {
+  return join(cliBinDir(), process.platform === 'win32' ? 'dshcli.exe' : 'dshcli')
+}
+
+function cliStatePath() {
+  return join(cliBinDir(), 'dshcli.install.json')
+}
+
+/** 安装来源：默认伞仓 Release 的稳定资产名；给了 version 就用带版本的那个。 */
+function cliAssetUrl(version) {
+  if (version === undefined) return `https://github.com/${CLI_REPO}/releases/latest/download/dshcli.exe`
+  const tag = String(version).startsWith('v') ? String(version) : `v${version}`
+  const bare = tag.replace(/^v/, '')
+  return `https://github.com/${CLI_REPO}/releases/download/${tag}/dshcli-${bare}.exe`
+}
+
+/** dsh-cli 现在什么状态（纯本地读，不触网）。 */
+function cliState() {
+  const exe = cliExePath()
+  const installed = existsSync(exe)
+  const state = readJson(cliStatePath()) ?? {}
+  return {
+    installed,
+    path: exe,
+    version: state.version,
+    bytes: installed ? statSyncSafe(exe) : undefined,
+    installedAt: state.installedAt,
+    source: state.source,
+    state,
+  }
+}
+
+function statSyncSafe(file) {
+  try {
+    // 只在需要时报大小；单独包一层免得把 fs 依赖撒得到处都是
+    return readFileSync(file).length
+  } catch {
+    return undefined
+  }
+}
+
+/** 下载或复制一个 exe 到临时文件（from 可为本地路径或 http(s) URL）。 */
+async function fetchCliAsset({ from, version }) {
+  const source = from ?? cliAssetUrl(version)
+  if (/^https?:\/\//i.test(source)) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 120000)
+    try {
+      const resp = await fetch(source, { headers: { 'User-Agent': 'dsh-launcher-plugin', Accept: 'application/octet-stream' }, signal: ctrl.signal })
+      if (!resp.ok) throw new Error(`下载失败 HTTP ${resp.status}（${source}）`)
+      return { bytes: Buffer.from(await resp.arrayBuffer()), source }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const local = source.replace(/^file:\/\//i, '')
+  if (!existsSync(local)) throw new Error(`本地来源不存在：${local}`)
+  return { bytes: readFileSync(local), source }
+}
+
+/** 安装/更新本体：下载 → 备份旧 exe → 替换 → 记状态。 */
+async function installCli({ from, version, force }) {
+  const target = cliExePath()
+  const dir = cliBinDir()
+  mkdirSync(dir, { recursive: true })
+  const before = existsSync(target) ? readJson(cliStatePath()) : undefined
+  const wanted = version ?? from ?? 'latest'
+  if (before?.version !== undefined && version !== undefined && before.version === String(version).replace(/^v/, '') && force !== true) {
+    return jsonSafe({ updated: false, version: before.version, path: target, bytes: statSyncSafe(target), hint: '版本相同，未重装（force=true 可强制）' })
+  }
+  const { bytes, source } = await fetchCliAsset({ from, version })
+  if (bytes.length < 1024) throw new Error(`来源看起来不是可执行文件（仅 ${bytes.length} 字节）：${source}`)
+  const staging = `${target}.download-${Date.now()}`
+  writeFileSync(staging, bytes)
+  let backedUp
+  if (existsSync(target)) {
+    backedUp = `${target}.bak-${Date.now()}`
+    try {
+      renameSync(target, backedUp)
+    } catch (error) {
+      rmSync(staging, { force: true })
+      throw new Error(`替换失败：${target} 可能正在使用（先停掉 dshcli 再试）：${error.message}`)
+    }
+  }
+  renameSync(staging, target)
+  const sha256 = createHash('sha256').update(bytes).digest('hex')
+  const state = { version: String(wanted).replace(/^v/, ''), bytes: bytes.length, sha256, source, installedAt: new Date().toISOString(), platform: process.platform }
+  writeFileSync(cliStatePath(), `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+  return jsonSafe({ updated: true, version: state.version, path: target, bytes: state.bytes, sha256, backedUp, source })
 }
 
 export function apply(ctx) {
@@ -479,5 +582,100 @@ export function apply(ctx) {
         : { message: `launcher 已是最新(${current})。` }
     },
     presentCall: (a) => ({ card: 'generic', title: 'launcher_check_update', kind: 'read', rawInput: a }),
+  }))
+
+  // --- launcher_cli（dsh-cli 的安装 / 更新入口） ------------------------------
+  // 主人 2026-09-24 追加要求:launcher 要能给 dsh-cli 提供安装入口与更新入口。
+  ctx.tools.register(defineTool({
+    name: 'launcher_cli',
+    description: '管理 dsh-cli（终端 CLI + 本机工具服务:让别的 agent 能调 dsh 执行任务）。'
+      + 'action=status 看是否已安装/版本/路径（纯本地读,不触网）;'
+      + 'action=install 安装或重装（默认从伞仓 GitHub Release 取稳定资产 dshcli.exe;可给 version 指定版本,'
+      + '或给 from 用本地 exe / 私有 URL）;action=update 检查并升级（版本相同不重复下载,force=true 可强装）;'
+      + 'action=start 拉起 dshcli serve。安装前会把旧 exe 备份成 dshcli.exe.bak-<时间戳>。',
+    parameters: {
+      action: { type: 'string', description: '必填:status | install | update | start', required: true },
+      version: { type: 'string', description: '可选:目标版本(如 0.11.0);缺省取最新 Release' },
+      from: { type: 'string', description: '可选:自定义来源(本地 exe 路径或 http(s) URL),内网/离线用' },
+      force: { type: 'boolean', description: '可选:版本相同也重装(默认 false)' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          action: { type: 'string', required: true, description: '执行的动作' },
+          summary: { type: 'string', required: true, description: '一句话结论' },
+          installed: { type: 'boolean', description: '是否已安装' },
+          version: { type: 'string', description: '版本' },
+          path: { type: 'string', description: 'exe 路径' },
+          bytes: { type: 'number', description: '文件大小' },
+          updated: { type: 'boolean', description: '本次是否发生安装/替换' },
+          backedUp: { type: 'string', description: '旧 exe 备份路径' },
+          source: { type: 'string', description: '安装来源' },
+          sha256: { type: 'string', description: '安装包 sha256' },
+          started: { type: 'boolean', description: '是否已拉起 serve' },
+          pid: { type: 'number', description: '拉起后的进程 id' },
+          hint: { type: 'string', description: '提示' },
+          state: { type: 'object', description: '安装状态文件内容' },
+        },
+      },
+      render: (_a, v) => [{ type: 'text', text: v.summary }],
+    },
+    async execute(args) {
+      const action = String(args.action ?? '').toLowerCase()
+      if (action === 'status') {
+        const s = cliState()
+        return jsonSafe({
+          action,
+          installed: s.installed,
+          version: s.version,
+          path: s.path,
+          bytes: s.bytes,
+          state: s.state,
+          hint: s.installed ? undefined : '安装来源默认是伞仓 Release 的 dshcli.exe',
+          summary: s.installed
+            ? `dsh-cli 已安装:${s.version ?? '版本未知'}(${s.path},${s.bytes ?? '?'} 字节)`
+            : `dsh-cli 未安装(预期位置 ${s.path});用 launcher_cli action=install 安装`,
+        })
+      }
+      if (action === 'install' || action === 'update') {
+        const result = await installCli({ from: args.from, version: args.version, force: args.force === true })
+        return jsonSafe({
+          action,
+          installed: true,
+          version: result.version,
+          path: result.path,
+          bytes: result.bytes,
+          updated: result.updated,
+          backedUp: result.backedUp,
+          source: result.source,
+          sha256: result.sha256,
+          hint: result.hint,
+          summary: result.updated
+            ? `${action === 'install' ? '安装' : '升级'}完成:dsh-cli ${result.version}(${result.path})`
+            : `已是最新(${result.version}),未重装`,
+        })
+      }
+      if (action === 'start') {
+        const s = cliState()
+        if (!s.installed) {
+          return jsonSafe({ action, installed: false, started: false, path: s.path, summary: 'dsh-cli 未安装,无法启动;先 install', hint: 'launcher_cli action=install' })
+        }
+        const child = spawn(s.path, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true })
+        child.unref()
+        return jsonSafe({
+          action,
+          installed: true,
+          started: true,
+          pid: child.pid,
+          version: s.version,
+          path: s.path,
+          summary: `已拉起 dshcli serve(pid ${child.pid});token 见 %DSH_HOME%\\dsh-cli\\endpoint.json`,
+        })
+      }
+      return jsonSafe({ action, summary: `未知 action:${action}(可用 status | install | update | start)`, hint: 'action 必须是 status | install | update | start' })
+    },
+    presentCall: (a) => ({ card: 'generic', title: `launcher_cli ${a.action}`, kind: 'execute', rawInput: a }),
   }))
 }
