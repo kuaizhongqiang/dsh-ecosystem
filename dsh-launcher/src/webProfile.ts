@@ -63,8 +63,8 @@ export function ensureWebProfileManifest(home: string): WebProfileSeedResult {
   if (parsed === null || typeof parsed !== 'object') return 'skipped';
   const manifest = parsed as ProfileManifest;
 
-  const profile = manifest.dsh?.profile;
-  if (profile === undefined) {
+  const profile = manifest.dsh?.profile ?? null;
+  if (profile === null || typeof profile !== 'object') {
     manifest.dsh = {
       ...(manifest.dsh ?? {}),
       profile: { bundles: [...WEB_PROFILE_BUNDLES], patchReload: WEB_PROFILE_PATCH_RELOAD },
