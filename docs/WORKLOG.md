@@ -1,5 +1,19 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(#52 应用侧加固 —— spawn dsh web 前落 profile 清单)
+
+- **#52 真修点只有一处**:桌面端**不自己 spawn dsh**,而是委托 launcher CLI(`desktop/src/main/launcher.ts` 只 spawn
+  launcher 可执行);所以修 `dsh-launcher/src/launch.ts` 即同时覆盖「launcher 拉起 dsh web」与「桌面拉起 dsh web」两条路。
+- **新增 `dsh-launcher/src/webProfile.ts`** 的 `ensureWebProfileManifest(home)`(幂等):无清单 → 按上游模板**同形状**
+  创建(bundles = dsh-base + dsh-web-app,`patchReload=startup`);`patchReload=live`(或缺 `profile` 段)→ 修正为
+  `startup` 且**其余字段原样保留**;已经对 → 不动;JSON 读不出来 / `profile` 为 null → 跳过不猜(留给 dsh 重建)。
+  `start()` 在 spawn 前调用,成功打一行日志,失败只 warn **不挡启动**。上游只在该字段**缺失**时才套模板默认,
+  所以显式值不会被改回去。
+- **门**:`verify-m5` 新增 §6(创建 / 幂等 / `live→patched` 且 bundles 不动 / 坏 json skipped)。
+  本地 launcher 缺 `node_modules` + `dist`(m5 的 4/5 段依赖构建产物),§6 用同款 TS loader **独立跑通 8 条断言**;
+  `tsc --noEmit` 与完整 m5 只能在发布 CI(launcher job)里跑 —— 下次发版时留意这一步。
+- **未发版**:此修复在 main(`279b839` + `6524652`),要用户能拿到得再发一次(launcher / desktop 的 exe 才会带上)。
+
 ## 2026-09-24(已发 v0.11.1 —— #47 desktop CI 修复 + #48/#49 下发)
 
 - **#47 desktop CI 红**：**根因不是 npm 没跑 install scripts(那是红鲱鱼)**,而是上游 dsh `0.1.2-alpha.4` 的
