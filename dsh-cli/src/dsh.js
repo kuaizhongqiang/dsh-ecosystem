@@ -202,7 +202,8 @@ export function checkContract(probe = {}) {
   }
   const sample = probe.sampleEvents
   if (Array.isArray(sample) && sample.length > 0) {
-    const bad = sample.filter((event) => typeof event.type !== 'string' || typeof event.seq !== 'number')
+    // 注意：日志首行是**会话头**（`type:'session'`，没有 seq，不是事件）—— 别把它算成形状不符
+    const bad = sample.filter((event) => event.type !== 'session' && (typeof event.type !== 'string' || typeof event.seq !== 'number'))
     if (bad.length > 0) degraded.push({ id: 'event-shape', detail: `样本里有 ${bad.length} 条事件不符合 {type,seq,time,data}`, ...pick('event-shape') })
     const vocabulary = new Set(['turn/start', 'step/start', 'assistant/message', 'tool/call', 'tool/result', 'step/end', 'turn/end'])
     const missing = [...vocabulary].filter((type) => !sample.some((event) => event.type === type))

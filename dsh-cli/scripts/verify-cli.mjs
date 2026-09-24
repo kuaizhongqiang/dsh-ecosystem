@@ -229,7 +229,7 @@ const toolsMod = await import(pathToFileURL(join(src, 'tools.js')).href)
   ok(readonly?.code === 'readonly', '6-15 外来运行中会话下任务被硬拒（readonly）')
 
   let notImplemented
-  try { await toolsMod.callTool('report.narrate', {}) } catch (error) { notImplemented = error }
+  try { await toolsMod.callTool('cred.list', {}) } catch (error) { notImplemented = error }
   ok(notImplemented?.code === 'not_implemented', '6-16 未实现的工具明确报 not_implemented')
 }
 
@@ -272,6 +272,51 @@ const cli = await import(pathToFileURL(join(src, 'cli.js')).href)
   ok(message === 1, '8-2 未知命令退出码 1')
   const binary = spawnSync(process.execPath, [join(root, 'bin', 'dshcli.js'), 'tools'], { encoding: 'utf8' })
   ok(binary.status === 0 && binary.stdout.includes('session.list'), '8-3 bin/dshcli.js 可直接执行')
+}
+
+console.log('9. 契约快照 + T3/T4 工具（形状取自真实日志的夹具）')
+{
+  const fixture = readFileSync(join(root, 'tests', 'fixtures', 'session-sample.jsonl'), 'utf8')
+  const events = fixture.split(/\r?\n/).filter((line) => line.trim() !== '').map((line) => JSON.parse(line))
+  const { records, stats } = stepRecords.buildRecords(events)
+  const steps = records.filter((record) => record.kind === 'step')
+  ok(steps.length === 2, `9-1 夹具：2 步 → ${steps.length} 条步记录`)
+  ok(JSON.stringify(steps[0].seqRange) === '[4,9]' && JSON.stringify(steps[1].seqRange) === '[10,16]', '9-2 夹具：seqRange 与事件序号一致')
+  ok(steps[1].cells.filter((cell) => cell.kind === 'tool_call').length === 2, '9-3 夹具：一步内多个工具调用都保留')
+  const cellWithMeta = steps[1].cells.find((cell) => cell.kind === 'tool_result' && cell.data?.meta !== undefined)
+  ok(cellWithMeta !== undefined && JSON.stringify(cellWithMeta.data.meta).includes('diff'), '9-4 夹具：工具私有 meta（呈现元数据）原样保留')
+  ok(stats.toolFailures.length === 1 && stats.toolFailures[0].code === 'ExitCodeError', `9-5 失败判定校准：error 键即失败（${JSON.stringify(stats.toolFailures[0])}）`)
+  ok(stats.usage.inputTokens === 15677 && stats.usage.reasoningTokens === 169, `9-6 usage 累加（${JSON.stringify(stats.usage)}）`)
+  ok(records.some((record) => record.kind === 'between' && record.events.some((event) => event.type === 'todo/write')), '9-7 夹具：todo/write 等轮次间事件走 between')
+
+  const healthy = dsh.checkContract({ sampleEvents: events })
+  ok(healthy.ok === true, '9-8 契约自检对真实形状样本判定 ok')
+  const mutated = events.map((event, index) => (index === 6 ? { ...event, seq: undefined } : event))
+  ok(dsh.checkContract({ sampleEvents: mutated }).degraded.some((item) => item.id === 'event-shape'), '9-9 仿真「上游改字段」→ 明确报 event-shape 降级')
+  const noTools = events.filter((event) => event.type !== 'tool/call' && event.type !== 'tool/result')
+  ok(dsh.checkContract({ sampleEvents: noTools }).degraded.some((item) => item.id === 'event-vocabulary'), '9-10 仿真「词表缺失」→ 明确报 event-vocabulary 降级')
+
+  const statsTools = await toolsMod.callTool('stats.tools', { cwd: workdir })
+  ok(statsTools.sessions >= 1 && statsTools.toolCalls >= 1, `9-11 stats.tools 聚合（${statsTools.toolCalls} 次调用 / ${statsTools.sessions} 个会话）`)
+  const statsUsage = await toolsMod.callTool('stats.usage', {})
+  ok(Object.keys(statsUsage.usage).some((key) => /token/i.test(key)), '9-12 stats.usage 聚合 token 字段')
+
+  const repo = join(base, 'repo')
+  mkdirSync(repo, { recursive: true })
+  const git = (gitArgs) => spawnSync('git', ['-C', repo, ...gitArgs], { encoding: 'utf8' })
+  git(['init'])
+  writeFileSync(join(repo, 'a.txt'), 'one\n', 'utf8')
+  git(['add', 'a.txt'])
+  git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'init'])
+  writeFileSync(join(repo, 'a.txt'), 'two\n', 'utf8')
+  const diff = await toolsMod.callTool('artifact.diff', { cwd: repo })
+  ok(diff.available === true && diff.diff.includes('-one') && diff.diff.includes('+two'), '9-13 artifact.diff 取到真实 git diff（不裁）')
+
+  const narrated = await toolsMod.callTool('report.narrate', {})
+  ok(typeof narrated.text === 'string' && narrated.text.includes('桩答案'), '9-14 report.narrate 走一次 dsh 任务（桩验证）')
+
+  const compat = await toolsMod.callTool('status.compat', {})
+  ok(compat.tools.total > compat.tools.implemented && Array.isArray(compat.tools.pending), `9-15 status.compat 报出已实现/待实现（${compat.tools.implemented}/${compat.tools.total}）`)
 }
 
 rmSync(base, { recursive: true, force: true })

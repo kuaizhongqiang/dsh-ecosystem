@@ -143,8 +143,9 @@ export function summarizeRecords(records, events) {
         const name = String(cell.name ?? 'unknown')
         toolHistogram[name] = (toolHistogram[name] ?? 0) + 1
       }
-      if (cell.kind === 'tool_result' && looksFailed(cell.data)) {
-        toolFailures.push({ seq: cell.seq, callId: cell.callId, name: cell.name })
+      if (cell.kind === 'tool_result') {
+        const failure = failureOf(cell.data)
+        if (failure !== undefined) toolFailures.push({ seq: cell.seq, callId: cell.callId, ...failure })
       }
     }
   }
@@ -166,13 +167,32 @@ export function summarizeRecords(records, events) {
   }
 }
 
-/** 判断一条 tool/result 是否失败（容错：字段名不确定，用保守的启发式）。 */
-export function looksFailed(data) {
-  if (data === null || typeof data !== 'object') return false
-  if (data.error !== undefined && data.error !== null) return true
-  if (data.isError === true || data.ok === false || data.failed === true) return true
+/**
+ * 一条 tool/result 的失败信息（校准过真实日志）。
+ *
+ * 实测 `tool/result.data` 只有三种键组合：
+ *   `message,meta,step,turn`（305×，带呈现元数据）/ `message,step,turn`（216×）/ **`error,message,step,turn`（12× = 失败）**。
+ * 即：**`error` 键出现即失败**；另保留若干保守启发式，兼容字段改名。
+ * @returns `undefined`（成功）或 `{ code, message }`
+ */
+export function failureOf(data) {
+  if (data === null || typeof data !== 'object') return undefined
+  if (data.error !== undefined && data.error !== null) {
+    const error = data.error
+    if (typeof error === 'string') return { code: 'tool_error', message: error }
+    return { code: String(error.code ?? error.name ?? 'tool_error'), message: String(error.message ?? JSON.stringify(error).slice(0, 500)) }
+  }
+  if (data.isError === true || data.ok === false || data.failed === true) {
+    return { code: 'tool_error', message: String(data.reason ?? data.message?.content?.[0]?.text ?? '').slice(0, 500) }
+  }
   const status = data.status ?? data.reason
-  return status === 'error' || status === 'failed' || status === 'denied'
+  if (status === 'error' || status === 'failed' || status === 'denied') return { code: String(status), message: '' }
+  return undefined
+}
+
+/** 兼容旧名（此前只返回布尔）。 */
+export function looksFailed(data) {
+  return failureOf(data) !== undefined
 }
 
 /** 累加任意形如 *token* 的数值字段（字段名以平台为准，这里只做加法，不猜语义）。 */
