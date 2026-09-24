@@ -236,7 +236,14 @@ def extract_xlsx(input_path: Path, out_dir: Path, max_images: int):
 
 # ---------------------------------------------------------------- pdf --------
 def extract_pdf(input_path: Path, out_dir: Path, max_images: int):
-    import fitz  # PyMuPDF
+    # PyMuPDF >= 1.24 ships the canonical `pymupdf` module name; the legacy `fitz`
+    # alias prints a deprecation warning on **stdout** from 1.26 on, which corrupts
+    # the JSON this script writes there (the tool then reports "invalid JSON" and
+    # every PDF fails). Prefer the canonical name; fall back for old builds.
+    try:
+        import pymupdf as fitz  # PyMuPDF
+    except ImportError:  # pragma: no cover - legacy PyMuPDF builds
+        import fitz  # PyMuPDF
 
     doc = fitz.open(str(input_path))
 
