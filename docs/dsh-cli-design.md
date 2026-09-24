@@ -382,6 +382,61 @@ dsh 相比 openclaw 这类 agent **缺的不是「干活」，而是「被编排
 
 D1–D10、Q1–Q8、Q1′–Q6′、Q4″，以及最后 4 条（分段颗粒度 / 二进制不输出 / 推理内容要发 / 超大文本照发）**均已确定**，无需再答。
 
-## 11. 下一步（施工）
+## 11. cmd 面形态与技能分发（2026-09-24 主人定稿）
+
+### 11.1 两个层面
+
+**层 1 主命令**（人 + agent 常用，短开关是别名，**只能在第一位**）：
+
+| 命令 | 短开关 | 做什么 |
+|---|---|---|
+| `run <任务…>` | | 跑任务，直接回 `out` |
+| `continue [-S 会话] <任务…>` | `-c` | 续跑会话（默认最近一个） |
+| `list [tasks\|sessions\|all]` | `-l` | 列任务 / 会话 |
+| `info [会话id]` | `-i` | 会话详情 + 最近几步分段 |
+| `report [--since ISO]` | `-r` | 工作情况汇报 |
+| `tools [工具] [--group G] [--pending]` | `-t` | 工具清单 / 单工具参数详情 |
+| `call <工具> --args '<json>'` | | 直调任意工具（兜底） |
+| `serve [--port N]` | `-s` | 起本机工具服务 |
+| `status` | | 运行时 / 任务 / 会话概览 |
+| `doctor` | | 环境与上游契约自检 |
+| `version` | `-v` / `--version` | 版本（dshcli / dsh / 契约表） |
+| `skill [--install\|--where]` | | 技能说明：打印 / 落盘 / 查状态 |
+| `help` | `-h` | 分组帮助 |
+
+通用修饰符（**只在子命令之后**）：`-j/--json`、`-m/--model`、`-p/--provider`、`-w/--workplace|--cwd`、`-n/--limit`。
+
+**层 2 全工具面**（78 个，由 `src/tools.js` 的参数元数据**自动生成**）：
+
+- `dshcli <组> <名> [--参数]`（如 `dshcli session list -n 5`）；
+- `dshcli tools <工具>` 给单个工具的位置参数、开关、返回契约、实现状态；
+- **`GET /tools`** 返回同一份带参数声明的自描述清单 —— 外部 agent 不必读文档就能发现能力。
+
+**撞名规则**（`report` / `status` / `skill` 既是主命令又是工具组）：第二个词能匹配到该组工具就走层 2
+（`dshcli report facts`），否则走主命令（`dshcli report --since …`）。
+
+**参数元数据**：78 个**全量**声明 `positional` + `params`（含类型 / 必填 / 说明）。已实现的 28 个 = 真实契约；
+未实现的 50 个 = 已声明契约，调用明确报 `not_implemented`（**不静默、不假装成功**）。这一份表同时驱动
+层 2 子命令、`--help`、`/tools` 自描述、参数校验。
+
+**机器面优先**（主要消费者是 agent）：`--json` 一律无损 JSON；退出码稳定（`0` 成功 / `1` 用法或任务失败）；
+第一接触命令给结构化 `hint`。
+
+### 11.2 技能分发（SKILL.md 跟着 exe 走）
+
+- 正文源在仓里 `dsh-cli/skills/dshcli.SKILL.md`，**构建时内嵌进 exe**（`__DSHCLI_SKILL__`）——
+  自包含 exe 落地后没有源目录，这条路必须走构建期；
+- 运行时技能与 **`dshcli.exe` 同级**（`dshcli.SKILL.md`），**首次运行自动落一份**（只读目录静默降级）；
+- `dshcli skill` 打印 / `--install [--to <目录>]` 落盘 / `--where` 报路径·是否落盘·**与内嵌是否一致**
+  （不一致就提醒刷新 —— 覆盖「exe 升级了、技能还是旧的」这个常见坑）；
+- **第一接触提示**：`-h` / `-i` / `-v` / `doctor` 输出末尾给人读三行「建议先读技能说明 + 绝对路径」，
+  `--json` 给结构化 `hint.skill` + `hint.advice`，agent 据此去读；
+- launcher 侧：`launcher_cli {action:'install'|'update'}` 换完 exe 调 `dshcli.exe skill --install --json`，
+  `summary` 里明说技能路径（`skill:false` 可关；技能失败不影响 exe 安装）。
+
+> 为什么不放 `%DSH_HOME%\skills\`：那里是 **dsh 本体**发现技能的地方；这份技能是给**调用 dshcli 的一方**
+> （openclaw / 别的 agent / 人）看的，跟 exe 放一起最不容易丢。
+
+## 12. 下一步（施工）
 
 见 [dsh-cli-execution.md](dsh-cli-execution.md)：里程碑 + issue 拆分、阶段验收、分支 / PR 规则、发布接入（沿用现有流水线）。

@@ -1,5 +1,37 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(cmd 面两层 + 技能随 exe —— T7 #48 / T8 #49)
+
+主人定的形态(2026-09-24):dshcli 要**两个层面**,第一接触命令输出「建议先看 skill」;**skill 放 exe 同级**。
+
+- **参数元数据 78 个全量**(`dsh-cli/src/tools.js`):每个工具声明 `positional` + `params`(flag / 类型 / 说明),
+  一份表同时驱动 层 2 子命令、`--help`、`GET /tools` 自描述、参数校验。已实现的 28 个 = **真实契约**;
+  未实现的 50 个 = **已声明契约**(调用明确报 `not_implemented`,不静默)。`TOOLS_PENDING` 改由
+  TOOLS / IMPLEMENTED 推导,不再手抄(消掉一处易漂移的重复)。
+- **层 1 主命令 + 短开关别名**:`-h -v -l -i -c -t -r -s`(`-c` = continue 续最近会话,主人定);
+  修饰符(`-j -m -p -w -n`)只在子命令之后。
+- **层 2**:`dshcli <组> <名> [--参数]` 由元数据全自动生成;`call --args '<json>'` 保留兜底。
+  **撞名规则**(`report` / `status` / `skill` 既是主命令又是工具组):第二个词能匹配到该组工具就走层 2
+  (`dshcli report facts`),否则走主命令(`dshcli report --since …`)。
+- **技能随 exe**:正文 `dsh-cli/skills/dshcli.SKILL.md`(唯一源)→ 构建期 esbuild `define: __DSHCLI_SKILL__`
+  **内嵌进 exe**;运行时与 `dshcli.exe` **同级**(`dshcli.SKILL.md`),**首次运行自动落一份**
+  (只读目录静默降级);`dshcli skill` 打印 / `--install [--to <目录>]` 落盘 / `--where` 报路径·是否落盘·
+  **与内嵌是否一致**(不一致提醒刷新 —— 覆盖「exe 升级了、技能还是旧的」这个坑)。
+- **第一接触提示**:`-h` / `-i` / `-v` / `doctor` 人读给三行(含技能绝对路径),`--json` 给结构化
+  `hint.skill` + `advice` —— agent 拿到路径就该去读技能。
+- **launcher 侧**:`launcher_cli {action:'install'|'update'}` 换完 exe 调 `dshcli.exe skill --install --json`,
+  `summary` 明说技能路径;`skill:false` 可关;**技能失败不影响 exe 安装**(如实报出原因)。
+
+**踩到并修掉的坑**(记录以免重犯):
+
+1. `return promise` 在 `try/catch` 里**不会被捕获** → `not_implemented` 会变成未捕获异常把进程带崩
+   (改 `return await`);
+2. 主命令与工具组同名的消歧(见上);
+3. `tools --group/--pending`、`serve --port` 这类**CLI 自己的开关**不在工具参数池里,得单独声明一份。
+
+**门**:`verify-cli` **85 通过 / 0 失败**(新增 §10 命令面 13 项 + §11 技能 6 项);
+`verify-pm3` **34 通过 / 0 失败**(新增 §7 launcher 技能链 5 项);其余门不变。
+
 ## 2026-09-24(全量发布 v0.11.0 —— dsh-cli 首发:终端 CLI + 本机工具服务)
 
 一轮做完 **T1–T6**(每阶段独立分支 → PR → rebase 合并;施工计划 `docs/dsh-cli-execution.md`):

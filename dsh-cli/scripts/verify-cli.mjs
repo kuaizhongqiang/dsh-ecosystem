@@ -11,7 +11,7 @@
 //
 // 用法：node scripts/verify-cli.mjs
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -317,6 +317,76 @@ console.log('9. 契约快照 + T3/T4 工具（形状取自真实日志的夹具�
 
   const compat = await toolsMod.callTool('status.compat', {})
   ok(compat.tools.total > compat.tools.implemented && Array.isArray(compat.tools.pending), `9-15 status.compat 报出已实现/待实现（${compat.tools.implemented}/${compat.tools.total}）`)
+}
+
+console.log('10. 命令面两层（主命令 / 短开关别名 / 生成子命令 / hint）')
+{
+  // 用子进程跑 bin/dshcli.js：干净环境 + 临时 DSH_HOME（不碰主人机器），退出码也能直接断言
+  const env = { ...process.env, DSH_HOME: home, DSHCLI_DSH_BIN: stubPath }
+  const run = (args) => spawnSync(process.execPath, [join(root, 'bin', 'dshcli.js'), ...args], { encoding: 'utf8', env, timeout: 90000 })
+
+  const help = run(['-h'])
+  ok(help.status === 0 && /层 1 主命令/.test(help.stdout) && /层 2 全工具面/.test(help.stdout), '10-1 -h 给两层帮助')
+  ok(/dshcli\.SKILL\.md/.test(help.stdout), '10-2 -h 带「先看技能说明」提示（绝对路径）')
+
+  const helpJson = JSON.parse(run(['-h', '--json']).stdout)
+  ok(typeof helpJson.hint?.skill === 'string' && helpJson.hint.skill.endsWith('dshcli.SKILL.md'), '10-3 --json 给结构化 hint.skill')
+
+  const aliasOut = run(['-l', '--json'])
+  const nameOut = run(['list', '--json'])
+  ok(aliasOut.status === 0 && aliasOut.stdout === nameOut.stdout, '10-4 短开关 -l ≡ list（输出一致）')
+
+  const infoJson = JSON.parse(run(['-i', '--json']).stdout)
+  ok(typeof infoJson === 'object' && infoJson.hint?.skill !== undefined, '10-5 -i 可用且带 hint')
+
+  const generated = run(['session', 'list', '-n', '3', '--json'])
+  ok(generated.status === 0 && Array.isArray(JSON.parse(generated.stdout).sessions), '10-6 生成子命令 session list -n 3')
+
+  const toolHelp = run(['task', 'run', '--help'])
+  ok(toolHelp.status === 0 && /位置参数：prompt/.test(toolHelp.stdout) && /--timeout-ms/.test(toolHelp.stdout), '10-7 子命令 --help 给位置参数与开关')
+
+  const pending = run(['cred', 'list'])
+  ok(pending.status === 1 && /not_implemented/.test(pending.stderr), '10-8 未实现工具报 not_implemented 且不崩（退出码 1）')
+
+  const unknownFlag = run(['tools', '--nope'])
+  ok(unknownFlag.status === 1 && /未知开关/.test(unknownFlag.stderr), '10-9 未知开关给可读报错')
+
+  const unknownTool = run(['session', 'nosuch'])
+  ok(unknownTool.status === 1 && /该组有/.test(unknownTool.stderr), '10-10 组内不存在的工具给出候选清单')
+
+  const catalogJson = JSON.parse(run(['tools', '--json']).stdout)
+  const shaped = catalogJson.tools.every((tool) => Array.isArray(tool.params) && Array.isArray(tool.positional))
+  ok(catalogJson.total === 78 && shaped, `10-11 78 个工具全部带 positional/params（${catalogJson.total} 个）`)
+
+  const oneTool = JSON.parse(run(['tools', 'task.run', '--json']).stdout)
+  ok(oneTool.params.some((param) => param.name === 'cwd' && param.flag.includes('--cwd')), '10-12 单工具详情带参数声明')
+
+  const argsCall = run(['call', 'task.list', '--args', '{"limit":1}', '--json'])
+  ok(argsCall.status === 0 && Array.isArray(JSON.parse(argsCall.stdout).tasks), '10-13 call --args 走 JSON（旧用法不破）')
+}
+
+console.log('11. 技能（与 exe 同级 / 内嵌 / 落盘 / 提示）')
+{
+  const skillMod = await import(pathToFileURL(join(src, 'skill.js')).href)
+  const text = skillMod.embeddedSkill()
+  ok(typeof text === 'string' && text.includes('dshcli') && /归属/.test(text) && /out/.test(text) && /not_implemented/.test(text), '11-1 技能正文含关键契约（归属 / out / 未实现处理）')
+  ok(skillMod.SKILL_FILENAME === 'dshcli.SKILL.md', '11-2 文件名与 exe 同级不撞名')
+
+  const status = skillMod.skillStatus()
+  ok(status.installed === true && status.matches === true, '11-3 首次运行已自动落盘，且与内嵌一致')
+
+  const dest = join(base, 'skill-dest')
+  const installed = skillMod.installSkill({ to: dest })
+  ok(installed.changed === true && existsSync(join(dest, 'dshcli.SKILL.md')), '11-4 skill --install --to 可指定目标目录')
+
+  // 手工写坏 → 必须提示「与内嵌不一致，去刷新」（exe 升级后的常见态）
+  const file = skillMod.skillFilePath()
+  writeFileSync(file, 'stale-content', 'utf8')
+  const stale = skillMod.skillStatus()
+  ok(stale.matches === false && /刷新/.test(stale.advice), `11-5 落盘与内嵌不一致时给刷新提示（${stale.advice}）`)
+
+  const cliSkill = spawnSync(process.execPath, [join(root, 'bin', 'dshcli.js'), 'skill', '--where', '--json'], { encoding: 'utf8', env: { ...process.env, DSH_HOME: home }, timeout: 60000 })
+  ok(cliSkill.status === 0 && JSON.parse(cliSkill.stdout).path.endsWith('dshcli.SKILL.md'), '11-6 dshcli skill --where --json 可用')
 }
 
 rmSync(base, { recursive: true, force: true })

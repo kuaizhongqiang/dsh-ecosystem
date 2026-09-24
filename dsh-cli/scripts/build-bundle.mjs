@@ -18,6 +18,8 @@ export function readPkg() {
 /** 打包入口 → dist/dshcli.cjs，返回产物路径。 */
 export async function buildBundle() {
   const pkg = readPkg()
+  // 技能正文内嵌进 exe：exe 到哪技能到哪（自包含 exe 落地后没有源目录，这条路必须走构建期）
+  const skillText = readFileSync(join(root, 'skills', 'dshcli.SKILL.md'), 'utf8')
   const outfile = join(root, 'dist', 'dshcli.cjs')
   await build({
     entryPoints: [join(root, 'src', 'entry.js')],
@@ -30,6 +32,7 @@ export async function buildBundle() {
     legalComments: 'none',
     define: {
       __DSHCLI_VERSION__: JSON.stringify(pkg.version),
+      __DSHCLI_SKILL__: JSON.stringify(skillText),
     },
     banner: { js: '// dsh-cli 单文件包（esbuild）—— Node SEA 的入口，来源见 dsh-cli/src/' },
   })
