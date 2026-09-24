@@ -5,6 +5,7 @@
  * 本阶段实现 P0/P1 子集；清单里其余条目返回 `not_implemented`（明确报出，不静默）。
  */
 
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, isAbsolute } from 'node:path'
 import { CONTRACT, checkContract, findDshBin, instanceState, runHeadless } from './dsh.js'
@@ -38,9 +39,12 @@ export const TOOLS = [
   { name: 'status.compat', group: 'status', p0: true, summary: '兼容状态：哪些工具可用 / 降级 / 不可用' },
   { name: 'report.facts', group: 'report', p0: true, summary: '汇报素材（机器可读）：在跑 / 完成 / 失败 / 待人处理 / 产出 / 用量' },
   { name: 'report.digest', group: 'report', p0: true, summary: '汇报成文（模板）：把素材套成人能读的一段话' },
-  { name: 'report.narrate', group: 'report', summary: '汇报成文（模型）：让 dsh 跑一次总结任务（本阶段未实现）' },
+  { name: 'report.narrate', group: 'report', summary: '汇报成文（模型）：让 dsh 跑一次总结任务（花一次模型调用，默认不启用）' },
   { name: 'artifact.list', group: 'artifact', p0: true, summary: '某会话 / 任务的产出文件清单' },
-  { name: 'artifact.diff', group: 'artifact', summary: '代码改动 diff（本阶段未实现）' },
+  { name: 'artifact.diff', group: 'artifact', summary: '工作目录的 git diff（stat + 全量 diff + 未跟踪清单）' },
+  { name: 'stats.usage', group: 'stats', summary: 'token 用量聚合（按会话/窗口）' },
+  { name: 'stats.tools', group: 'stats', summary: '工具调用统计（用得最多 / 失败清单）' },
+  { name: 'stats.activity', group: 'stats', summary: '活跃度：多少会话 / 多少轮 / 多少步' },
   { name: 'event.poll', group: 'event', p0: true, summary: '按游标拉增量分段记录（不怕断线）' },
   { name: 'runtime.status', group: 'runtime', p0: true, summary: '运行时在不在跑（端口 / 启动方式）' },
   { name: 'runtime.version', group: 'runtime', p0: true, summary: '版本信息（dsh / dshcli / 契约表）' },
@@ -52,21 +56,48 @@ export const IMPLEMENTED = [
   'task.run', 'task.run_async', 'task.get', 'task.out', 'task.wait', 'task.list', 'task.cancel',
   'session.new', 'session.list', 'session.get', 'session.resume', 'session.history', 'session.adopt',
   'status.overview', 'status.health', 'status.compat',
-  'report.facts', 'report.digest',
-  'artifact.list',
+  'report.facts', 'report.digest', 'report.narrate',
+  'artifact.list', 'artifact.diff',
+  'stats.usage', 'stats.tools', 'stats.activity',
   'event.poll',
   'runtime.status', 'runtime.version',
   'compat.check',
 ]
 
-const NOT_IMPLEMENTED = new Set(TOOLS.map((tool) => tool.name).filter((name) => !IMPLEMENTED.includes(name)))
+/** 工具清单里还缺的条目（供 doctor / status.compat 明示）。 */
+export const TOOLS_PENDING = [
+  'session.rename', 'session.interrupt', 'session.fork', 'session.export', 'session.delete',
+  'plugin.list', 'plugin.install', 'plugin.remove', 'plugin.reload',
+  'skill.list', 'skill.install', 'skill.remove',
+  'cred.list', 'cred.set', 'cred.verify', 'cred.unset', 'cred.where',
+  'ecosystem.pull', 'ecosystem.status',
+  'runtime.start', 'runtime.stop', 'runtime.restart', 'runtime.logs', 'runtime.upgrade',
+  'hook.set', 'hook.list', 'hook.delete', 'message.post', 'message.outbox',
+  'provider.list', 'provider.get', 'model.list', 'model.get', 'model.set_default',
+  'workspace.list', 'workspace.get', 'workspace.set_default', 'preset.list', 'preset.get',
+  'config.get', 'config.set', 'artifact.get', 'artifact.open', 'artifact.publish',
+  'task.log', 'task.retry', 'task.follow', 'task.plan', 'report.daily',
+  'event.subscribe',
+]
 
-/** 清单导出（给 serve 的 `tools.list` 与 `dshcli tools`）。 */
+/** 清单里有、但本阶段还没实现的（含只在候选清单里的），调用时明确报 not_implemented。 */
+const NOT_IMPLEMENTED = new Set([
+  ...TOOLS.map((tool) => tool.name).filter((name) => !IMPLEMENTED.includes(name)),
+  ...TOOLS_PENDING,
+])
+
+/**
+ * 清单导出（给 serve 的 `/tools` 与 `dshcli tools`）。
+ * 已实现的条目来自 TOOLS；**未实现的候选也一并列出来**（打 `pending`），
+ * 这样调用方与 doctor 能看到「有哪些本来该有、现在还没有」，不会误以为清单就这么大。
+ */
 export function toolCatalog() {
-  return TOOLS.map((tool) => ({
-    ...tool,
-    implemented: !NOT_IMPLEMENTED.has(tool.name),
-  }))
+  const implemented = TOOLS.filter((tool) => !NOT_IMPLEMENTED.has(tool.name))
+  const pending = [...new Set([...TOOLS.filter((tool) => NOT_IMPLEMENTED.has(tool.name)).map((tool) => tool.name), ...TOOLS_PENDING])]
+  return [
+    ...implemented.map((tool) => ({ ...tool, implemented: true })),
+    ...pending.map((name) => ({ name, group: name.split('.')[0], implemented: false, pending: true, summary: '(本阶段未实现)' })),
+  ]
 }
 
 /** 会话行 + 归属 + 运行态的公共解析。 */
@@ -195,6 +226,44 @@ async function collectOut({ taskId, sessionId, cwd, result, provider, model }) {
   })
 }
 
+/**
+ * 跨会话聚合（stats.* 用）：把若干会话的分段记录加总。
+ * @param options.limit 最多读几个会话的日志（默认 10，按日志 mtime 倒序；大日志很贵）
+ */
+export function aggregateSessions({ cwd, limit = 10, since } = {}) {
+  const from = since === undefined ? 0 : Date.parse(since)
+  const rows = listSessions({ cwd })
+    .filter((row) => row.logBytes > 0 && (from === 0 || logMtime(row) >= from))
+    .slice(0, limit)
+  const toolHistogram = {}
+  const usage = {}
+  const failures = []
+  let steps = 0
+  let toolCalls = 0
+  let turns = 0
+  for (const row of rows) {
+    const { records, stats } = recordsOf(row.dir)
+    turns += stats.turns
+    steps += stats.steps
+    toolCalls += stats.toolCalls
+    for (const [name, count] of Object.entries(stats.toolHistogram)) toolHistogram[name] = (toolHistogram[name] ?? 0) + count
+    for (const [key, value] of Object.entries(stats.usage)) usage[key] = (usage[key] ?? 0) + value
+    for (const failure of stats.toolFailures) failures.push({ sessionId: row.sessionId, ...failure })
+    void records
+  }
+  return { sessions: rows.length, turns, steps, toolCalls, toolHistogram, usage, failures, window: { since: since ?? null }, scanned: rows.map((row) => row.sessionId) }
+}
+
+/** 日志最后修改时间（统计窗口用）。 */
+function logMtime(row) {
+  if (row.logFile === undefined) return 0
+  try {
+    return statSync(row.logFile).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
 /** 汇报素材（report.facts）：把某时间窗内的任务与记录聚合成「事实」，不做摘要。 */
 export function facts({ since, cwd } = {}) {
   const from = since === undefined ? 0 : Date.parse(since)
@@ -221,6 +290,10 @@ export function facts({ since, cwd } = {}) {
     artifacts,
     usage,
     sessions: listSessions({ cwd }).length,
+    // 「这段时间里 dsh 自己动过哪些会话」—— 不只我们跑的任务（web/vscode 里跑的也算）
+    sessionsActive: listSessions({ cwd })
+      .filter((row) => row.logBytes > 0 && (from === 0 || logMtime(row) >= from))
+      .map((row) => ({ sessionId: row.sessionId, cwd: row.cwd, logBytes: row.logBytes, owner: ownershipOf(row.sessionId) })),
   }
 }
 
@@ -290,7 +363,12 @@ export async function callTool(name, args = {}, deps = {}) {
     case 'status.compat': {
       const sample = args.sessionId === undefined ? [] : readTailEvents(resolveSession(args.sessionId, args.cwd).dir, 60)
       const check = checkContract({ sampleEvents: sample })
-      return { ok: check.ok, degraded: check.degraded, tools: toolCatalog().filter((tool) => !tool.implemented).map((tool) => tool.name) }
+      const pending = toolCatalog().filter((tool) => !tool.implemented).map((tool) => tool.name)
+      return {
+        ok: check.ok,
+        degraded: check.degraded.map((item) => ({ ...item, consequence: '依赖该能力工具会降级或不可用' })),
+        tools: { total: toolCatalog().length, implemented: toolCatalog().length - pending.length, pending },
+      }
     }
     case 'status.overview': {
       const instance = await instanceState()
@@ -443,10 +521,57 @@ export async function callTool(name, args = {}, deps = {}) {
       return facts({ since: args.since, cwd: args.cwd })
     case 'report.digest':
       return { text: digest(facts({ since: args.since, cwd: args.cwd })) }
+    case 'report.narrate': {
+      // 方案 (c)：让 dsh 自己跑一次「总结任务」把素材写成叙述式汇报 —— 要花一次模型调用，默认不启用。
+      const material = facts({ since: args.since, cwd: args.cwd })
+      const prompt = [
+        '你是 dsh 的工作汇报助手。下面是 dsh-cli 采集的原始素材（结构化事实，未做摘要）。',
+        '请用中文写一段给主人看的工作汇报：先说正在跑的，再说完成了什么、失败了什么、需要主人处理什么；',
+        '只写素材里有的内容，不要编造；不要输出 JSON，不要复述字段名。',
+        '',
+        JSON.stringify(material, null, 2),
+      ].join('\n')
+      const out = await callTool('task.run', { prompt, cwd: args.cwd, provider: args.provider, model: args.model, timeoutMs: args.timeoutMs })
+      return { text: out.text, status: out.status, sessionId: out.sessionId, taskId: out.taskId, usage: out.usage, degraded: out.degraded }
+    }
     case 'artifact.list': {
       const row = resolveSession(args.sessionId, args.cwd)
       const { records } = recordsOf(row.dir)
       return { sessionId: row.sessionId, artifacts: args.all === true ? artifactsFromRecords(records) : artifactsFromRecords(records).filter((item) => item.exists) }
+    }
+    case 'artifact.diff': {
+      const cwd = args.cwd ?? (args.sessionId === undefined ? undefined : resolveSession(args.sessionId, undefined).cwd)
+      if (cwd === undefined || !existsSync(cwd)) {
+        const error = new Error('artifact.diff 需要 cwd 或 sessionId 来定位工作目录')
+        error.code = 'invalid_args'
+        throw error
+      }
+      if (!existsSync(join(cwd, '.git'))) return { cwd, available: false, reason: 'workplace 不是 git 仓库（没有 .git）' }
+      const git = (gitArgs) => spawnSync('git', ['-C', cwd, ...gitArgs], { encoding: 'utf8', windowsHide: true, maxBuffer: 512 * 1024 * 1024 })
+      const stat = git(['diff', '--stat'])
+      const diff = git(['diff', '--no-color'])
+      const untracked = git(['ls-files', '--others', '--exclude-standard'])
+      // 不裁：diff 原样返回（调用方自己决定怎么看）
+      return {
+        cwd,
+        available: true,
+        stat: stat.stdout ?? '',
+        diff: diff.stdout ?? '',
+        untracked: (untracked.stdout ?? '').split(/\r?\n/).filter((line) => line !== ''),
+        truncated: false,
+      }
+    }
+    case 'stats.usage': {
+      const agg = aggregateSessions({ cwd: args.cwd, since: args.since, limit: args.limit === undefined ? undefined : Number(args.limit) })
+      return { sessions: agg.sessions, usage: agg.usage, scanned: agg.scanned }
+    }
+    case 'stats.tools': {
+      const agg = aggregateSessions({ cwd: args.cwd, since: args.since, limit: args.limit === undefined ? undefined : Number(args.limit) })
+      return { sessions: agg.sessions, toolCalls: agg.toolCalls, toolHistogram: agg.toolHistogram, failureCount: agg.failures.length, failures: agg.failures.slice(0, Number(args.failureLimit ?? 20)), scanned: agg.scanned }
+    }
+    case 'stats.activity': {
+      const agg = aggregateSessions({ cwd: args.cwd, since: args.since, limit: args.limit === undefined ? undefined : Number(args.limit) })
+      return { sessions: agg.sessions, turns: agg.turns, steps: agg.steps, toolCalls: agg.toolCalls, scanned: agg.scanned, window: agg.window }
     }
     case 'event.poll': {
       const row = resolveSession(args.sessionId, args.cwd)
