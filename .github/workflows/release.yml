@@ -99,6 +99,51 @@ jobs:
             exit $LASTEXITCODE
           }
 
+  # Linux 单文件自包含产物（0.11.4 起）。与 Windows job 并行，各自上传自己的资产名；
+  # npm 发布只在 Windows job 做（避免双发竞态）。
+  dsh-cli-linux:
+    name: Build dsh-cli (Linux single-file)
+    needs: init
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dsh-cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dsh-cli/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Assert version matches tag
+        run: node -e "const p=require('./package.json');const t=process.argv[1].replace(/^v/,'');if(p.version!==t){console.error('package.json',p.version,'!= tag',t);process.exit(1)};console.log('version ok:',p.version)" "${{ github.ref_name }}"
+      - name: Quality gate (no network, no dsh)
+        run: node scripts/verify-cli.mjs
+      - name: Build self-contained Linux binary
+        run: npm run build:exe
+      - name: Smoke test (Linux binary)
+        run: |
+          set -euo pipefail
+          BIN="dist/dshcli-linux-x64"
+          ls -l dist
+          test -f "$BIN" || { echo "missing artifact: $BIN"; exit 1; }
+          test -x "$BIN" || { echo "artifact is not executable: $BIN"; exit 1; }
+          file "$BIN" | grep -q ELF
+          ./$BIN version | tee /tmp/dshcli-linux-version.txt
+          grep -q dshcli /tmp/dshcli-linux-version.txt
+          ./$BIN tools > /tmp/dshcli-linux-tools.txt
+          grep -q 'session.list' /tmp/dshcli-linux-tools.txt
+          echo "dsh-cli linux single-file smoke OK"
+      - name: Publish assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dsh-cli/dist/dshcli-linux-x64
+            dsh-cli/dist/dshcli-*-linux-x64
+          fail_on_unmatched_files: true
+
   launcher:
     name: Build dsh-launcher (portable + NSIS)
     needs: init

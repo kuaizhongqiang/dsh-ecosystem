@@ -52,20 +52,60 @@ export const CONTRACT = {
   ],
 }
 
-/** 找 dsh 可执行文件：环境变量 → 常见安装位 → PATH。 */
+/**
+ * 判断某个可执行文件是不是 Node 解释器。
+ *
+ * 为什么需要它：自包含 SEA 产物（`dshcli` / `dshcli.exe`）里 `process.execPath`
+ * 指向 **dshcli 自己**，不再是 node。旧实现拿 `process.execPath` 去跑 npm shim 的
+ * `.js`，实际执行的是 `dshcli <bin.js>` → 「未知命令」→ `run` 必失败。
+ * 用 `--version` 的形状来判定最稳：node 输出 `v22.x.y`，dshcli 输出 `dshcli: x.y.z`。
+ */
+export function isNodeInterpreter(exe) {
+  if (typeof exe !== 'string' || exe === '' || !existsSync(exe)) return false
+  try {
+    const probe = spawnSync(exe, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 10_000 })
+    return probe.status === 0 && /^v\d+\.\d+\./.test(String(probe.stdout ?? '').trim())
+  } catch {
+    return false
+  }
+}
+
+/** 找一个真 Node 解释器：优先 `process.execPath`（JS 安装时就是 node），否则退回 PATH 上的 node。 */
+export function findNodeInterpreter() {
+  if (isNodeInterpreter(process.execPath)) return process.execPath
+  try {
+    const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['node'], { encoding: 'utf8', windowsHide: true })
+    const first = (probe.stdout ?? '').split(/\r?\n/).map((line) => line.trim()).find((line) => line !== '')
+    if (probe.status === 0 && first !== undefined && isNodeInterpreter(first)) return first
+  } catch {
+    // 没有 node 就返回 undefined，交给调用方换候选
+  }
+  return undefined
+}
+
+/** 找 dsh 可执行文件：环境变量 → 常见安装位（需真 node 解释器）→ PATH。 */
 export function findDshBin() {
   const candidates = []
   if (process.env.DSHCLI_DSH_BIN) {
     const raw = process.env.DSHCLI_DSH_BIN
     // 允许指向一个 .js/.mjs/.cjs 脚本（质量门用的桩就是这么塞进来的）
-    if (/\.(mjs|cjs|js)$/i.test(raw)) candidates.push({ command: process.execPath, args: [raw], source: 'env:DSHCLI_DSH_BIN(js)' })
-    else candidates.push({ command: raw, args: [], source: 'env:DSHCLI_DSH_BIN' })
+    if (/\.(mjs|cjs|js)$/i.test(raw)) {
+      const interpreter = findNodeInterpreter()
+      if (interpreter !== undefined) candidates.push({ command: interpreter, args: [raw], source: 'env:DSHCLI_DSH_BIN(js)' })
+    } else candidates.push({ command: raw, args: [], source: 'env:DSHCLI_DSH_BIN' })
   }
   const appData = process.env.APPDATA ?? ''
   const home = process.env.USERPROFILE ?? process.env.HOME ?? ''
-  for (const base of [join(dshHome(), 'profiles', 'node_modules'), join(appData, 'npm', 'node_modules')]) {
-    const bin = join(base, '@deepseek-ai', 'dsh', 'lib', 'bin.js')
-    if (existsSync(bin)) candidates.push({ command: process.execPath, args: [bin], source: `npm-shim:${bin}` })
+  const shims = [join(dshHome(), 'profiles', 'node_modules'), join(appData, 'npm', 'node_modules')]
+    .map((base) => join(base, '@deepseek-ai', 'dsh', 'lib', 'bin.js'))
+    .filter((bin) => existsSync(bin))
+  if (shims.length > 0) {
+    // npm shim 是 .js，必须由**真 node** 执行；找不到解释器就整条候选作废，
+    // 不要退化成 `dshcli <bin.js>`——那只会把「找不到 dsh」伪装成「未知命令」。
+    const interpreter = findNodeInterpreter()
+    if (interpreter !== undefined) {
+      for (const bin of shims) candidates.push({ command: interpreter, args: [bin], source: `npm-shim:${bin}` })
+    }
   }
   for (const probe of ['dsh.cmd', 'dsh']) {
     const found = spawnSync(process.platform === 'win32' ? 'where' : 'which', [probe], { encoding: 'utf8', windowsHide: true })

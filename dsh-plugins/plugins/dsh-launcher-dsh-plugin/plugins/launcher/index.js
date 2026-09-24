@@ -15,7 +15,7 @@
 
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -227,13 +227,32 @@ function isNewer(a, b) {
 
 // --- dsh-cli（L1.5 入口层）的安装 / 更新入口 ---------------------------------
 // 主人 2026-09-24 追加要求：launcher 必须同时具备 dsh-cli 的【安装入口】与【更新入口】。
-// 设计：exe 由伞仓 Release 提供（资产名 dshcli.exe 为稳定别名，dshcli-<ver>.exe 带版本）；
-//      安装落 %DSH_HOME%\bin\dshcli.exe，旁边留一份 dshcli.install.json 记版本/大小/来源（**不含任何 token**）。
+// 设计：单文件产物由伞仓 Release 提供；**按平台选资产名**（0.11.4 起同时提供 Linux）：
+//   win32  → dshcli.exe / dshcli-<ver>.exe（历史名，保持不变）
+//   linux  → dshcli-linux-<arch> / dshcli-<ver>-linux-<arch>
+//   darwin → dshcli-darwin-<arch> / dshcli-<ver>-darwin-<arch>（CI 尚未产出，调用时给明确提示）
+//      安装落 %DSH_HOME%/bin/dshcli[.exe]，非 Windows 需补可执行位；
+//      旁边留一份 dshcli.install.json 记版本/大小/来源（**不含任何 token**）。
 
 const CLI_REPO = 'kuaizhongqiang/dsh-ecosystem'
 
 function cliBinDir() {
   return join(dshHome(), 'bin')
+}
+
+/** 平台后缀：'linux-x64' / 'win-x64' / 'darwin-arm64'；未知平台返回 undefined。 */
+function cliPlatformTag() {
+  const os = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'darwin' : process.platform === 'linux' ? 'linux' : undefined
+  return os === undefined ? undefined : `${os}-${process.arch}`
+}
+
+/** 本平台缺少预编译产物时的统一提示（不要静默下错平台的包）。 */
+function cliNoAssetError(tag) {
+  return new Error(
+    `launcher_cli: 本平台（${process.platform}/${process.arch}）暂无预编译 dsh-cli 单文件产物`
+    + `${tag === undefined ? '' : `（缺资产 dshcli-${tag}）`}；`
+    + '请改用 npm 安装：npm i -g @kuaizhongqiang/dsh-cli',
+  )
 }
 
 function cliExePath() {
@@ -244,19 +263,32 @@ function cliStatePath() {
   return join(cliBinDir(), 'dshcli.install.json')
 }
 
+/** 稳定资产名（release 的 `latest/download/` 下那个）。 */
+function cliStableAsset(tag) {
+  return process.platform === 'win32' ? 'dshcli.exe' : `dshcli-${tag}`
+}
+
+/** 带版本资产名。 */
+function cliVersionedAsset(tag, bare) {
+  return process.platform === 'win32' ? `dshcli-${bare}.exe` : `dshcli-${bare}-${tag}`
+}
+
 /** 安装来源：默认伞仓 Release 的稳定资产名；给了 version 就用带版本的那个。 */
 function cliAssetUrl(version) {
-  if (version === undefined) return `https://github.com/${CLI_REPO}/releases/latest/download/dshcli.exe`
-  const tag = String(version).startsWith('v') ? String(version) : `v${version}`
-  const bare = tag.replace(/^v/, '')
-  return `https://github.com/${CLI_REPO}/releases/download/${tag}/dshcli-${bare}.exe`
+  const tag = cliPlatformTag()
+  if (tag === undefined) throw cliNoAssetError(tag)
+  if (version === undefined) return `https://github.com/${CLI_REPO}/releases/latest/download/${cliStableAsset(tag)}`
+  const ref = String(version).startsWith('v') ? String(version) : `v${version}`
+  return `https://github.com/${CLI_REPO}/releases/download/${ref}/${cliVersionedAsset(tag, ref.replace(/^v/, ''))}`
 }
 
 /**
- * 问一次最新 Release 里的 dsh-cli 版本号（资产名 dshcli-<ver>.exe 是权威来源）。
+ * 问一次最新 Release 里的 dsh-cli 版本号（带平台后缀的资产名是权威来源）。
  * 失败不抛：返回 undefined，调用方退回「稳定资产名 + version 记 latest」的兜底路径。
  */
 async function latestCliVersion() {
+  const tag = cliPlatformTag()
+  if (tag === undefined) return undefined
   try {
     const resp = await fetch(`https://api.github.com/repos/${CLI_REPO}/releases/latest`, {
       headers: { 'User-Agent': 'dsh-launcher-plugin', Accept: 'application/json' },
@@ -264,8 +296,11 @@ async function latestCliVersion() {
     })
     if (resp.status !== 200) return undefined
     const release = await resp.json()
+    const pattern = process.platform === 'win32'
+      ? /^dshcli-(\d+\.\d+\.\d+(?:-[\w.]+)?)\.exe$/i
+      : new RegExp(`^dshcli-(\\d+\\.\\d+\\.\\d+(?:-[\\w.]+)?)-${tag}$`, 'i')
     for (const asset of release.assets ?? []) {
-      const m = /^dshcli-(\d+\.\d+\.\d+(?:-[\w.]+)?)\.exe$/i.exec(String(asset.name ?? ''))
+      const m = pattern.exec(String(asset.name ?? ''))
       if (m !== null) return m[1]
     }
     return undefined
@@ -376,6 +411,8 @@ async function installCli({ from, version, force }) {
     }
   }
   renameSync(staging, target)
+  // 非 Windows 必须补可执行位：否则下载完直接跑会 EACCES（这正是 Linux 上「装了但不能用」的成因之一）
+  if (process.platform !== 'win32') chmodSync(target, 0o755)
   const sha256 = createHash('sha256').update(bytes).digest('hex')
   // 版本优先用「问 exe」得到的真实值（Release API 挂了也不影响记准版本）
   const probed = probeCliVersion(target)

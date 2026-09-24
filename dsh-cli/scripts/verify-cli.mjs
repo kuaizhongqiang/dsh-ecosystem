@@ -11,7 +11,7 @@
 //
 // 用法：node scripts/verify-cli.mjs
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -437,6 +437,42 @@ console.log('13. 兼容门：会话目录在却一个都读不到 → 必须报 
     ok(blind.ok === false && blind.degraded.some((item) => item.id === 'sessions-layout'), '13-1 报出 sessions-layout 降级（否则就是「doctor 全绿但读不到任何会话」的静默态）')
   } finally {
     process.env.DSH_HOME = savedHome
+  }
+}
+
+console.log('14. dsh 落点解析：SEA 自包含产物里 process.execPath 不是 node')
+{
+  const dsh = await import(pathToFileURL(join(src, 'dsh.js')).href)
+  ok(dsh.isNodeInterpreter(process.execPath) === true, '14-1 认出真 node 解释器（JS 安装下 process.execPath 就是 node）')
+
+  // 造一个「像 dshcli 一样」的可执行文件：能跑、退出 0，但 --version 不是 vX.Y.Z
+  const fake = join(base, process.platform === 'win32' ? 'fake-dshcli.cmd' : 'fake-dshcli')
+  writeFileSync(fake, process.platform === 'win32' ? '@echo dshcli: 9.9.9\r\n' : '#!/bin/sh\necho "dshcli: 9.9.9"\n')
+  if (process.platform !== 'win32') chmodSync(fake, 0o755)
+  ok(dsh.isNodeInterpreter(fake) === false, '14-2 不把 dshcli 自包含产物误认成 node 解释器')
+  ok(dsh.isNodeInterpreter(join(base, 'definitely-missing')) === false, '14-3 不存在的路径返回 false')
+
+  // 不变式：凡是以 .js 为参数去 spawn 的候选，command 必须是**真 node**。
+  // 旧实现用 process.execPath，SEA 产物里会变成 `dshcli <bin.js>` → 「未知命令」→ run 必失败。
+  const shimDir = join(home, 'profiles', 'node_modules', '@deepseek-ai', 'dsh', 'lib')
+  mkdirSync(shimDir, { recursive: true })
+  writeFileSync(join(shimDir, 'bin.js'), '// stub dsh bin（只为让 findDshBin 命中 npm-shim 候选）\n')
+  const savedHome = process.env.DSH_HOME
+  const savedEnvBin = process.env.DSHCLI_DSH_BIN
+  process.env.DSH_HOME = home
+  delete process.env.DSHCLI_DSH_BIN
+  try {
+    const candidate = dsh.findDshBin()
+    if (candidate === undefined) {
+      ok(false, '14-4 造了 shim 却解析不出候选（findDshBin 逻辑有问题）')
+    } else {
+      const usesJs = (candidate.args ?? []).some((arg) => /\.(mjs|cjs|js)$/i.test(arg))
+      ok(usesJs && dsh.isNodeInterpreter(candidate.command) === true,
+        `14-4 .js shim 的 command 必须是真 node（source=${candidate.source}, command=${candidate.command}）`)
+    }
+  } finally {
+    process.env.DSH_HOME = savedHome
+    if (savedEnvBin !== undefined) process.env.DSHCLI_DSH_BIN = savedEnvBin
   }
 }
 

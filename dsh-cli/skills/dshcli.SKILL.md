@@ -1,6 +1,6 @@
 ---
 name: dshcli
-description: 用 dshcli 命令行「让别的 agent 调 dsh 执行任务」或「人直接跑 dsh 任务 / 看工作情况」。dshcli 是 dsh-cli（L1.5 入口层）的自包含 exe：本机工具服务 + 两层命令（主命令 + 全工具面）。当你要用 dsh 跑任务、取任务终结产出 out、看会话分段记录、做工作汇报，或要在命令行里调 dsh 的任意工具时使用。
+description: 用 dshcli 命令行「让别的 agent 调 dsh 执行任务」或「人直接跑 dsh 任务 / 看工作情况」。dshcli 是 dsh-cli（L1.5 入口层）的自包含单文件产物（Windows `dshcli.exe` / Linux `dshcli-linux-x64`，也可 npm 安装）：本机工具服务 + 两层命令（主命令 + 全工具面）。当你要用 dsh 跑任务、取任务终结产出 out、看会话分段记录、做工作汇报，或要在命令行里调 dsh 的任意工具时使用。
 whenToUse: 用户说「用 dsh 跑一下…」「让 dsh 做…」「看看 dsh 现在在干什么」「汇报一下工作」「把任务派给 dsh」，或你要在脚本 / 自动化里调用 dsh、把 dsh 接进定时调度时使用。定时/调度本身不归 dsh（归调用方），dshcli 只负责执行与查询。
 ---
 
@@ -12,7 +12,7 @@ whenToUse: 用户说「用 dsh 跑一下…」「让 dsh 做…」「看看 dsh 
 
 - 数据源是 **dsh 的会话事件日志**（唯一真源），不是 `dsh --profile headless --json` 的投影
   —— 后者**会裁**（字符串 8KiB、事件行 32KiB、深度 64），而本工具**不裁**。
-- 文件就在 `dshcli.exe` 旁边（本文件即技能说明）；`dshcli skill` 可随时重新打印。
+- 文件就在 dshcli 产物旁边（本文件即技能说明）；`dshcli skill` 可随时重新打印。
 
 ## 先做三件事
 
@@ -70,9 +70,26 @@ dshcli stats tools --since 2026-09-24T00:00:00Z --json
 
 ## 怎么装 / 怎么升级
 
-- 有 launcher 时：`launcher_cli {action:'install'|'update'|'start'}`（安装/升级 dsh-cli 并拉起服务）。
-- 手动：从 dsh-ecosystem 的 Release 下 `dshcli.exe` 放到 `%DSH_HOME%\bin\`；本技能紧随其旁。
-- 升级后建议 `dshcli skill --where` 看技能是否与 exe 内嵌版本一致（不一致就跑 `dshcli skill --install` 刷新）。
+**单文件自包含产物**（目标机不需要装 Node）——按平台取资产名：
+
+| 平台 | 稳定资产 | 带版本资产 | 落地 |
+|---|---|---|---|
+| Windows | `dshcli.exe` | `dshcli-<ver>.exe` | `%DSH_HOME%\bin\dshcli.exe` |
+| Linux | `dshcli-linux-x64` | `dshcli-<ver>-linux-x64` | `$DSH_HOME/bin/dshcli`（**记得 `chmod +x`**） |
+| macOS | `dshcli-darwin-<arch>` | `dshcli-<ver>-darwin-<arch>` | `$DSH_HOME/bin/dshcli`（**CI 尚未产出**，暂用 npm） |
+
+- 有 launcher 时：`launcher_cli {action:'install'|'update'|'start'}` —— 会按本机平台自动选上面的资产名，非 Windows 会自动补可执行位。
+- 手动（Linux 示例）：
+  ```sh
+  mkdir -p "$DSH_HOME/bin"
+  curl -fL -o "$DSH_HOME/bin/dshcli" \
+    https://github.com/kuaizhongqiang/dsh-ecosystem/releases/latest/download/dshcli-linux-x64
+  chmod +x "$DSH_HOME/bin/dshcli"
+  "$DSH_HOME/bin/dshcli" doctor
+  ```
+- **不想要单文件时用 npm**（跨平台、最省事）：`npm i -g @kuaizhongqiang/dsh-cli`。
+- 升级后建议 `dshcli skill --where` 看技能是否与产物内嵌版本一致（不一致就跑 `dshcli skill --install` 刷新）。
+- **Linux 注意**：单文件产物里 `process.execPath` 是 dshcli 自己、不是 node，所以 `dshcli run` 需要 PATH 上能找到 `node` 来执行 dsh 本体的 `bin.js`（0.11.4 起会自动探测，找不到会明确报「未找到 dsh 可执行文件」而不再伪装成「未知命令」）。
 
 ## 排查
 
