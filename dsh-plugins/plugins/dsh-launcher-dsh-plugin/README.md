@@ -12,7 +12,7 @@
 | `launcher_connections` | 列出/切换 `connections.json` 连接组(`action=use`,可 `restart=true` 立即生效);写 D8 变更标记 |
 | `launcher_open` | 按激活/指定连接打开浏览器(带 token 自动登录;url 脱敏回显) |
 | `launcher_check_update` | launcher GitHub Release 升级检测(升级需用户主动确认,M8 lock 语义) |
-| `launcher_cli(action, version?, from?, force?)` | **dsh-cli(L1.5 入口层)的安装 / 更新入口**:`status` 看是否已安装/版本(纯本地读,不触网);`install` 从伞仓 Release 装 `dshcli.exe`(可给 `version`,或给 `from` 用本地 exe / 私有 URL);`update` 检查并升级(版本相同不重装,`force=true` 可强装);`start` 拉起 `dshcli serve` |
+| `launcher_cli(action, version?, from?, force?)` | **dsh-cli(L1.5 入口层)的安装 / 更新入口**:`status` 看是否已安装/版本(纯本地读,不触网);`install` 从伞仓 Release 按**本机平台**取资产(Windows `dshcli.exe` / Linux `dshcli-linux-<arch>`,非 Windows 自动补可执行位),可给 `version`,或给 `from` 用本地文件 / 私有 URL;`update` 检查并升级(版本相同不重装,`force=true` 可强装);`start` 拉起 `dshcli serve` |
 
 ### dsh-cli 的安装 / 更新入口(`launcher_cli`)
 
@@ -43,13 +43,32 @@ dsh 侧把「含 `undefined` 值的结果」判为非 lossless JSON 并让**整�
 
 ## 安装
 
+Windows（PowerShell）：
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 ```
 
-重启 web 实例后工具生效。工具只读/写 `%DSH_HOME%` seam 文件(launcher-registration.json /
-connections.json / launch-token.json),**token 不出本机、输出一律脱敏**(D2)。
+Linux / macOS（POSIX，与 install.ps1 等价）：
+
+```sh
+./install.sh              # 安装（幂等）
+./install.sh --uninstall  # 卸载（删载荷 + 精确剥掉本节 patch，不碰别的节）
+DSH_HOME=/path ./install.sh          # 指定 DSH_HOME（缺省 ~/.dsh）
+./install.sh --profile /x/profiles/web   # 直接指定 web profile 目录
+```
+
+两者都会在写 patch 后用 `dsh-plugins/scripts/validate-patch.mjs` 校验；校验不过会**非零退出**，
+不会让你带着坏 patch 去重启。
+
+重启 web 实例后工具生效（服务端 profile 补丁**不是**热重载的，`patchReload: live` 只覆盖客户端插件；
+0.1.7 起 launcher 会把 `patchReload` 钉成 `startup`）。工具只读/写 `%DSH_HOME%` seam 文件
+(launcher-registration.json / connections.json / launch-token.json)，**token 不出本机、输出一律脱敏**(D2)。
+
+> 非 Windows 上没有 launcher 本体时：`launcher_cli`（装/升级 dsh-cli）与 `launcher_status` /
+> `launcher_check_update` 可用；`launcher_restart` / `launcher_open` / `launcher_connections` 会给出
+> 明确的手动指引或「仅支持 Windows」错误，不会静默失败。
 
 ## 发现链(D6/M6)
 

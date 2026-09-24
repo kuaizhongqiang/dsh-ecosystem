@@ -140,6 +140,7 @@ function loadYaml() {
 
 const yaml = loadYaml()
 const ids = []
+const rows = []
 if (yaml === null) {
   console.log('NOTE no YAML parser found; ran the structural lint only (set NODE_PATH to a node_modules with js-yaml for the full check)')
 } else {
@@ -155,27 +156,46 @@ if (yaml === null) {
   }
   if (Array.isArray(doc)) {
     for (const [index, entry] of doc.entries()) {
-      const keys = entry !== null && typeof entry === 'object' ? Object.keys(entry) : []
-      if (keys.length !== 1 || keys[0] !== 'insert') {
-        problems.push(`entry ${index} is not a single-key "insert:" object (keys: ${JSON.stringify(keys)})`)
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+        problems.push(`entry ${index} is not an object (got ${JSON.stringify(entry)})`)
         continue
       }
-      for (const item of entry.insert) {
-        if (item === null || typeof item !== 'object' || typeof item.id !== 'string') {
-          problems.push(`entry ${index} holds an insert item without a string id`)
+      const keys = Object.keys(entry)
+      if (keys.includes('insert')) {
+        if (keys.length !== 1) {
+          problems.push(`entry ${index} mixes "insert" with other keys (keys: ${JSON.stringify(keys)})`)
           continue
         }
-        ids.push(item.id)
-        if ('config' in item && item.config === null) {
-          problems.push(`insert ${item.id} resolves to config: null - its keys were swallowed`)
+        for (const item of entry.insert) {
+          if (item === null || typeof item !== 'object' || typeof item.id !== 'string') {
+            problems.push(`entry ${index} holds an insert item without a string id`)
+            continue
+          }
+          ids.push(item.id)
+          if ('config' in item && item.config === null) {
+            problems.push(`insert ${item.id} resolves to config: null - its keys were swallowed`)
+          }
+          if (!('name' in item)) problems.push(`insert ${item.id} has no plugin name`)
         }
-        if (!('name' in item)) problems.push(`insert ${item.id} has no plugin name`)
+        continue
+      }
+      // dsh 0.1.7 起，profile patch 也直接承载**扁平行**（`{id,name,config}`，不裹 insert）——
+      // 设置迁移就是这样写进来的（ui-* / permission / llm-pi-ai / agent-default-model）。
+      // 老版本只认 insert，会对升级后的 profile 全线误报。
+      if (typeof entry.id !== 'string' || typeof entry.name !== 'string') {
+        problems.push(`entry ${index} is neither an "insert:" object nor a direct {id,name} row (keys: ${JSON.stringify(keys)})`)
+        continue
+      }
+      rows.push(entry.id)
+      if ('config' in entry && entry.config === null) {
+        problems.push(`row ${entry.id} resolves to config: null - its keys were swallowed`)
       }
     }
   }
 }
 
 if (ids.length > 0) console.log(`${ids.length} insert item(s): ${ids.join(', ')}`)
+if (rows.length > 0) console.log(`${rows.length} direct row(s): ${rows.join(', ')}`)
 if (problems.length > 0) {
   for (const problem of problems) console.error(`FAIL ${problem}`)
   process.exit(1)

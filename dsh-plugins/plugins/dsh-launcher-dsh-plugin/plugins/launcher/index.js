@@ -13,7 +13,7 @@
  * 工具输出一律脱敏(token=***)。
  */
 
-import { execFile, spawn } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -711,7 +711,7 @@ export function apply(ctx) {
           skillOk: { type: 'boolean', description: '技能说明是否已就位(install/update 时)' },
           skillPath: { type: 'string', description: '技能说明文件路径' },
           skillReason: { type: 'string', description: '技能落盘失败原因(成功时不带)' },
-          state: { type: 'object', description: '安装状态文件内容' },
+          state: { type: 'object', additionalProperties: true, description: '安装状态文件内容' },
         },
       },
       render: (_a, v) => [{ type: 'text', text: v.summary }],

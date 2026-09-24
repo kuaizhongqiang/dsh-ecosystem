@@ -23,12 +23,22 @@ token 不出本机、输出一律脱敏。
 
 ## 2. 安装
 
+Windows（PowerShell）：
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File "<dsh-plugins>/plugins/dsh-launcher-dsh-plugin/install.ps1"
 # 卸载:-Uninstall
 ```
 
-幂等:载荷覆盖复制,patch 条目(tool-launcher)判重跳过。
+Linux / macOS（POSIX，与 install.ps1 等价 —— **非 Windows 上没有 PowerShell，用这个**）：
+
+```sh
+"<dsh-plugins>/plugins/dsh-launcher-dsh-plugin/install.sh"
+# 卸载:--uninstall ；指定 DSH_HOME:DSH_HOME=/path ./install.sh
+```
+
+幂等:载荷覆盖复制,patch 条目(tool-launcher)判重跳过。两者都会在写 patch 后用
+`dsh-plugins/scripts/validate-patch.mjs` 校验,不过则非零退出。
 
 ## 3. 重启并验证
 
