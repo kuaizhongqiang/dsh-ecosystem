@@ -1,5 +1,27 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(harness 子模块 bump + dsh-cli 方案调研)
+
+- **子模块 bump**:`deepseek-harness` 指针 `ddefc45f`(`dsh-v0.1.6-alpha.2`,2026-09-17)
+  → **`46a7f68b`(= 官方 tag `dsh-v0.1.7-rc.1`,2026-09-23)**,且该 commit 就是官方 `origin/master` 尖端
+  (`rev-parse dsh-v0.1.7-rc.1^{commit}` 与 `origin/master` 一致,`merge-base --is-ancestor` 通过)。
+  本仓不构建 harness(CI/scripts 均不引用该目录),验证口径同前 = 锁定官方 tag + gitlink 可解析,
+  未做本机构建验证(如实记录)。指针记录同步四处:根 README 组件清单、`docs/modules/README.md`、
+  `docs/modules/deepseek-harness.md`、`docs/modules/dsh-vscode-embed-design.md`(其依据的本地工作副本
+  `dsh-v0.1.5-alpha.1` 现更旧)。
+- **dsh-cli 方案调研(只读,未动代码)**:为「cmd 里用 dsh」+「其他 agent 应用调用 dsh 本体」两个用途
+  取证上游现状,结论 —— **上游已有 CLI 与三条程序化通道,不该重写**:`@deepseek-ai/dsh`(bin `dsh`)的
+  profile 体系含 `headless`(一次性非交互:位置参数/stdin、`--json` NDJSON、`--session-id`、退出码 0/1)、
+  `sdk`/`sdk-minimal`(JSON-RPC over stdio + Python/Node SDK:`@deepseek-ai/dsh-sdk-client`)、
+  `acp`(Agent Client Protocol,含 `session/request_permission`)。**上游确实缺的四处**:
+  ① 无 MCP server 模式(只有 mcp-client)——「别的 agent 调 dsh」最通用的入口缺失;
+  ② 无跨进程连接/凭证文件(token 只在进程内 `WeakMap`,跨进程只能解析启动日志里带 token 的 URL);
+  ③ SDK 无 mid-turn cancel、无 per-prompt result 关联、无 server→client 请求(approval 仅 ACP/进程内);
+  ④ 无生态运维面(profile/插件/凭证/manifest)。方案取向:生态级 `dsh-cli` = **薄入口层**
+  (包 headless / sdk / acp,**不自建 agent loop**),补齐上述 4 处,MCP server 作首发增量。
+- **环境备忘**:本机工作副本被外部反复 `git checkout FETCH_HEAD`(reflog 可见),HEAD 两次处于游离态;
+  提交前务必确认 `git branch --show-current` = 目标分支,否则会提交到旧提交之上(本次已当场纠正)。
+
 ## 2026-09-22(已发 v0.10.0 —— issue #30 / #31 / #32 / #34 全量下发)
 
 - **发布准备**(commit `543abc8`):launcher / vscode / desktop 三组件 0.9.4 → **0.10.0**(与 tag 一致,

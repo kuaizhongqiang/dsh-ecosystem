@@ -33,7 +33,7 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 | [agent-memory](agent-memory/) | L5 记忆层(协议桥: MCP 桥/HTTP 桥/autostore) | kuaizhongqiang/TencentAgentMemoryBridge | `4080826` | 0.3.0 |
 | [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.8.5 |
 | [dsh-desktop](dsh-desktop/) | L4 桌面壳 | kuaizhongqiang/dsh-desktop | `250abfb` | 0.8.0 |
-| deepseek-harness | L2 本体(官方只读) | deepseek-ai/deepseek-harness | 子模块 `ddefc45f` | — |
+| deepseek-harness | L2 本体(官方只读) | deepseek-ai/deepseek-harness | 子模块 `46a7f68b` | — |
 
 > 组件目录为伞仓 git 的普通目录(嵌套 .git/.gitmodules 已清除),随伞仓统一提交;插件集即
 > `dsh-plugins/` 目录,launcher 安装/拉取按 `dsh-launcher/ecosystem.json` 锁定的伞仓 commit + sha256 获取。
