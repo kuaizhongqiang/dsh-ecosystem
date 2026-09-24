@@ -1,5 +1,33 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(已发 v0.11.3 —— dsh-cli v3 会话日志兼容 + document-read PDF 修复)
+
+- **版本与发布**:四处组件 `0.11.2 → 0.11.3`;插件源重钉 `0b9566f`(含本次插件内容的提交);tag `v0.11.3`
+  的 CI **6 个 job 全绿**(Init release / dsh-cli / launcher / desktop / vscode / plugins)。资产:
+  `dshcli.exe`·`dshcli-0.11.3.exe`(93,622,784 B)·`dsh-launcher(-setup-0.11.3).exe`·
+  `dsh-vscode-0.11.3.vsix`·`dsh-desktop-0.11.3-setup.exe` + blockmap + `latest.yml`;
+  npm:`@kuaizhongqiang/dsh-cli@0.11.3`(dist-tag `latest` 已切;registry 可见性约 1 分钟延迟)。
+- **修复 1(issue #54,dsh-cli)**:上游把事件日志改名为 `session.v3.jsonl.zstd` 且**会话头与事件同文件**,
+  而 `session-log.js` 硬编码旧名 → `readSessionHeader()` 全候选落空 → `listSessions()` 把整个会话跳过,
+  `session.history / report / stats / artifact` 一起**静默变空**(本机实测:37 个会话之后新产生的 37 个
+  一个都看不见,而 `doctor` 仍报 `ok: true / degraded: []`)。修:文件名改候选列表(v3 优先)+
+  `parseEvents()` 剔除同文件里的会话头(否则事件条数/between/seqRange 全多 1)+ 兼容门新增
+  「sessions 根下有会话目录、却一个都读不到 → 报 `sessions-layout` 降级」。
+- **修复 2(document-read)**:PDF 全挂,报 `python parser produced invalid JSON`。根因不是缺依赖——
+  PyMuPDF ≥ 1.26 的 `import fitz` 弃用警告打到 **stdout**,而 `parse_document.py` 的 JSON 也写 stdout,
+  警告行成了 JSON 首行。修:优先 `import pymupdf as fitz`,仅旧版回退 `fitz`。
+- **质量门**:`verify-cli.mjs` **85 通过 → 91 通过 / 0 失败**,新增 §12「v3 与旧版会话并存」夹具
+  (发现 / `logFileOf` / 会话头 / 事件全量)与 §13「目录在但读不到 → 必须降级」。其中 §12-5 第一次跑就
+  FAIL(读到 9 条而非 8 条),正是它逼出了上面「会话头被当事件」的同源问题。dsh-cli job 会跑这道门,
+  所以 v3 兼容从此有 CI 覆盖。
+- **本机闭环**:`npm i -g @kuaizhongqiang/dsh-cli@0.11.3` 后 `doctor` ok / degraded 空、会话数 **37 → 75**、
+  `run` 真实执行写出文件并回 `out`;`read_document` 对 xlsx / docx / pdf 三种格式实读通过。
+- **观察(未修)**:dsh-cli 的 npm 包内 `src/*.js` 与 `skills/*.md` 是 **CRLF** 行尾(伞仓是 LF)——推测
+  dsh-cli job 跑在 `windows-latest`,checkout 的 autocrlf 把工作区转成 CRLF 后打进 tarball。后果:装完
+  `dshcli skill --where` 立刻报「与内嵌不一致」,要 `skill --install` 刷一次;逐行 diff 也会整篇标红。
+- **未动**:`deepseek-harness` 子模块指针保持 v0.11.2 时已验证的 `46a7f68`(本地检出为 `47f9438`,
+  故 `git status` 显示该子模块 `M`——纯本地检出状态,未进任何提交)。
+
 ## 2026-09-24(已发 v0.11.2 —— #52 应用侧加固下发)
 
 - **版本与发布**:四处组件 `0.11.1 → 0.11.2`;插件源重钉 `14eb25c`;tag `v0.11.2` 的 CI **6 个 job 全绿**
