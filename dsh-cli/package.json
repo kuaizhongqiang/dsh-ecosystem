@@ -1,6 +1,6 @@
 {
   "name": "@kuaizhongqiang/dsh-cli",
-  "version": "0.1.0",
+  "version": "0.11.0",
   "description": "dsh-cli：终端 CLI + 本机工具服务 —— 让别的 agent（openclaw 等）能调用 dsh 执行任务并查看工作情况；dsh 只管执行与查询，定时/调度归调用方。",
   "license": "MIT",
   "type": "module",
