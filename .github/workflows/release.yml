@@ -35,6 +35,70 @@ jobs:
             --title "dsh-ecosystem $tag" \
             --notes "dsh-ecosystem $tag — 全量发布(launcher / desktop / vscode / plugins 同一版本)。安装/下载入口见本 release 资产;vscode 同步发布 Open VSX;流程见 docs/RELEASING.md。"
 
+  dsh-cli:
+    name: Build dsh-cli (portable exe + npm)
+    needs: init
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: dsh-cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dsh-cli/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Assert version matches tag
+        run: node -e "const p=require('./package.json');const t=process.argv[1].replace(/^v/,'');if(p.version!==t){console.error('package.json',p.version,'!= tag',t);process.exit(1)};console.log('version ok:',p.version)" "${{ github.ref_name }}"
+      - name: Quality gate (no network, no dsh)
+        run: node scripts/verify-cli.mjs
+      - name: Build self-contained exe
+        run: npm run build:exe
+      - name: Smoke test (exe)
+        shell: pwsh
+        run: |
+          $exe = "dist\dshcli.exe"
+          if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
+          Get-Item $exe | Select-Object Name, @{N='MB';E={[math]::Round($_.Length/1MB,1)}}
+          $v = & $exe version
+          if ($LASTEXITCODE -ne 0) { throw "version exit $LASTEXITCODE" }
+          $v | Select-Object -First 3
+          if (-not ($v -match 'dshcli')) { throw "unexpected version output" }
+          $t = & $exe tools
+          if ($LASTEXITCODE -ne 0) { throw "tools exit $LASTEXITCODE" }
+          if (-not ($t -match 'session.list')) { throw "unexpected tools output" }
+          Write-Host "dsh-cli exe smoke OK"
+      - name: Publish assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dsh-cli/dist/dshcli.exe
+            dsh-cli/dist/dshcli-*.exe
+          fail_on_unmatched_files: true
+      - name: Publish to npm (optional)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: pwsh
+        run: |
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          if (-not $env:NPM_TOKEN) { Write-Host "NPM_TOKEN not set — skip npm publish"; exit 0 }
+          npm view "@kuaizhongqiang/dsh-cli@$ver" version *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "npm: $ver already published — skip"
+            exit 0
+          }
+          "//registry.npmjs.org/:_authToken=$env:NPM_TOKEN" | Out-File -Encoding ascii (Join-Path $env:USERPROFILE '.npmrc')
+          npm publish --access public
+          if ($LASTEXITCODE -ne 0) {
+            # 竞态兜底:发布失败但版本已在 registry → 视为成功(重跑场景)
+            npm view "@kuaizhongqiang/dsh-cli@$ver" version *> $null
+            if ($LASTEXITCODE -eq 0) { Write-Host "npm: $ver is live — treat as success"; exit 0 }
+            exit $LASTEXITCODE
+          }
+
   launcher:
     name: Build dsh-launcher (portable + NSIS)
     needs: init

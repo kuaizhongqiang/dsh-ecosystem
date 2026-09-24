@@ -2,7 +2,8 @@
 // 用途:CI(plugins job)与本机发布前跑;确保:
 //   1) dsh-launcher/ecosystem.json 插件源 = kuaizhongqiang/dsh-ecosystem;
 //   2) 各包 install.ps1 与 skills 脚本 sha256 与清单一致(dir 前缀 dsh-plugins/);
-//   3) src/ecosystem.ts 内嵌默认清单与 ecosystem.json 同步(repo 与 commit)。
+//   3) src/ecosystem.ts 内嵌默认清单与 ecosystem.json 同步(repo 与 commit);
+//   4) 四处组件版本一致(launcher / vscode / desktop / dsh-cli),给 TAG 时还要与 tag 一致。
 // 失败 exit 1。无第三方依赖,node >=18 即可跑(仓库根执行)。
 
 import { createHash } from 'node:crypto';
@@ -49,4 +50,28 @@ if (!/import\s+[A-Za-z0-9_$]+\s+from\s+'\.\.\/ecosystem\.json'\s+with\s+\{\s*typ
 }
 console.log('  ✓ src/ecosystem.ts 默认清单单一来源 = ecosystem.json');
 
-console.log('[verify-release] OK — 伞仓插件源清单一致, 可发布');
+// 四处组件版本一致（CI 会逐组件对 tag 断言，这里提前在本机/CI 都拦住漏 bump）：
+// launcher / vscode / desktop / dsh-cli 同属伞仓全量 tag，必须同一个版本号。
+const components = [
+  ['dsh-launcher', join(root, 'dsh-launcher', 'package.json')],
+  ['dsh-vscode', join(root, 'dsh-vscode', 'package.json')],
+  ['dsh-desktop', join(root, 'dsh-desktop', 'desktop', 'package.json')],
+  ['dsh-cli', join(root, 'dsh-cli', 'package.json')],
+];
+const versions = new Map();
+for (const [name, file] of components) {
+  if (!existsSync(file)) fail(`组件 package.json 不存在: ${file}`);
+  const version = JSON.parse(readFileSync(file, 'utf8')).version;
+  versions.set(name, version);
+  console.log(`  ✓ ${name} ${version}`);
+}
+const unique = new Set(versions.values());
+if (unique.size !== 1) {
+  fail(`四处组件版本不一致: ${[...versions].map(([n, v]) => `${n}=${v}`).join(', ')}`);
+}
+const tag = String(process.env.TAG ?? process.env.GITHUB_REF_NAME ?? '').replace(/^v/, '');
+if (tag !== '' && !unique.has(tag)) {
+  fail(`组件版本 ${[...unique].join('/')} 与目标 tag ${tag} 不一致（先 bump 再打 tag）`);
+}
+
+console.log('[verify-release] OK — 伞仓插件源清单一致 + 四处组件版本一致, 可发布');

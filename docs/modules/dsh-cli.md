@@ -34,5 +34,9 @@
 
 ## 质量门
 
-- `node dsh-cli/scripts/verify-cli.mjs` —— 51 项:多帧 zstd / 会话发现 / 分段契约 / 归属写权限 / `out` 无损 /
-  **桩 dsh 端到端**(可执行+会话日志+out+report,不触网) / HTTP 鉴权与工具路由 / CLI 骨架。
+- `node dsh-cli/scripts/verify-cli.mjs` —— 66 项:多帧 zstd / 会话发现 / 分段契约 / 归属写权限 / `out` 无损 /
+  **桩 dsh 端到端**(可执行+会话日志+out+report,不触网) / HTTP 鉴权与工具路由 / CLI 骨架 / 契约快照;
+- 构建:`npm run build:exe`(esbuild 打包 → Node SEA blob → postject 注入 → `dist/dshcli.exe` +
+  `dist/dshcli-<ver>.exe`;`dist/` 不入库,只进 Release 资产);
+- 发布门:`scripts/verify-release.mjs` 现在同时校验**四处组件版本一致**(launcher / vscode / desktop / dsh-cli),
+  给了 `TAG`/`GITHUB_REF_NAME` 还要与 tag 一致。

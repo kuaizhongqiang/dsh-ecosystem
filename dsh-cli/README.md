@@ -62,10 +62,33 @@ curl -H "authorization: Bearer <token>" -H "content-type: application/json" \
 ## 质量门
 
 ```sh
-node scripts/verify-cli.mjs      # 51 项：多帧 zstd / 会话读取 / 分段契约 / 归属 / out / 桩 dsh 端到端 / HTTP / CLI
+node scripts/verify-cli.mjs      # 66 项：多帧 zstd / 会话读取 / 分段契约 / 归属 / out / 桩 dsh 端到端 / HTTP / CLI / 契约快照
 ```
 
 不触网、不需要装 dsh —— 执行链用一个「自己写会话日志的桩 dsh」跑通。
+
+## 装与升级
+
+**人用**（launcher 侧有入口，推荐）：
+
+| 动作 | 怎么调 |
+|---|---|
+| 看是否已装 / 版本 | `launcher_cli {action:'status'}`（launcher 插件工具） |
+| 安装 | `launcher_cli {action:'install'}` —— 从伞仓 Release 取 `dshcli.exe` 落到 `%DSH_HOME%\bin\`；可给 `version` 或本地 `from` |
+| 升级 | `launcher_cli {action:'update'}` —— 版本不同才替换，旧 exe 自动备份 |
+| 起服务 | `launcher_cli {action:'start'}` 或直接 `dshcli serve` |
+
+**npm**：`npx @kuaizhongqiang/dsh-cli version`（需要 Node ≥ 22.19 / 24）。
+
+**自己构建**（要出 exe 时）：
+
+```sh
+npm install            # devDeps: esbuild + postject
+npm run build:exe      # → dist/dshcli.exe（自包含，90MB 级）+ dist/dshcli-<ver>.exe
+```
+
+发布跟随伞仓全量 tag：`vX.Y.Z` 时 CI 的 `build-dsh-cli` job 会跑质量门 → 构建 exe → 上传
+`dshcli.exe` 与 `dshcli-<ver>.exe` → 发 npm（`NPM_TOKEN` 存在时）。
 
 ## 已知限制（本阶段）
 
