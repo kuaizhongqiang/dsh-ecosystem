@@ -1,5 +1,35 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(已发 v0.11.4 —— dsh-cli 首个 Linux 单文件产物 + 修 `run` 必失败的真 bug)
+
+- **版本与发布**:四处组件 `0.11.3 → 0.11.4`;插件源重钉 `92b752c`;tag `v0.11.4` 的 CI **7 个 job 全绿**
+  (新增 `Build dsh-cli (Linux single-file)` 的 ubuntu job)。资产:`dshcli-linux-x64` /
+  `dshcli-0.11.4-linux-x64`(126,749,888 B,两个资产 sha256 一致 `0ff818a1…`)、
+  `dshcli.exe` / `dshcli-0.11.4.exe`(**旧名保持不变**,93,824,000 B)、launcher / desktop / vscode 各资产;
+  npm:`@kuaizhongqiang/dsh-cli@0.11.4`(dist-tag `latest` 已切)。
+- **真 bug(本次主线)**:SEA 自包含产物里 `process.execPath` 指向 **dshcli 自己**、不是 node。而
+  `findDshBin()` 的 npm-shim 候选写成 `{ command: process.execPath, args: [bin.js] }`,于是实际执行的是
+  `dshcli <bin.js>` → 「未知命令:…/lib/bin.js」→ **`dshcli run` 必然 failed**(而 `version`/`tools`/`doctor`
+  全部正常,属最难发现的那类)。**Windows 的 `dshcli.exe` 同样中招**,这不是 Linux 独有的问题。
+  本机复现证据:`task-7fb85e16` `status=failed` / `error.code=exit_nonzero`。
+  修法:新增 `isNodeInterpreter()`(按 `--version` 形状判定——node 输出 `v22.x.y`、dshcli 输出 `dshcli: x.y.z`)
+  与 `findNodeInterpreter()`(优先 `process.execPath`,否则退回 PATH 上的 node);拿不到真 node 时**整条候选作废**,
+  让报错回到「未找到 dsh 可执行文件」,不再伪装成「未知命令」。
+- **Linux 单文件产物(原先只有 Windows)**:`build-exe.mjs` 导出 `platformTag()`,非 Windows 产出显式平台名
+  `dshcli-linux-x64` / `dshcli-<ver>-linux-x64`;Windows 资产名**刻意为不变**(既不打断老消费者、也不重复上传
+  94MB×2);`release.yml` 新增 `dsh-cli-linux` job(质量门 → 构建 → 冒烟含 ELF 校验与可执行位 → 上传资产,
+  npm 发布仍只在 Windows job,避免双发竞态);launcher 插件 `launcher_cli` 改为按平台选资产名 + 非 Windows
+  **补可执行位**(EACCES 是「Linux 上装了不能用」的另一半成因)+ 未知平台给「改用 npm」的明确提示
+  (插件 0.3.0 → 0.3.1);`SKILL.md` 安装章节改平台表 + Linux 手工命令 + npm 兜底。
+- **质量门**:`verify-cli.mjs` 新增 §14(4 条),含不变式「凡是以 `.js` 为参数 spawn 的候选,`command` 必须是真 node」,
+  **95 通过 / 0 失败**(原 91)。这条不变式正是旧实现在 SEA 下被破坏的那条。
+- **本机真机验收**(已发布产物,非本地构建):Linux 单文件 0.11.4 装到 `$DSH_HOME/bin/dshcli` → `doctor`
+  `ok/degraded 空`、`dshBin.command` 是真 node、`run` 写出文件 `status=ok`;npm 版 0.11.4 同样 `run` 通
+  (回归覆盖 `process.execPath` 就是 node 的场景)。
+- **环境备注(非产品问题)**:本机**直连 GitHub 下载 release 资产极慢/超时**(实测 4KB/s,下到 1.3MB 断;
+  另一次 132s 连接超时),必须走 `-x socks5h://127.0.0.1:10808`;API 与 npm 直连正常。若日后要让
+  受限网络也能一键安装,可考虑在技能里补一句代理提示。
+
 ## 2026-09-24(已发 v0.11.3 —— dsh-cli v3 会话日志兼容 + document-read PDF 修复)
 
 - **版本与发布**:四处组件 `0.11.2 → 0.11.3`;插件源重钉 `0b9566f`(含本次插件内容的提交);tag `v0.11.3`
