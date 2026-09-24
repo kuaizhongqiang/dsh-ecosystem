@@ -7,7 +7,7 @@
   "plugins": {
     "source": {
       "repo": "https://github.com/kuaizhongqiang/dsh-ecosystem.git",
-      "commit": "232b12c4557c805cfead9e272b0866f22d0fac74"
+      "commit": "0b9566f18674529ccf73f63b4b2bec0c77b983f8"
     },
     "packages": [
       {
