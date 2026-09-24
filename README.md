@@ -17,6 +17,7 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 ├── .github/workflows/          # release.yml = 全量发布 CI(tag v* 触发)
 ├── README.md / .AGENT.md / .gitmodules / LICENSE
 ├── dsh-launcher/               # L0 载体(安装 + 启动引导器;含插件源清单 ecosystem.json)
+├── dsh-cli/                    # L1.5 入口层(终端 CLI + 本机工具服务:给别的 agent 调 dsh;见 docs/dsh-cli-*.md)
 ├── dsh-plugins/                # L3 插件合集(默认清单 9 包 + install-* 技能)
 ├── dsh-vscode/                 # L4 VSCode 扩展
 ├── dsh-desktop/                # L4 Electron 桌面壳(应用代码在 desktop/ 子目录)
@@ -28,11 +29,12 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 
 | 目录 | 角色 | 来源仓(归档) | 并入 HEAD | 当前版本 |
 |---|---|---|---|---|
-| [dsh-launcher](dsh-launcher/) | L0 载体(伞仓核心) | kuaizhongqiang/dsh-launcher | `979cec6` | 0.8.0 |
+| [dsh-launcher](dsh-launcher/) | L0 载体(伞仓核心) | kuaizhongqiang/dsh-launcher | `979cec6` | 0.10.0 |
+| [dsh-cli](docs/dsh-cli-design.md) | **L1.5 入口层**(终端 CLI + 本机工具服务:让别的 agent 能调 dsh 执行任务) | —(伞仓内新建) | — | 规划中 |
 | [dsh-plugins](dsh-plugins/) | L3 插件(默认清单 9 包 + 技能) | kuaizhongqiang/dsh-plugins | `7a1b8a9` | 随伞仓 |
 | [agent-memory](agent-memory/) | L5 记忆层(协议桥: MCP 桥/HTTP 桥/autostore) | kuaizhongqiang/TencentAgentMemoryBridge | `4080826` | 0.3.0 |
-| [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.8.5 |
-| [dsh-desktop](dsh-desktop/) | L4 桌面壳 | kuaizhongqiang/dsh-desktop | `250abfb` | 0.8.0 |
+| [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.10.0 |
+| [dsh-desktop](dsh-desktop/) | L4 桌面壳 | kuaizhongqiang/dsh-desktop | `250abfb` | 0.10.0 |
 | deepseek-harness | L2 本体(官方只读) | deepseek-ai/deepseek-harness | 子模块 `46a7f68b` | — |
 
 > 组件目录为伞仓 git 的普通目录(嵌套 .git/.gitmodules 已清除),随伞仓统一提交;插件集即
@@ -68,6 +70,8 @@ vscode(VSIX+Open VSX)/ plugins(清单校验)。详见 [docs/RELEASING.md](docs/R
 | [docs/WORKLOG.md](docs/WORKLOG.md) | 工作日志 / 交接 |
 | [docs/modules/](docs/modules/README.md) | 各组件生态位说明书 |
 | [docs/RELEASING.md](docs/RELEASING.md) | 发布流程(全量 tag,自动化) |
+| [docs/dsh-cli-design.md](docs/dsh-cli-design.md) | **dsh-cli 设计定稿**:会话归属模型 / 任务终结产出 out / 分段契约(一步一条) / 78 个工具候选 |
+| [docs/dsh-cli-execution.md](docs/dsh-cli-execution.md) | **dsh-cli 施工计划**:里程碑 + issue 拆分 / 阶段验收 / 分支与 PR 规则 / 发布接入 |
 
 工作项跟踪:
 
