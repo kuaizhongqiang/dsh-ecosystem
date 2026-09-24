@@ -10,6 +10,7 @@ import { mkdirSync, openSync, closeSync, existsSync, statSync, readSync } from '
 import { dirname, join } from 'node:path';
 
 import * as connections from './connections.js';
+import { ensureWebProfileManifest } from './webProfile.js';
 import * as consoleWin from './console.js';
 import * as log from './log.js';
 import * as node from './node.js';
@@ -297,6 +298,19 @@ export async function start(cfg: Config, noBrowser: boolean, conn?: connections.
   const windowsHide = !hasHiddenConsole;
 
   const bin = node.dshBinPath(cfg.dshInstallDir, cfg.source);
+
+  // issue #52：全新 DSH_HOME 上 dsh web 会因 web profile 的 patchReload=live 启动即崩
+  // （live 需要 Cordis HMR 服务，npm 布局里起不来）。生产启动不需要 live 热重载，
+  // spawn 前显式落成 startup（幂等；详见 src/webProfile.ts）。
+  try {
+    const seed = ensureWebProfileManifest(dshHome());
+    if (seed === 'created' || seed === 'patched') {
+      log.info(`web profile 清单已${seed === 'created' ? '初始化' : '修正'}：patchReload=startup（issue #52）`);
+    }
+  } catch (e) {
+    // 落不了清单不该挡住启动：dsh 自己会在能启动时重建
+    log.warn(`web profile 清单处理失败（不影响启动尝试）：${(e as Error).message}`);
+  }
 
   // D8 ② 端口锁：spawn 前检查（他组监督者持有且存活则拒绝）
   connections.checkPortLock(lcfg.port);

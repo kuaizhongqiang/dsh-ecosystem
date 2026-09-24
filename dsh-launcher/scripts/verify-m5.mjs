@@ -11,7 +11,7 @@
 // 用法:node scripts/verify-m5.mjs(先 npm run build;场景 4/5 走 dist/launcher.cjs)
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -184,6 +184,34 @@ async function main() {
       await sleep(300);
       delete process.env.DSH_HOME;
     }
+  }
+
+  console.log('6. web profile 清单加固（issue #52：全新 DSH_HOME 上 dsh web 不该因 patchReload=live 启动即崩）');
+  {
+    const mod = await import(pathToFileURL(join(root, 'src', 'webProfile.ts')).href);
+    const h1 = mkdtempSync(join(base, 'home-web1-'));
+    ok(mod.ensureWebProfileManifest(h1) === 'created', '6-1 没有清单时创建（patchReload=startup）');
+    const m1 = JSON.parse(readFileSync(mod.webProfileManifestPath(h1), 'utf8'));
+    ok(m1.dsh.profile.patchReload === 'startup'
+      && m1.dsh.profile.bundles.join(',') === '@deepseek-ai/dsh-base,@deepseek-ai/dsh-web-app',
+    '6-2 创建内容与上游模板同形状');
+    ok(mod.ensureWebProfileManifest(h1) === 'ok', '6-3 幂等：已经对了就不再写');
+
+    const h2 = mkdtempSync(join(base, 'home-web2-'));
+    mkdirSync(join(h2, 'profiles', 'web'), { recursive: true });
+    writeFileSync(mod.webProfileManifestPath(h2), JSON.stringify({
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'], patchReload: 'live' } },
+    }), 'utf8');
+    ok(mod.ensureWebProfileManifest(h2) === 'patched', '6-4 上游模板默认 live → 修正为 startup');
+    const m2 = JSON.parse(readFileSync(mod.webProfileManifestPath(h2), 'utf8'));
+    ok(m2.dsh.profile.patchReload === 'startup' && m2.dsh.profile.bundles.length === 2, '6-5 修正落盘且不动 bundles');
+
+    const h3 = mkdtempSync(join(base, 'home-web3-'));
+    mkdirSync(join(h3, 'profiles', 'web'), { recursive: true });
+    writeFileSync(mod.webProfileManifestPath(h3), '{ 坏掉的 json', 'utf8');
+    ok(mod.ensureWebProfileManifest(h3) === 'skipped'
+      && readFileSync(mod.webProfileManifestPath(h3), 'utf8') === '{ 坏掉的 json',
+    '6-6 清单读不出来时不猜、不动它（留给 dsh 自己重建）');
   }
 
   rmSync(base, { recursive: true, force: true });
