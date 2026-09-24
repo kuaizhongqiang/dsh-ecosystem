@@ -1,5 +1,22 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(已发 v0.11.1 —— #47 desktop CI 修复 + #48/#49 下发)
+
+- **#47 desktop CI 红**：**根因不是 npm 没跑 install scripts(那是红鲱鱼)**,而是上游 dsh `0.1.2-alpha.4` 的
+  `PROFILE_TEMPLATES` 里**只有 web 是 `patchReload: "live"`**(acp/headless/sdk 都是 startup);live 需要 Cordis HMR
+  服务,纯 npm 安装布局起不来 → `watchUserPatches` 抛错,`suppressShutdownError` 在「未关闭且 app 活跃」时**再抛** → exit 1。
+  **全新 DSH_HOME 必踩**(本地已复现:同版本、同参数、同全新 home → exit=1;把 `profiles/web` 清单改成 `startup` → 正常常驻)。
+  v0.10.0 之所以绿:那次复用了缓存的 `.ci-dsh` 旧树(config 里 dshVersion 两次都是 `0.1.2-alpha.4`,没变)。
+  修法(PR #51):smoke 起 dsh 前把 `profiles/web` 清单落成 `patchReload="startup"`(上游允许的取值,显式值不会被改回);
+  本地端到端验证 `smoke.mjs --dsh <alpha.4 bin.js>` → 401 / token 交换 ok / authed-rpc 200 / **PASS**。
+- **遗留已立 issue #52**:应用侧(launcher `launch.ts` / desktop `main/connect.ts`)在**新机器**上拉起 `dsh web` 仍会撞
+  同一个上游行为,需要在应用侧同样显式落清单(或退版)。dsh-cli 走 headless 不受影响。
+- **v0.11.1 全量发布**:四处版本 0.11.0 → 0.11.1 + 插件源重钉(`ac2e974`);tag `v0.11.1` 的 CI **6 个 job 全绿**
+  (desktop 2m44s / dsh-cli 1m0s / launcher 3m8s / vscode 33s / plugins 6s / init 8s)。
+  资产:`dshcli.exe`·`dshcli-0.11.1.exe`·`dsh-launcher(-setup-0.11.1).exe`·`dsh-vscode-0.11.1.vsix`·
+  **`dsh-desktop-0.11.1-setup.exe` + blockmap + `latest.yml`**;npm:`@kuaizhongqiang/dsh-cli@0.11.1` 与
+  `@kuaizhongqiang/dsh-desktop@0.11.1` 均已发布。
+
 ## 2026-09-24(cmd 面两层 + 技能随 exe —— T7 #48 / T8 #49)
 
 主人定的形态(2026-09-24):dshcli 要**两个层面**,第一接触命令输出「建议先看 skill」;**skill 放 exe 同级**。
