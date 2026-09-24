@@ -203,18 +203,14 @@ async function openExternal(url) {
 }
 
 async function latestLauncherRelease() {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 8000)
-  try {
-    const resp = await fetch('https://api.github.com/repos/kuaizhongqiang/dsh-launcher/releases/latest', {
-      headers: { 'User-Agent': 'dsh-launcher-plugin', Accept: 'application/json' },
-      signal: ctrl.signal,
-    })
-    if (resp.status !== 200) throw new Error(`GitHub API ${resp.status}`)
-    return await resp.json()
-  } finally {
-    clearTimeout(timer)
-  }
+  // 用 AbortSignal.timeout 而不是「自制定时器 + ctrl.abort()」：后者在超时时会把 AbortError
+  // 抛成未捕获异常（实测能直接把 dsh 进程带崩），这里让 fetch 自己拒绝即可。
+  const resp = await fetch('https://api.github.com/repos/kuaizhongqiang/dsh-launcher/releases/latest', {
+    headers: { 'User-Agent': 'dsh-launcher-plugin', Accept: 'application/json' },
+    signal: AbortSignal.timeout(8000),
+  })
+  if (resp.status !== 200) throw new Error(`GitHub API ${resp.status}`)
+  return await resp.json()
 }
 
 function parseSemver(text) {
@@ -256,6 +252,41 @@ function cliAssetUrl(version) {
   return `https://github.com/${CLI_REPO}/releases/download/${tag}/dshcli-${bare}.exe`
 }
 
+/**
+ * 问一次最新 Release 里的 dsh-cli 版本号（资产名 dshcli-<ver>.exe 是权威来源）。
+ * 失败不抛：返回 undefined，调用方退回「稳定资产名 + version 记 latest」的兜底路径。
+ */
+async function latestCliVersion() {
+  try {
+    const resp = await fetch(`https://api.github.com/repos/${CLI_REPO}/releases/latest`, {
+      headers: { 'User-Agent': 'dsh-launcher-plugin', Accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (resp.status !== 200) return undefined
+    const release = await resp.json()
+    for (const asset of release.assets ?? []) {
+      const m = /^dshcli-(\d+\.\d+\.\d+(?:-[\w.]+)?)\.exe$/i.exec(String(asset.name ?? ''))
+      if (m !== null) return m[1]
+    }
+    return undefined
+  } catch {
+    // 网络不通/超时/限流都不该让安装失败：退回稳定资产名，版本靠装完后问 exe
+    return undefined
+  }
+}
+
+/** 直接问装好的 dshcli 自己的版本（`version --json` 是我们自己的契约，最可靠）。 */
+function probeCliVersion(exe) {
+  try {
+    const run = spawnSync(exe, ['version', '--json'], { encoding: 'utf8', timeout: 15000, windowsHide: true })
+    if (run.status !== 0 || typeof run.stdout !== 'string') return undefined
+    const parsed = JSON.parse(run.stdout)
+    return typeof parsed?.dshcli === 'string' && parsed.dshcli !== '' ? parsed.dshcli : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** dsh-cli 现在什么状态（纯本地读，不触网）。 */
 function cliState() {
   const exe = cliExePath()
@@ -285,14 +316,15 @@ function statSyncSafe(file) {
 async function fetchCliAsset({ from, version }) {
   const source = from ?? cliAssetUrl(version)
   if (/^https?:\/\//i.test(source)) {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 120000)
     try {
-      const resp = await fetch(source, { headers: { 'User-Agent': 'dsh-launcher-plugin', Accept: 'application/octet-stream' }, signal: ctrl.signal })
+      const resp = await fetch(source, {
+        headers: { 'User-Agent': 'dsh-launcher-plugin', Accept: 'application/octet-stream' },
+        signal: AbortSignal.timeout(300000),
+      })
       if (!resp.ok) throw new Error(`下载失败 HTTP ${resp.status}（${source}）`)
       return { bytes: Buffer.from(await resp.arrayBuffer()), source }
-    } finally {
-      clearTimeout(timer)
+    } catch (error) {
+      throw new Error(`下载 dsh-cli 失败：${error?.message ?? error}（来源 ${source}）`)
     }
   }
   const local = source.replace(/^file:\/\//i, '')
@@ -306,11 +338,13 @@ async function installCli({ from, version, force }) {
   const dir = cliBinDir()
   mkdirSync(dir, { recursive: true })
   const before = existsSync(target) ? readJson(cliStatePath()) : undefined
-  const wanted = version ?? from ?? 'latest'
-  if (before?.version !== undefined && version !== undefined && before.version === String(version).replace(/^v/, '') && force !== true) {
+  // 版本号必须**记真实的**，否则 update 无从比对：显式 version > 从最新 Release 资产名里读 > 兜底 'latest'
+  const resolved = version ?? (from === undefined ? await latestCliVersion() : undefined)
+  const wanted = resolved ?? from ?? 'latest'
+  if (before?.version !== undefined && resolved !== undefined && before.version === String(resolved).replace(/^v/, '') && force !== true) {
     return jsonSafe({ updated: false, version: before.version, path: target, bytes: statSyncSafe(target), hint: '版本相同，未重装（force=true 可强制）' })
   }
-  const { bytes, source } = await fetchCliAsset({ from, version })
+  const { bytes, source } = await fetchCliAsset({ from, version: resolved })
   if (bytes.length < 1024) throw new Error(`来源看起来不是可执行文件（仅 ${bytes.length} 字节）：${source}`)
   const staging = `${target}.download-${Date.now()}`
   writeFileSync(staging, bytes)
@@ -326,7 +360,9 @@ async function installCli({ from, version, force }) {
   }
   renameSync(staging, target)
   const sha256 = createHash('sha256').update(bytes).digest('hex')
-  const state = { version: String(wanted).replace(/^v/, ''), bytes: bytes.length, sha256, source, installedAt: new Date().toISOString(), platform: process.platform }
+  // 版本优先用「问 exe」得到的真实值（Release API 挂了也不影响记准版本）
+  const probed = probeCliVersion(target)
+  const state = { version: probed ?? String(wanted).replace(/^v/, ''), bytes: bytes.length, sha256, source, installedAt: new Date().toISOString(), platform: process.platform }
   writeFileSync(cliStatePath(), `${JSON.stringify(state, null, 2)}\n`, 'utf8')
   return jsonSafe({ updated: true, version: state.version, path: target, bytes: state.bytes, sha256, backedUp, source })
 }
