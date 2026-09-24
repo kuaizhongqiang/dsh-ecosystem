@@ -1,5 +1,36 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(已发 v0.11.5 —— launcher 插件适配 dsh 0.1.7 + Linux/macOS 安装器)
+
+- **版本与发布**:四处组件 `0.11.4 → 0.11.5`;插件源重钉 `da74a66`(已用 `git cat-file -t` 与
+  `git show --stat` 核验该 sha 真实且含插件改动);tag `v0.11.5` 的 CI **7 个 job 全绿**;
+  npm:`@kuaizhongqiang/dsh-cli@0.11.5`;资产含 `dshcli-linux-x64` / `dshcli-0.11.5-linux-x64` 等。
+- **发现方式值得复用**:没有直接重启，而是**先用桩直接 `apply()` 插件** —— 于是发现 launcher 插件在
+  dsh 0.1.7 上**加载即抛错**:`JsonSchemaError: schema.properties.state.additionalProperties must be
+  explicitly true or false`(0.1.7 的 "deny incompatible bundles" 加固要求 object 显式声明
+  additionalProperties)。**若当时直接重启，插件加载失败会连累整个 profile**——本机根本没装过这个
+  插件，所以它从未在 0.1.7 上被加载过，这个雷一直埋着。
+  → **教训/新 SOP**:升级本体后、装或启用任何插件前，先 `dsh --profile web --dump-config` 看组合，
+  再**用桩 apply() 验加载**;不要拿生产实例试错(重启会连累整棵 profile 树)。
+- **第二个真 bug(Windows 同样存在)**:插件第 16 行只 import `{ execFile, spawn }`，但
+  `probeCliVersion()` 与 `installCliSkill()` 用的是 `spawnSync` → ReferenceError 被各自 try/catch
+  吞掉:技能说明永远落不了盘、装完记下的版本是"来源字符串"而不是真实版本
+  (实测 `skillReason="spawnSync is not defined"`、version 记成 `/tmp/dshcli-linux-dl`)。补 import 即好。
+- **Linux / macOS 安装器**:新增 `install.sh`(POSIX，与 `install.ps1` 等价):装/卸载、幂等、
+  `--profile` / `DSH_HOME` 可指定;写 patch 后调 `validate-patch.mjs` 校验，不过则**非零退出**
+  (不让人带着坏 patch 去重启)。README 与 `install-launcher` 技能补平台段落与非 Windows 能力边界。
+- **`validate-patch.mjs` 认不出 0.1.7 的新 patch 形态**:升级后 profile patch 里多了**扁平行**
+  (`{id,name,config}`，不裹 `insert:`)——设置迁移(`ui-*`/`permission`/`llm-pi-ai`/`agent-default-model`)
+  就是这么写进去的。老校验器要求"每条必须是单键 insert"，对升级后的 profile **全线误报 FAIL**
+  (实测 6 条)。现在两种形态都接受，并分别列出 insert / direct row。
+- **本机验收(桩直调 `launcher_cli`)**:status / install(`from` 本地) / update 三条路径均正确 ——
+  Linux 资产名解析出 `…/releases/download/v9.9.9/dshcli-9.9.9-linux-x64`、装完 `chmod 755`、
+  sha256 与发布资产一致(`0ff818a1…`)、update 同版本不重装、state 记 `platform: linux`;
+  `launcher_status` 在无 launcher 时优雅降级、`launcher_restart` 给出明确手动指引。
+- **运维事实(值得记)**:dsh **0.1.7 下服务端 profile 补丁不热重载** —— 本机 profile 仍写着
+  `patchReload: live`，但装完插件数分钟后工具仍不出现，日志里**没有任何重载记录**;必须重启 web 实例。
+  这与 launcher 把 `patchReload` 钉成 `startup`(issue #52)是同一结论。
+
 ## 2026-09-24(已发 v0.11.4 —— dsh-cli 首个 Linux 单文件产物 + 修 `run` 必失败的真 bug)
 
 - **版本与发布**:四处组件 `0.11.3 → 0.11.4`;插件源重钉 `92b752c`;tag `v0.11.4` 的 CI **7 个 job 全绿**
