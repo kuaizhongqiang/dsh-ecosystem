@@ -1,5 +1,23 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(已发 v0.11.2 —— #52 应用侧加固下发)
+
+- **版本与发布**:四处组件 `0.11.1 → 0.11.2`;插件源重钉 `14eb25c`;tag `v0.11.2` 的 CI **6 个 job 全绿**
+  (launcher 3m26s / desktop 2m42s / dsh-cli 58s / vscode 29s / plugins 6s / init 9s)。
+  资产:`dshcli.exe`·`dshcli-0.11.2.exe`·`dsh-launcher(-setup-0.11.2).exe`·`dsh-vscode-0.11.2.vsix`·
+  `dsh-desktop-0.11.2-setup.exe` + blockmap + `latest.yml`;npm:`@kuaizhongqiang/dsh-cli@0.11.2` 与
+  `@kuaizhongqiang/dsh-desktop@0.11.2`(desktop 日志确认 `+ @kuaizhongqiang/dsh-desktop@0.11.2` 已发布,
+  registry 可见性有几分钟处理延迟)。
+- **本轮补的 CI 接线**:launcher 发布 job 增加 `npm run verify:m5` —— 此前 `verify:m0..m8` 从不进 CI
+  (只人肉跑),所以 #52 的新断言此前没有任何自动化覆盖。接上后 CI 里 `tsc --noEmit` 与 m5 全段都真跑了
+  (日志可见 `6-1 没有清单时创建（patchReload=startup）` 通过)。
+- **踩坑**:release.yml 里我新加的步骤名写成了裸 plain scalar 且内含「冒号+空格」(`name: Verify gates (m5: …)`)
+  → **YAML 解析失败,工作流 0s 即挂**,v0.11.2 第一次的 tag run 与 main push run 都是这个原因(未创建 release)。
+  修法:带冒号的 name 必须加引号(`name: "Verify gates (m5: …)"`);已自查全文件其余 name,只有这一处。
+  随后删掉远端 tag 并在修复提交 `f21d3eb` 上重打 `v0.11.2`(当时 release 尚未创建,重打无副作用)。
+- **本地闭环**:launcher 装上依赖后 `npx tsc --noEmit` **exit 0**、`npm run build` 成功、
+  `node scripts/verify-m5.mjs` **35/0**(含 §6 六条;#47/#52 涉及的 4/5 段 CLI/UI e2e 也过了)。
+
 ## 2026-09-24(#52 应用侧加固 —— spawn dsh web 前落 profile 清单)
 
 - **#52 真修点只有一处**:桌面端**不自己 spawn dsh**,而是委托 launcher CLI(`desktop/src/main/launcher.ts` 只 spawn
