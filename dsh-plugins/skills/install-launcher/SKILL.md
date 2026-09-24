@@ -1,6 +1,6 @@
 ---
 name: install-launcher
-description: 把 launcher 桥接插件(launcher_restart/launcher_status/launcher_connections/launcher_open/launcher_check_update 五个工具)安装到 dsh web,让会话内可以直接「重启 dsh / 切连接 / 查状态 / 开浏览器 / 查升级」。当用户要求安装、卸载或排查 dsh-launcher 插件,或想让 dsh 获得重启与多连接能力时使用。
+description: 把 launcher 桥接插件(launcher_restart/launcher_status/launcher_connections/launcher_open/launcher_check_update/launcher_cli 六个工具)安装到 dsh web,让会话内可以直接「重启 dsh / 切连接 / 查状态 / 开浏览器 / 查升级 / 安装或升级 dsh-cli」。当用户要求安装、卸载或排查 dsh-launcher 插件,或想让 dsh 获得重启、多连接与 dsh-cli 安装入口时使用。
 whenToUse: 用户说「装 dsh-launcher 插件」「让 dsh 能重启自己/切换连接」,或 launcher_status 显示未注册需要接入 seam 时使用;依赖 launcher M5(connections.json)与 M6(重启 seam)。
 ---
 

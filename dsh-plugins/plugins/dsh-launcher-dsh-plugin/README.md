@@ -1,9 +1,9 @@
-# dsh-launcher —— launcher 桥接插件(PM3,5 工具)
+# dsh-launcher —— launcher 桥接插件(PM3,6 工具)
 
 > 把 launcher 的宿主能力(重启/连接/状态/打开/升级)升级为 dsh 一等工具面(PLAN §8 / D6)。
 > 依赖 launcher **M5**(connections.json)与 **M6**(restart API + 注册文件 + 环境变量注入)。
 
-## 工具(5,无新凭证)
+## 工具(6,无新凭证)
 
 | 工具 | 说明 |
 |---|---|
@@ -12,6 +12,20 @@
 | `launcher_connections` | 列出/切换 `connections.json` 连接组(`action=use`,可 `restart=true` 立即生效);写 D8 变更标记 |
 | `launcher_open` | 按激活/指定连接打开浏览器(带 token 自动登录;url 脱敏回显) |
 | `launcher_check_update` | launcher GitHub Release 升级检测(升级需用户主动确认,M8 lock 语义) |
+| `launcher_cli(action, version?, from?, force?)` | **dsh-cli(L1.5 入口层)的安装 / 更新入口**:`status` 看是否已安装/版本(纯本地读,不触网);`install` 从伞仓 Release 装 `dshcli.exe`(可给 `version`,或给 `from` 用本地 exe / 私有 URL);`update` 检查并升级(版本相同不重装,`force=true` 可强装);`start` 拉起 `dshcli serve` |
+
+### dsh-cli 的安装 / 更新入口(`launcher_cli`)
+
+launcher 侧对 dsh-cli 提供**两条入口**(主人 2026-09-24 追加要求):
+
+- **安装入口** —— `launcher_cli {action:'install'}`:默认从伞仓 Release 取**稳定资产名**
+  `https://github.com/kuaizhongqiang/dsh-ecosystem/releases/latest/download/dshcli.exe`,
+  落到 `%DSH_HOME%\bin\dshcli.exe`,并在旁边写 `dshcli.install.json`(版本 / 大小 / sha256 / 来源,**不含任何 token**);
+  给了 `version` 就取带版本资产 `dshcli-<ver>.exe`;
+- **更新入口** —— `launcher_cli {action:'update'}`:比对已装版本与目标版本,**不同才下载替换**,旧 exe 备份为
+  `dshcli.exe.bak-<时间戳>`;`action:'start'` 拉起 `dshcli serve`(常驻服务,token 见
+  `%DSH_HOME%\dsh-cli\endpoint.json`)。
+- **内网 / 离线**:给 `from`(本地 exe 路径或私有 URL)即可,走完全同一套流程 —— 质量门就是这么离线验的。
 
 ## 重启编排 seam(2026-09-05)
 
