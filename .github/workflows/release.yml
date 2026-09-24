@@ -121,7 +121,7 @@ jobs:
         run: npx tsc --noEmit
       - name: Build bundles
         run: node scripts/build.mjs
-      - name: Verify gates (m5: 启停 / 连接 / web profile 清单)
+      - name: "Verify gates (m5: 启停 / 连接 / web profile 清单)"
         run: npm run verify:m5
       - name: Package portable exe
         run: npx electron-builder --win portable --publish never
