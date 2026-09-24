@@ -1,5 +1,49 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-24(全量发布 v0.11.0 —— dsh-cli 首发:终端 CLI + 本机工具服务)
+
+一轮做完 **T1–T6**(每阶段独立分支 → PR → rebase 合并;施工计划 `docs/dsh-cli-execution.md`):
+
+| 阶段 | issue | PR | 合并 commit | 内容 |
+|---|---|---|---|---|
+| T1+T2 | #37 #38 | #43 | `6829cba` | 引擎:多帧 zstd 读会话日志 / 分段契约 / 归属写保护 / 工具面 + cmd 面 |
+| T3+T4 | #39 #40 | #44 | `b60b460` | 工作情况与汇报 / 兼容检测与上游跟随 |
+| T5 | #41 | #45 | `47e33ff` | launcher 侧 **dsh-cli 安装与更新入口**(`launcher_cli`) |
+| T6 | #42 | #46 | `298264d` `acd7244` `0393d58` | 发布接入:自包含 exe / CI job / 四处版本门 + `release: prepare v0.11.0` |
+| — | — | — | `9a381f6` | 插件源重钉(指向含本轮的提交) |
+
+**关键选型(证据驱动)**:数据源取**会话事件日志**,不用 `dsh --profile headless --json` ——
+实测后者投影**会裁**(每串/键 8KiB、每事件行 32KiB、深度 64),而主人拍板 agent 面**不裁**。
+会话语义先取证再写代码:`tool/result.data` 只有三种键组合,**带 `error` 键即失败**(实测 12/533);
+`usage` 字段 = input/output/total/cacheRead/reasoning。
+
+**真机只读复核**(主人机器,46 个会话):4.8MB / 20,571 事件日志 **448ms** 读完;15 轮 / **369 步 → 369 条步记录** /
+533 次工具调用;`between` 覆盖 16 类事件;`stats.*` 聚合 8 个大会话 = **729 次调用 / 17 次失败**
+(edit=196 pwsh=155 read=142 …);`report.facts`(近 7 天)活跃会话 0 —— 与事实相符(本机最大 dsh 会话最后写入
+2026-09-03,近 7 天确实没有 dsh 侧活动)。
+
+**门**:`dsh-cli/scripts/verify-cli.mjs` **66/0**(桩 dsh 端到端、不触网、不需要装 dsh)、
+`verify-pm3` **29/0**(新增 §6 离线验整条安装/更新链)、pm2 34/0、pm4 9/0、verify-image 42/0、
+伞仓 `verify-release.mjs`(新增**四处组件版本一致**校验)OK。
+
+**发布 v0.11.0**(tag → CI):新 job `build-dsh-cli` **54s 通过**(质量门 → esbuild → Node SEA → postject →
+exe 冒烟 → 上传资产);Release 资产 `dshcli.exe` + `dshcli-0.11.0.exe` 就位;
+npm `@kuaizhongqiang/dsh-cli@0.11.0`(`latest`)已发布 —— **CLI 发布成功**。
+launcher 侧 `launcher_cli {action:'install'}` 默认取的正是 `releases/latest/download/dshcli.exe` 这个稳定资产名。
+
+**遗留 / 注意**:
+
+1. **desktop job 在本次 tag 上失败**(`Smoke: shared-server protocol`,与本轮改动无关 —— v0.10.0 时是绿的)。
+   CI 日志证据:smoke 装 `@deepseek-ai/dsh@0.1.2-alpha.4` 时 npm 报
+   `5 packages have install scripts not yet covered by allowScripts`(node-pty / koffi /
+   **`@deepseek-ai/dsh-subprocess-local` 的 `ensure-spawn-helper.mjs`**),随后 dsh 进程在 `runProfile` 崩掉、
+   服务没起来 → smoke FAIL。方向:让 CI 的 npm 真正跑 postinstall(或 smoke 显式放行)。已开 issue 跟踪;
+   **desktop 的 0.11.0 npm 包因此没发**(npm 上 desktop 仍是 0.10.0)。
+2. `dsh-cli` 的 `report.narrate` / `artifact.diff` / `stats.*` 已实现;其余候选(plugin / skill / cred /
+   ecosystem / runtime 等)仍 `not_implemented`(清单里打 `pending`,当前 **28/78**),留后续 P5 收口。
+3. 本机 npm 策略会拦 esbuild 的 postinstall:先 `node node_modules/esbuild/install.js` 再 `npm run build:exe`
+   (已写进 `.AGENT.md` §6)。
+
 ## 2026-09-24(harness 子模块 bump + dsh-cli 方案调研)
 
 - **子模块 bump**:`deepseek-harness` 指针 `ddefc45f`(`dsh-v0.1.6-alpha.2`,2026-09-17)

@@ -30,7 +30,7 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 | 目录 | 角色 | 来源仓(归档) | 并入 HEAD | 当前版本 |
 |---|---|---|---|---|
 | [dsh-launcher](dsh-launcher/) | L0 载体(伞仓核心) | kuaizhongqiang/dsh-launcher | `979cec6` | 0.10.0 |
-| [dsh-cli](docs/dsh-cli-design.md) | **L1.5 入口层**(终端 CLI + 本机工具服务:让别的 agent 能调 dsh 执行任务) | —(伞仓内新建) | — | 规划中 |
+| [dsh-cli](docs/dsh-cli-design.md) | **L1.5 入口层**(终端 CLI + 本机工具服务:让别的 agent 能调 dsh 执行任务) | 伞仓内目录 `dsh-cli/` | `0.11.0` | v0.11.0 已发布 |
 | [dsh-plugins](dsh-plugins/) | L3 插件(默认清单 9 包 + 技能) | kuaizhongqiang/dsh-plugins | `7a1b8a9` | 随伞仓 |
 | [agent-memory](agent-memory/) | L5 记忆层(协议桥: MCP 桥/HTTP 桥/autostore) | kuaizhongqiang/TencentAgentMemoryBridge | `4080826` | 0.3.0 |
 | [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.10.0 |
