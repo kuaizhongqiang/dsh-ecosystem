@@ -126,6 +126,23 @@ dsh-cli/
   `dshcli-0.11.0.exe`；npm `@kuaizhongqiang/dsh-cli@0.11.0`（`latest`）。`verify-release.mjs` 已加四处版本一致校验。
   **注意**：同一 tag 的 desktop job 因环境原因失败（npm 未跑 dsh 依赖的 install scripts），见 issue #47。
 
+### P7 cmd 面两层 + 第一接触提示（issue #48）
+
+- **范围**：参数元数据 **78 个全量**（`positional` + `params`，驱动子命令 / `--help` / `/tools` 自描述 / 校验）；
+  层 1 主命令与短开关别名；层 2 `dshcli <组> <名>` 自动生成 + `call --args` 兜底；
+  `-h` / `-i` / `-v` / `doctor` 的「先看技能说明」提示（人读 + `--json` 的 `hint.skill`）。
+- **验收**：`dshcli -l` ≡ `dshcli list`；`dshcli session list -n 3 --json` 可用；78 个工具全带参数声明；
+  未实现工具报 `not_implemented` 且退出码 1；未知开关 / 未知工具给可读报错。
+- **门**：`verify-cli` §10（13 项）。
+
+### P8 技能随 exe 分发（issue #49）
+
+- **范围**：`dsh-cli/skills/dshcli.SKILL.md` 正文；构建期内嵌（`__DSHCLI_SKILL__`）；
+  `dshcli skill` / `--install [--to]` / `--where`；首次运行自动落盘；launcher 侧 `launcher_cli` 装完顺带落盘。
+- **验收**：`dshcli -h` 出现技能绝对路径；技能与 exe 同级；`--where` 能发现「落盘与内嵌不一致」；
+  launcher 装 / 升级后技能就位（失败如实报出且不影响安装）。
+- **门**：`verify-cli` §11（6 项）+ `verify-pm3` §7（5 项）。
+
 ## 4. 分支 / PR / 提交规则
 
 1. **一阶段一分支**：`feat/<issue#>-<slug>`（例：`feat/37-cli-skeleton`）；

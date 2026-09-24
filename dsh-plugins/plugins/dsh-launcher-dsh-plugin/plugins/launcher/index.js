@@ -287,6 +287,23 @@ function probeCliVersion(exe) {
   }
 }
 
+/**
+ * 装完把技能说明落到 exe 同级（正文在 exe 里内嵌着，这里只是让它落盘）。
+ * 失败**不影响** exe 安装结果，只如实报出来（别让技能问题挡住安装）。
+ */
+function installCliSkill(exe) {
+  try {
+    const run = spawnSync(exe, ['skill', '--install', '--json'], { encoding: 'utf8', timeout: 30000, windowsHide: true })
+    if (run.status !== 0) {
+      return { ok: false, reason: `exit ${run.status}: ${String(run.stderr ?? '').trim().slice(0, 200)}` }
+    }
+    const parsed = JSON.parse(String(run.stdout ?? '{}'))
+    return { ok: true, path: parsed.path, bytes: parsed.bytes, changed: parsed.changed === true }
+  } catch (error) {
+    return { ok: false, reason: String(error?.message ?? error).slice(0, 200) }
+  }
+}
+
 /** dsh-cli 现在什么状态（纯本地读，不触网）。 */
 function cliState() {
   const exe = cliExePath()
@@ -634,6 +651,7 @@ export function apply(ctx) {
       version: { type: 'string', description: '可选:目标版本(如 0.11.0);缺省取最新 Release' },
       from: { type: 'string', description: '可选:自定义来源(本地 exe 路径或 http(s) URL),内网/离线用' },
       force: { type: 'boolean', description: '可选:版本相同也重装(默认 false)' },
+      skill: { type: 'boolean', description: '可选:是否顺带把技能说明(dshcli.SKILL.md)落到 exe 同级(默认 true)' },
     },
     output: {
       schema: {
@@ -653,6 +671,9 @@ export function apply(ctx) {
           started: { type: 'boolean', description: '是否已拉起 serve' },
           pid: { type: 'number', description: '拉起后的进程 id' },
           hint: { type: 'string', description: '提示' },
+          skillOk: { type: 'boolean', description: '技能说明是否已就位(install/update 时)' },
+          skillPath: { type: 'string', description: '技能说明文件路径' },
+          skillReason: { type: 'string', description: '技能落盘失败原因(成功时不带)' },
           state: { type: 'object', description: '安装状态文件内容' },
         },
       },
@@ -677,6 +698,13 @@ export function apply(ctx) {
       }
       if (action === 'install' || action === 'update') {
         const result = await installCli({ from: args.from, version: args.version, force: args.force === true })
+        // 技能与 exe 同级:装完顺手让它落盘(exe 自带正文);skill=false 可关
+        const skill = args.skill === false || result.updated !== true ? undefined : installCliSkill(result.path)
+        const skillNote = skill === undefined
+          ? (args.skill === false ? ';技能未处理(skill=false)' : '')
+          : skill.ok
+            ? `;技能已就位(${skill.path})`
+            : `;技能落盘失败(${skill.reason})`
         return jsonSafe({
           action,
           installed: true,
@@ -688,9 +716,12 @@ export function apply(ctx) {
           source: result.source,
           sha256: result.sha256,
           hint: result.hint,
-          summary: result.updated
+          skillOk: skill === undefined ? undefined : skill.ok,
+          skillPath: skill?.path,
+          skillReason: skill?.ok === true ? undefined : skill?.reason,
+          summary: `${result.updated
             ? `${action === 'install' ? '安装' : '升级'}完成:dsh-cli ${result.version}(${result.path})`
-            : `已是最新(${result.version}),未重装`,
+            : `已是最新(${result.version}),未重装`}${skillNote}`,
         })
       }
       if (action === 'start') {

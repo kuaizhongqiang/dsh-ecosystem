@@ -15,7 +15,54 @@ dsh-cli 的定位是**接出来的一层**：
 
 `dshcli`（别名 `dshc`）。**不叫 `dsh`** —— 上游已占用该命令，按设计约定「命令冲突时 CLI 让路，一切以 dsh 本体优先」。
 
-## 用法（cmd 面）
+## 用法（cmd 面）：两层
+
+**层 1 主命令**（短开关是别名，**只能在第一位**）：
+
+| 命令 | 短开关 | 干什么 |
+|---|---|---|
+| `dshcli run <任务…>` | | 跑任务，直接回 `out` |
+| `dshcli continue <任务…>` | `-c` | 续跑会话（默认最近一个，`-S <会话id>` 指定） |
+| `dshcli list [tasks\|sessions\|all]` | `-l` | 列任务 / 会话 |
+| `dshcli info [会话id]` | `-i` | 会话详情 + 最近几步 |
+| `dshcli report [--since ISO]` | `-r` | 工作情况汇报 |
+| `dshcli tools [工具]` | `-t` | 工具清单 / 单工具参数 |
+| `dshcli call <工具> --args '{"…":…}'` | | 直调任意工具（兜底） |
+| `dshcli serve [--port N]` | `-s` | 起本机工具服务 |
+| `dshcli status` / `doctor` / `version` | `-v` | 概览 / 自检 / 版本 |
+| `dshcli skill [--install\|--where]` | | 技能说明：打印 / 落盘 / 查状态 |
+| `dshcli help` | `-h` | 分组帮助 |
+
+通用修饰符（**只在子命令之后**）：`-j/--json`、`-m/--model`、`-p/--provider`、`-w/--workplace|--cwd`、`-n/--limit`。
+
+**层 2 全工具面**（78 个，由 `src/tools.js` 的参数元数据自动生成）：
+
+```sh
+dshcli session list -n 5 --json
+dshcli session history -S session-xxxx -n 20
+dshcli task run "把 README 里过期的版本号改掉" -w F:\Project\x -p deepseek -m deepseek-chat
+dshcli tools cred.set            # 看参数/契约/实现状态
+dshcli call session.list --args '{"limit":5}'   # JSON 兜底
+```
+
+撞名规则（`report` / `status` / `skill` 既是主命令又是工具组）：第二个词能匹配到该组工具就走层 2
+（`dshcli report facts`），否则走主命令（`dshcli report --since …`）。
+
+## 技能说明（跟着 exe 走）
+
+技能正文在 `skills/dshcli.SKILL.md`，**构建时内嵌进 exe**，运行时与 `dshcli.exe` **同级**
+（`dshcli.SKILL.md`）；首次运行自动落一份。第一接触命令会提示先读它：
+
+```sh
+dshcli -h            # 末尾：提示 + 技能绝对路径
+dshcli -h --json     # hint.skill = <绝对路径>
+dshcli skill         # 直接打印
+dshcli skill --where # 路径 / 是否落盘 / 与内嵌是否一致（不一致会提醒刷新）
+```
+
+launcher 装 / 升级 dsh-cli 时会顺带调 `dshcli.exe skill --install`（`skill:false` 可关）。
+
+### 层 2 示例（等价写法）
 
 ```sh
 dshcli run "把 README 里的过期版本号改掉" --cwd F:\Project\xxx   # 跑一个任务，直接给 out

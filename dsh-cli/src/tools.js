@@ -19,36 +19,148 @@ import { getRun, hasLiveRun, liveChildren, listRuns, newTaskId, upsertRun } from
 /** 默认单任务上限（主人拍板：30 分钟，超时标记但继续跑）。 */
 export const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
 
-/** 工具清单（含未实现的条目，便于调用方与 doctor 对照）。 */
+/**
+ * 命令面参数池 —— **层 2 子命令 / `--help` / `GET /tools` 自描述的唯一事实来源**。
+ *
+ * `flag` 里短开关（`-x`）只在子命令之后可用，长开关（`--long`）任意位置；`type` 决定 CLI 的取值转换：
+ * `path`（原样字符串，但帮助里标成路径）/ `number` / `boolean` / `iso`（时间）/ `secret`（只写不回显）。
+ */
+export const PARAMS = {
+  prompt: { flag: '--prompt', type: 'string', desc: '任务文本' },
+  cwd: { flag: '-w|--workplace|--cwd', type: 'path', desc: '工作目录（= 会话 workplace）' },
+  provider: { flag: '-p|--provider', type: 'string', desc: 'provider（本次任务 / 会话）' },
+  model: { flag: '-m|--model', type: 'string', desc: 'model（provider 之内）' },
+  preset: { flag: '--preset', type: 'string', desc: 'agent preset（默认 standard）' },
+  sessionId: { flag: '-S|--session', type: 'string', desc: '会话 id' },
+  taskId: { flag: '-T|--task', type: 'string', desc: '任务 id' },
+  name: { flag: '--name', type: 'string', desc: '名字（provider / model / preset / 凭证等）' },
+  id: { flag: '--id', type: 'string', desc: '标识（插件 / 技能 / 回调）' },
+  key: { flag: '--key', type: 'string', desc: '配置键' },
+  value: { flag: '--value', type: 'secret', desc: '值（凭证类：只写、永不回显）' },
+  path: { flag: '--path', type: 'path', desc: '文件 / 目录路径' },
+  to: { flag: '--to', type: 'path', desc: '目标目录或文件' },
+  source: { flag: '--source', type: 'string', desc: '来源（从哪里装）' },
+  url: { flag: '--url', type: 'string', desc: '回调地址' },
+  text: { flag: '--text', type: 'string', desc: '正文' },
+  events: { flag: '--events', type: 'string', desc: '事件类型（逗号分隔）' },
+  title: { flag: '--title', type: 'string', desc: '标题 / 名字' },
+  version: { flag: '--version', type: 'string', desc: '目标版本' },
+  status: { flag: '--status', type: 'string', desc: '按状态过滤' },
+  since: { flag: '--since', type: 'iso', desc: '时间窗起点（ISO；增量汇报用）' },
+  limit: { flag: '-n|--limit', type: 'number', desc: '最多返回多少条' },
+  tail: { flag: '--tail', type: 'number', desc: '只看最近 N 条' },
+  cursor: { flag: '--cursor', type: 'number', desc: '增量游标（上次返回的 cursor）' },
+  timeoutMs: { flag: '--timeout-ms', type: 'number', desc: '本次等待上限（默认 30 分钟）' },
+  confirm: { flag: '-y|--yes|--confirm', type: 'boolean', desc: '确认危险操作（删除类必填）' },
+  force: { flag: '--force', type: 'boolean', desc: '强制执行（忽略幂等判断）' },
+  dryRun: { flag: '--dry-run', type: 'boolean', desc: '只演练不落地' },
+  core: { flag: '--core', type: 'boolean', desc: '是否含 dsh 本体' },
+  plugins: { flag: '--plugins', type: 'boolean', desc: '是否含插件集' },
+  skills: { flag: '--skills', type: 'boolean', desc: '是否含技能' },
+}
+
+/**
+ * 工具清单（78 个，含未实现的条目 —— 便于调用方与 doctor 对照）。
+ *
+ * `positional` 是位置参数绑定的 **args 键名**（顺序即位置顺序）；`params` 引用 `PARAMS` 里的键。
+ * **已实现的 28 个 = 真实契约；未实现的 50 个 = 已声明契约**（调用明确报 `not_implemented`，不静默）。
+ */
 export const TOOLS = [
-  { name: 'task.run', group: 'task', write: true, p0: true, summary: '下达任务并等它跑完，直接回 out' },
-  { name: 'task.run_async', group: 'task', write: true, p0: true, summary: '下达任务立即返回 taskId（长任务用）' },
-  { name: 'task.get', group: 'task', summary: '查任务状态 / 进度 / 结果' },
-  { name: 'task.out', group: 'task', summary: '只取任务的终结产出 out' },
-  { name: 'task.wait', group: 'task', summary: '阻塞等任务完成（可设超时）' },
-  { name: 'task.list', group: 'task', summary: '列任务（按状态 / 时间过滤）' },
-  { name: 'task.cancel', group: 'task', write: true, summary: '取消任务（= 终止运行）' },
-  { name: 'session.new', group: 'session', write: true, p0: true, summary: '新建会话（指定 provider / model / workplace）→ owner=cli' },
-  { name: 'session.list', group: 'session', p0: true, summary: '列会话（含归属、是否在跑）' },
-  { name: 'session.get', group: 'session', p0: true, summary: '会话详情（配置 / 统计 / 状态 / 归属）' },
-  { name: 'session.resume', group: 'session', write: true, p0: true, summary: '往指定会话继续下任务' },
-  { name: 'session.history', group: 'session', p0: true, summary: '分段记录（一步一条）' },
-  { name: 'session.adopt', group: 'session', write: true, summary: '认领外来会话，登记为 CLI 所有' },
-  { name: 'status.overview', group: 'status', p0: true, summary: '整体状态：在跑吗 / 几个会话 / 最近干了什么' },
+  // A. 任务（11）
+  { name: 'task.run', group: 'task', write: true, p0: true, summary: '下达任务并等它跑完，直接回 out', positional: ['prompt'], params: ['cwd', 'provider', 'model', 'sessionId', 'timeoutMs'] },
+  { name: 'task.run_async', group: 'task', write: true, p0: true, summary: '下达任务立即返回 taskId（长任务用）', positional: ['prompt'], params: ['cwd', 'provider', 'model', 'sessionId'] },
+  { name: 'task.get', group: 'task', p0: true, summary: '查任务状态 / 进度 / 结果', positional: ['taskId'], params: ['tail'] },
+  { name: 'task.out', group: 'task', p0: true, summary: '只取任务的终结产出 out', positional: ['taskId'] },
+  { name: 'task.wait', group: 'task', p0: true, summary: '阻塞等任务完成（可设超时）', positional: ['taskId'], params: ['timeoutMs'] },
+  { name: 'task.list', group: 'task', p0: true, summary: '列任务（按状态 / 时间过滤）', params: ['status', 'limit', 'cwd'] },
+  { name: 'task.cancel', group: 'task', write: true, summary: '取消任务（= 终止运行）', positional: ['taskId'], params: ['confirm'] },
+  { name: 'task.log', group: 'task', summary: '取任务原始事件记录', positional: ['taskId'], params: ['cursor', 'limit'] },
+  { name: 'task.retry', group: 'task', write: true, summary: '同参数重跑一次', positional: ['taskId'], params: ['cwd', 'provider', 'model'] },
+  { name: 'task.follow', group: 'task', summary: '持续跟随任务事件（流式）', positional: ['taskId'], params: ['cursor', 'timeoutMs'] },
+  { name: 'task.plan', group: 'task', summary: '只让 dsh 出计划不执行（评审用）', positional: ['prompt'], params: ['cwd', 'provider', 'model'] },
+
+  // B. 会话（11）
+  { name: 'session.new', group: 'session', write: true, p0: true, summary: '新建会话（指定 provider / model / workplace）→ owner=cli', params: ['cwd', 'provider', 'model', 'preset', 'title'] },
+  { name: 'session.list', group: 'session', p0: true, summary: '列会话（含归属、是否在跑）', params: ['cwd', 'limit'] },
+  { name: 'session.get', group: 'session', p0: true, summary: '会话详情（配置 / 统计 / 状态 / 归属）', positional: ['sessionId'], params: ['tail'] },
+  { name: 'session.resume', group: 'session', write: true, p0: true, summary: '往指定会话继续下任务', positional: ['prompt'], params: ['sessionId', 'cwd', 'provider', 'model', 'timeoutMs'] },
+  { name: 'session.history', group: 'session', p0: true, summary: '分段记录（一步一条）', positional: ['sessionId'], params: ['cursor', 'limit', 'since'] },
+  { name: 'session.adopt', group: 'session', write: true, summary: '认领外来会话，登记为 CLI 所有', positional: ['sessionId'] },
+  { name: 'session.rename', group: 'session', write: true, summary: '重命名会话', positional: ['sessionId', 'title'] },
+  { name: 'session.interrupt', group: 'session', write: true, summary: '打断当前回合（= 终止本次运行）', positional: ['sessionId'], params: ['confirm'] },
+  { name: 'session.fork', group: 'session', write: true, summary: '从某会话分叉出新会话', positional: ['sessionId'], params: ['prompt', 'cwd'] },
+  { name: 'session.export', group: 'session', summary: '导出会话归档', positional: ['sessionId'], params: ['to'] },
+  { name: 'session.delete', group: 'session', write: true, summary: '删除会话', positional: ['sessionId'], params: ['confirm'] },
+
+  // C. 工作情况 / 汇报（10）
+  { name: 'status.overview', group: 'status', p0: true, summary: '整体状态：在跑吗 / 几个会话 / 最近干了什么', params: ['cwd'] },
   { name: 'status.health', group: 'status', p0: true, summary: '健康检查（进程 / 端口 / 插件 / 凭证）' },
-  { name: 'status.compat', group: 'status', p0: true, summary: '兼容状态：哪些工具可用 / 降级 / 不可用' },
-  { name: 'report.facts', group: 'report', p0: true, summary: '汇报素材（机器可读）：在跑 / 完成 / 失败 / 待人处理 / 产出 / 用量' },
-  { name: 'report.digest', group: 'report', p0: true, summary: '汇报成文（模板）：把素材套成人能读的一段话' },
-  { name: 'report.narrate', group: 'report', summary: '汇报成文（模型）：让 dsh 跑一次总结任务（花一次模型调用，默认不启用）' },
-  { name: 'artifact.list', group: 'artifact', p0: true, summary: '某会话 / 任务的产出文件清单' },
-  { name: 'artifact.diff', group: 'artifact', summary: '工作目录的 git diff（stat + 全量 diff + 未跟踪清单）' },
-  { name: 'stats.usage', group: 'stats', summary: 'token 用量聚合（按会话/窗口）' },
-  { name: 'stats.tools', group: 'stats', summary: '工具调用统计（用得最多 / 失败清单）' },
-  { name: 'stats.activity', group: 'stats', summary: '活跃度：多少会话 / 多少轮 / 多少步' },
-  { name: 'event.poll', group: 'event', p0: true, summary: '按游标拉增量分段记录（不怕断线）' },
-  { name: 'runtime.status', group: 'runtime', p0: true, summary: '运行时在不在跑（端口 / 启动方式）' },
+  { name: 'status.compat', group: 'status', p0: true, summary: '兼容状态：哪些工具可用 / 降级 / 不可用', params: ['sessionId'] },
+  { name: 'report.facts', group: 'report', p0: true, summary: '汇报素材（机器可读）：在跑 / 完成 / 失败 / 待人处理 / 产出 / 用量', params: ['since', 'cwd'] },
+  { name: 'report.digest', group: 'report', p0: true, summary: '汇报成文（模板）：把素材套成人能读的一段话', params: ['since', 'cwd'] },
+  { name: 'report.narrate', group: 'report', summary: '汇报成文（模型）：让 dsh 跑一次总结任务（花一次模型调用，默认不启用）', params: ['since', 'cwd', 'provider', 'model'] },
+  { name: 'report.daily', group: 'report', summary: '日报（按天汇总；report.facts/digest 带 since 已能顶）', params: ['since'] },
+  { name: 'stats.usage', group: 'stats', summary: 'token 用量聚合（按会话 / 窗口）', params: ['since', 'cwd', 'limit'] },
+  { name: 'stats.tools', group: 'stats', summary: '工具调用统计（用得最多 / 失败清单）', params: ['since', 'cwd', 'limit'] },
+  { name: 'stats.activity', group: 'stats', summary: '活跃度：多少会话 / 多少轮 / 多少步', params: ['since', 'cwd', 'limit'] },
+
+  // D. 产出物（5）
+  { name: 'artifact.list', group: 'artifact', p0: true, summary: '某会话 / 任务的产出文件清单', params: ['sessionId', 'taskId', 'cwd'] },
+  { name: 'artifact.diff', group: 'artifact', p0: true, summary: '工作目录的 git diff（stat + 全量 diff + 未跟踪清单）', params: ['sessionId', 'cwd'] },
+  { name: 'artifact.get', group: 'artifact', summary: '取产出物内容 / 路径', positional: ['path'] },
+  { name: 'artifact.open', group: 'artifact', summary: '在本机打开产出物', positional: ['path'] },
+  { name: 'artifact.publish', group: 'artifact', summary: '把产出物导出到指定目录', positional: ['path'], params: ['to'] },
+
+  // E. 配置 / 元信息（12，查 + 改成对）
+  { name: 'provider.list', group: 'provider', p0: true, summary: '有哪些 provider 可用' },
+  { name: 'provider.get', group: 'provider', summary: 'provider 详情（能力 / 默认 model）', positional: ['name'] },
+  { name: 'model.list', group: 'model', p0: true, summary: '有哪些 model 可用（可按 provider 过滤）', params: ['provider'] },
+  { name: 'model.get', group: 'model', summary: 'model 详情（上下文长度 / 价格）', positional: ['name'] },
+  { name: 'model.set_default', group: 'model', write: true, summary: '设默认 model', positional: ['name'] },
+  { name: 'workspace.list', group: 'workspace', p0: true, summary: '有哪些 workplace 可用' },
+  { name: 'workspace.get', group: 'workspace', summary: 'workplace 详情（存在性 / 是否 git / 大小）', positional: ['path'] },
+  { name: 'workspace.set_default', group: 'workspace', write: true, summary: '设默认 workplace', positional: ['path'] },
+  { name: 'preset.list', group: 'preset', summary: '有哪些 agent preset' },
+  { name: 'preset.get', group: 'preset', summary: 'preset 详情', positional: ['name'] },
+  { name: 'config.get', group: 'config', p0: true, summary: '读当前默认配置', params: ['key'] },
+  { name: 'config.set', group: 'config', write: true, summary: '改默认配置', positional: ['key', 'value'] },
+
+  // F. 插件 / 技能 / 生态（9）
+  { name: 'plugin.list', group: 'plugin', summary: '已装插件 + 状态' },
+  { name: 'plugin.install', group: 'plugin', write: true, summary: '装插件（走生态清单）', positional: ['id'], params: ['source'] },
+  { name: 'plugin.remove', group: 'plugin', write: true, summary: '卸载插件', positional: ['id'], params: ['confirm'] },
+  { name: 'plugin.reload', group: 'plugin', write: true, summary: '重载插件（上游结论：改动后建议重启）', positional: ['id'] },
+  { name: 'skill.list', group: 'skill', summary: '已装技能' },
+  { name: 'skill.install', group: 'skill', write: true, summary: '装技能', positional: ['name'], params: ['source'] },
+  { name: 'skill.remove', group: 'skill', write: true, summary: '删技能', positional: ['name'], params: ['confirm'] },
+  { name: 'ecosystem.pull', group: 'ecosystem', write: true, summary: '按清单拉齐（生态全家桶）', params: ['core', 'plugins', 'skills', 'dryRun'] },
+  { name: 'ecosystem.status', group: 'ecosystem', summary: '清单与版本漂移检查' },
+
+  // G. 凭证（5，只回名字与状态，永不回值）
+  { name: 'cred.list', group: 'cred', summary: '有哪些凭证（只有名字）' },
+  { name: 'cred.set', group: 'cred', write: true, summary: '写入凭证（值只写不回显）', positional: ['name', 'value'] },
+  { name: 'cred.verify', group: 'cred', summary: '验证凭证可用', positional: ['name'] },
+  { name: 'cred.unset', group: 'cred', write: true, summary: '删除凭证', positional: ['name'], params: ['confirm'] },
+  { name: 'cred.where', group: 'cred', summary: '这个凭证被哪些插件在用', positional: ['name'] },
+
+  // H. 运行时 / 运维（8）
+  { name: 'runtime.status', group: 'runtime', p0: true, summary: '运行时在不在跑（进程 / 端口 / 版本）' },
   { name: 'runtime.version', group: 'runtime', p0: true, summary: '版本信息（dsh / dshcli / 契约表）' },
-  { name: 'compat.check', group: 'runtime', summary: '手动跑一次兼容检测（doctor 的机器版）' },
+  { name: 'runtime.start', group: 'runtime', write: true, summary: '启动运行时' },
+  { name: 'runtime.stop', group: 'runtime', write: true, summary: '停止运行时', params: ['confirm'] },
+  { name: 'runtime.restart', group: 'runtime', write: true, summary: '重启（复用 launcher 的重启 seam）', params: ['confirm'] },
+  { name: 'runtime.logs', group: 'runtime', summary: '运行时日志', params: ['limit', 'tail'] },
+  { name: 'runtime.upgrade', group: 'runtime', write: true, summary: '升级 dsh 本体 / CLI', params: ['version'] },
+  { name: 'compat.check', group: 'runtime', summary: '手动跑一次兼容检测（doctor 的机器版）', params: ['sessionId'] },
+
+  // I. 事件 / 回调 / 消息（7）
+  { name: 'event.poll', group: 'event', p0: true, summary: '按游标拉增量分段记录（不怕断线）', positional: ['sessionId'], params: ['cursor', 'limit'] },
+  { name: 'event.subscribe', group: 'event', summary: '订阅事件（流式，第二步）', positional: ['sessionId'], params: ['cursor', 'events'] },
+  { name: 'hook.set', group: 'hook', write: true, summary: '注册回调地址（HTTP 回调）', positional: ['url'], params: ['events', 'sessionId'] },
+  { name: 'hook.list', group: 'hook', summary: '列回调' },
+  { name: 'hook.delete', group: 'hook', write: true, summary: '删回调', positional: ['id'], params: ['confirm'] },
+  { name: 'message.post', group: 'message', write: true, summary: '往会话里投一条消息（插入指令）', positional: ['text'], params: ['sessionId'] },
+  { name: 'message.outbox', group: 'message', summary: '取「待汇报给人的消息」', params: ['sessionId'] },
 ]
 
 /** 本阶段已实现的工具（其余返回 not_implemented，明确报出，不静默）。 */
@@ -64,40 +176,50 @@ export const IMPLEMENTED = [
   'compat.check',
 ]
 
-/** 工具清单里还缺的条目（供 doctor / status.compat 明示）。 */
-export const TOOLS_PENDING = [
-  'session.rename', 'session.interrupt', 'session.fork', 'session.export', 'session.delete',
-  'plugin.list', 'plugin.install', 'plugin.remove', 'plugin.reload',
-  'skill.list', 'skill.install', 'skill.remove',
-  'cred.list', 'cred.set', 'cred.verify', 'cred.unset', 'cred.where',
-  'ecosystem.pull', 'ecosystem.status',
-  'runtime.start', 'runtime.stop', 'runtime.restart', 'runtime.logs', 'runtime.upgrade',
-  'hook.set', 'hook.list', 'hook.delete', 'message.post', 'message.outbox',
-  'provider.list', 'provider.get', 'model.list', 'model.get', 'model.set_default',
-  'workspace.list', 'workspace.get', 'workspace.set_default', 'preset.list', 'preset.get',
-  'config.get', 'config.set', 'artifact.get', 'artifact.open', 'artifact.publish',
-  'task.log', 'task.retry', 'task.follow', 'task.plan', 'report.daily',
-  'event.subscribe',
-]
+/** 工具清单里还缺的条目（由 TOOLS 与 IMPLEMENTED 推导 —— 单一事实来源，不再手抄）。 */
+export const TOOLS_PENDING = TOOLS.map((tool) => tool.name).filter((name) => !IMPLEMENTED.includes(name))
 
-/** 清单里有、但本阶段还没实现的（含只在候选清单里的），调用时明确报 not_implemented。 */
-const NOT_IMPLEMENTED = new Set([
-  ...TOOLS.map((tool) => tool.name).filter((name) => !IMPLEMENTED.includes(name)),
-  ...TOOLS_PENDING,
-])
+/** 清单里有、但本阶段还没实现的，调用时明确报 not_implemented。 */
+const NOT_IMPLEMENTED = new Set(TOOLS_PENDING)
+
+/** 把工具条目的 params 键展开成完整声明（供 CLI 生成 / `--help` / `/tools` 自描述）。 */
+function expandParams(tool) {
+  return (tool.params ?? []).map((key) => {
+    const spec = PARAMS[key]
+    if (spec === undefined) throw new Error(`工具 ${tool.name} 引用了未声明的参数：${key}`)
+    return { name: key, ...spec }
+  })
+}
 
 /**
- * 清单导出（给 serve 的 `/tools` 与 `dshcli tools`）。
- * 已实现的条目来自 TOOLS；**未实现的候选也一并列出来**（打 `pending`），
- * 这样调用方与 doctor 能看到「有哪些本来该有、现在还没有」，不会误以为清单就这么大。
+ * 清单导出（给 serve 的 `/tools`、`dshcli tools` 与层 2 子命令生成用）。
+ * **78 个全量**带 `positional` / `params` 声明；未实现的一律 `pending: true`。
  */
 export function toolCatalog() {
-  const implemented = TOOLS.filter((tool) => !NOT_IMPLEMENTED.has(tool.name))
-  const pending = [...new Set([...TOOLS.filter((tool) => NOT_IMPLEMENTED.has(tool.name)).map((tool) => tool.name), ...TOOLS_PENDING])]
-  return [
-    ...implemented.map((tool) => ({ ...tool, implemented: true })),
-    ...pending.map((name) => ({ name, group: name.split('.')[0], implemented: false, pending: true, summary: '(本阶段未实现)' })),
-  ]
+  return TOOLS.map((tool) => {
+    const done = !NOT_IMPLEMENTED.has(tool.name)
+    return {
+      name: tool.name,
+      group: tool.group,
+      summary: tool.summary,
+      implemented: done,
+      ...(done ? {} : { pending: true }),
+      ...(tool.write === true ? { write: true } : {}),
+      ...(tool.p0 === true ? { p0: true } : {}),
+      positional: tool.positional ?? [],
+      params: expandParams(tool),
+    }
+  })
+}
+
+/** 按组聚拢（CLI 帮助与 `--group` 过滤用）。 */
+export function toolGroups() {
+  const groups = new Map()
+  for (const tool of toolCatalog()) {
+    if (!groups.has(tool.group)) groups.set(tool.group, [])
+    groups.get(tool.group).push(tool)
+  }
+  return groups
 }
 
 /** 会话行 + 归属 + 运行态的公共解析。 */

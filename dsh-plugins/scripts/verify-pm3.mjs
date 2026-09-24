@@ -207,6 +207,50 @@ async function main() {
     }
   }
 
+  console.log('7. launcher_cli 装完顺带落技能(dshcli.SKILL.md 与 exe 同级)');
+  {
+    const stub = mkdtempSync(join(base, 'stub-skill-'));
+    const depDir = join(stub, 'node_modules', '@deepseek-ai', 'dsh-tools');
+    mkdirSync(depDir, { recursive: true });
+    writeFileSync(join(depDir, 'package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh-tools', version: '0.0.0', type: 'module', main: 'index.mjs' }), 'utf8');
+    writeFileSync(join(depDir, 'index.mjs'), 'export const defineTool = (def) => def;\n', 'utf8');
+    writeFileSync(join(stub, 'plugin.mjs'), readFileSync(join(pkg, 'plugins', 'launcher', 'index.js'), 'utf8'), 'utf8');
+
+    const home = makeHome(base);
+    const prevHome = process.env.DSH_HOME;
+    process.env.DSH_HOME = home;
+    try {
+      const mod = await import(pathToFileURL(join(stub, 'plugin.mjs')).href);
+      const tools = [];
+      mod.apply({ tools: { register: (t) => tools.push(t) }, get: () => undefined }, {});
+      const tool = tools.find((t) => t.name === 'launcher_cli');
+
+      const asset = join(base, 'dshcli-fake-skill.exe');
+      writeFileSync(asset, Buffer.alloc(4096, 3));
+      const installed = await tool.execute({ action: 'install', version: '0.11.0', from: asset });
+      // 桩 exe 不是真 exe → 技能必然失败；本用例要证的是「链路接上了 + 失败如实报出 + 不影响安装」
+      ok(installed.updated === true && typeof installed.skillOk === 'boolean', '7-1 install 结果里带技能处理结论');
+      ok(installed.skillOk === true || (typeof installed.skillReason === 'string' && installed.skillReason.length > 0), '7-2 技能失败时给得出原因');
+      ok(/技能/.test(installed.summary), '7-3 summary 里明说技能处置(给人看的那句话)');
+
+      const skipped = await tool.execute({ action: 'install', version: '0.12.0', from: asset, skill: false });
+      ok(skipped.skillOk === undefined && /skill=false/.test(skipped.summary), '7-4 skill:false 可关（不处理技能）');
+
+      const bad = [];
+      const scan = (v, path) => {
+        if (v === undefined) { bad.push(path); return; }
+        if (Array.isArray(v)) { v.forEach((x, i) => scan(x, `${path}[${i}]`)); return; }
+        if (v && typeof v === 'object') Object.keys(v).forEach((k) => scan(v[k], `${path}.${k}`));
+      };
+      scan(installed, '$'); scan(skipped, '$');
+      ok(bad.length === 0, `7-5 输出仍无损 JSON${bad.length ? ` —— ${bad.join(', ')}` : ''}`);
+    } finally {
+      if (prevHome === undefined) delete process.env.DSH_HOME;
+      else process.env.DSH_HOME = prevHome;
+    }
+  }
+
   rmSync(base, { recursive: true, force: true });
   console.log(`\n结果:${passed} 通过,${failures} 失败`);
   process.exit(failures === 0 ? 0 : 1);
