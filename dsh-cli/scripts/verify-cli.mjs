@@ -389,6 +389,57 @@ console.log('11. 技能（与 exe 同级 / 内嵌 / 落盘 / 提示）')
   ok(cliSkill.status === 0 && JSON.parse(cliSkill.stdout).path.endsWith('dshcli.SKILL.md'), '11-6 dshcli skill --where --json 可用')
 }
 
+console.log('12. 会话日志文件名兼容（上游 v3 起改用 session.v3.jsonl.zstd）')
+{
+  const v3Work = join(base, 'work-v3')
+  mkdirSync(v3Work, { recursive: true })
+  const v3Key = projectKeyFor(v3Work)
+  const writeAt = (id, layout) => {
+    const dir = join(home, 'sessions', v3Key, id)
+    mkdirSync(dir, { recursive: true })
+    const header = { type: 'session', version: layout === 'v3' ? 3 : 2, id, createdAt: 5000, cwd: v3Work, isSeeded: false, delegationDepth: 0, agentPreset: 'standard' }
+    const body = [...stepEvents, turnEnd]
+    if (layout === 'v3') {
+      // v3：会话头与事件在**同一个**文件里（首行即会话头），文件名带 v3
+      writeFileSync(join(dir, 'session.v3.jsonl.zstd'), framesOf([JSON.stringify(header), ...body.map((event) => JSON.stringify(event))]))
+    } else {
+      writeFileSync(join(dir, 'session.v2.jsonl.zstd'), framesOf([JSON.stringify(header)]))
+      writeFileSync(join(dir, 'session.jsonl.zstd'), framesOf(body.map((event) => JSON.stringify(event))))
+    }
+    return dir
+  }
+  const v3Dir = writeAt('session-stub-v3', 'v3')
+  writeAt('session-stub-v2', 'legacy')
+  const rows = sessionLog.listSessions({ cwd: v3Work })
+  ok(rows.length === 2, `12-1 v3 与旧版会话都要被发现（实际 ${rows.length}；漏掉 v3 就是 1 —— issue #54 的回归点）`)
+  ok(rows.some((row) => row.sessionId === 'session-stub-v3'), '12-2 v3 文件名 session.v3.jsonl.zstd 未被漏掉')
+  ok(sessionLog.logFileOf(v3Dir)?.endsWith('session.v3.jsonl.zstd') === true, '12-3 logFileOf 命中 v3 文件')
+  const v3Header = sessionLog.readSessionHeader(v3Dir)
+  ok(v3Header?.id === 'session-stub-v3' && v3Header.version === 3, '12-4 v3 单文件里的首行会话头可解析')
+  const v3Events = sessionLog.readEvents(v3Dir)
+  ok(v3Events.events.length === 8, `12-5 v3 事件可全量读出（实际 ${v3Events.events.length}）`)
+}
+
+console.log('13. 兼容门：会话目录在却一个都读不到 → 必须报 sessions-layout 降级')
+{
+  const blindHome = join(base, 'dsh-home-blind')
+  const blindWork = join(base, 'work-blind')
+  mkdirSync(blindWork, { recursive: true })
+  const blindDir = join(blindHome, 'sessions', projectKeyFor(blindWork), 'session-blind')
+  mkdirSync(blindDir, { recursive: true })
+  // 仿真「上游又改了一次日志文件名」：目录在、文件也在，但候选名一个都不认
+  writeFileSync(join(blindDir, 'session.v9.jsonl.zstd'), framesOf(['{"type":"session","version":9}']))
+  const { checkContract } = await import(pathToFileURL(join(src, 'dsh.js')).href)
+  const savedHome = process.env.DSH_HOME
+  process.env.DSH_HOME = blindHome
+  try {
+    const blind = checkContract({ dshBin: process.execPath })
+    ok(blind.ok === false && blind.degraded.some((item) => item.id === 'sessions-layout'), '13-1 报出 sessions-layout 降级（否则就是「doctor 全绿但读不到任何会话」的静默态）')
+  } finally {
+    process.env.DSH_HOME = savedHome
+  }
+}
+
 rmSync(base, { recursive: true, force: true })
 console.log(`\n结果：${passed} 通过，${failures} 失败`)
 process.exit(failures === 0 ? 0 : 1)

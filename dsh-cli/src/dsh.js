@@ -9,10 +9,11 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { join } from 'node:path'
-import { dshHome, sessionsRoot } from './paths.js'
+import { dshHome, listProjectDirs, sessionsRoot } from './paths.js'
+import { listSessions } from './session-log.js'
 
 /** 依赖的上游契约（断言表）：id / 依赖什么 / 怎么判 / 不满足时的后果。 */
 export const CONTRACT = {
@@ -30,7 +31,7 @@ export const CONTRACT = {
     },
     {
       id: 'sessions-layout',
-      what: '`%DSH_HOME%/sessions/<项目键>/<session-id>/session.jsonl.zstd`',
+      what: '`%DSH_HOME%/sessions/<项目键>/<session-id>/session.v3.jsonl.zstd`（旧版为 session.jsonl.zstd）',
       consequence: '读不到事件真源：分段记录、汇报、历史全部不可用',
     },
     {
@@ -199,6 +200,15 @@ export function checkContract(probe = {}) {
   }
   if (!existsSync(sessionsRoot())) {
     degraded.push({ id: 'sessions-layout', detail: `会话目录不存在：${sessionsRoot()}`, ...pick('sessions-layout') })
+  } else if (hasSessionDirs() && listSessions().length === 0) {
+    // 目录在、会话目录也在，却一个都发现不了 —— 上游多半又改过日志文件名/布局。
+    // 这会让 session.history / report / stats / artifact 全部静默变空（issue #54），
+    // 所以必须在这里点出来，不能等用户自己发现。
+    degraded.push({
+      id: 'sessions-layout',
+      detail: `sessions 根下有会话目录，但按已知日志文件名（session.v3.jsonl.zstd / session.jsonl.zstd）一个都读不到`,
+      ...pick('sessions-layout'),
+    })
   }
   const sample = probe.sampleEvents
   if (Array.isArray(sample) && sample.length > 0) {
@@ -219,4 +229,17 @@ export function checkContract(probe = {}) {
     const entry = CONTRACT.dependsOn.find((item) => item.id === id)
     return entry === undefined ? {} : { what: entry.what, consequence: entry.consequence }
   }
+}
+
+/** sessions 根下是否至少存在一个会话目录（只看目录，不解析任何文件内容）。 */
+function hasSessionDirs() {
+  for (const project of listProjectDirs()) {
+    try {
+      const entries = readdirSync(join(sessionsRoot(), project), { withFileTypes: true })
+      if (entries.some((entry) => entry.isDirectory())) return true
+    } catch {
+      // 读不到的项目目录跳过
+    }
+  }
+  return false
 }

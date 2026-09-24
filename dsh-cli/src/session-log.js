@@ -1,9 +1,11 @@
 /**
  * 会话日志读取 —— 我们的「唯一真源」通道。
  *
- * dsh 每个会话一个目录，里面两个文件：
- *   session.v2.jsonl.zstd  会话头（id/cwd/createdAt/agentPreset…，通常单帧、很小）
- *   session.jsonl.zstd     事件日志（多帧 zstd，每批 append 一帧）
+ * dsh 每个会话一个目录，事件日志文件名随上游版本演进（issue #54）：
+ *   session.v3.jsonl.zstd  当前格式（上游 v3 起；头部带 `"version":3`，同一文件内含会话头）
+ *   session.v2.jsonl.zstd  旧版会话头（id/cwd/createdAt/agentPreset…，通常单帧、很小）
+ *   session.jsonl.zstd     旧版事件日志（多帧 zstd，每批 append 一帧）
+ * 一律按候选列表取「第一个存在的文件」，避免上游改名后静默读不到任何新会话。
  *
  * 我们**直接读事件日志**，不走 `dsh --profile headless --json` —— 后者会把每条事件裁到
  * 8KiB/32KiB（见 docs/dsh-cli-design.md §6.4），而契约要求「不裁」。
@@ -14,8 +16,8 @@ import { join } from 'node:path'
 import { decompressFrames, decompressFramesFrom, walkFrames } from './zstd-frames.js'
 import { listProjectDirs, sessionsRoot } from './paths.js'
 
-const HEADER_FILES = ['session.v2.jsonl.zstd', 'session.jsonl.zstd']
-const LOG_FILE = 'session.jsonl.zstd'
+const HEADER_FILES = ['session.v3.jsonl.zstd', 'session.v2.jsonl.zstd', 'session.jsonl.zstd']
+const LOG_FILES = ['session.v3.jsonl.zstd', 'session.jsonl.zstd']
 
 /** 读会话头（小文件，单帧）。文件缺失/损坏返回 undefined。 */
 export function readSessionHeader(dir) {
@@ -37,8 +39,7 @@ export function readSessionHeader(dir) {
 
 /** 某个会话目录下的日志文件路径（不存在则 undefined）。 */
 export function logFileOf(dir) {
-  const file = join(dir, LOG_FILE)
-  return existsSync(file) ? file : undefined
+  return LOG_FILES.map((name) => join(dir, name)).find((file) => existsSync(file))
 }
 
 /**
@@ -144,8 +145,12 @@ function parseEvents(text) {
     if (line.trim() === '') continue
     try {
       const record = JSON.parse(line)
-      if (record !== null && typeof record === 'object' && typeof record.type === 'string') events.push(record)
-      else badLines += 1
+      if (record !== null && typeof record === 'object' && typeof record.type === 'string') {
+        // v3 起会话头与事件写在**同一个**文件里（首行是 `type:'session'`、没有 seq）。
+        // 它是会话头不是事件，必须剔除，否则会被算进事件条数 / between / seqRange。
+        if (record.type === 'session' && typeof record.seq !== 'number') continue
+        events.push(record)
+      } else badLines += 1
     } catch {
       badLines += 1
     }
