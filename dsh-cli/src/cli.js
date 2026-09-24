@@ -6,12 +6,26 @@
  * 命令名不叫 `dsh` —— 上游已占用，冲突时 CLI 让路（设计 §2 硬约束 2）。
  */
 
+import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { callTool, toolCatalog } from './tools.js'
 import { startServer } from './serve.js'
 import { digest } from './tools.js'
 
-const VERSION = '0.1.0'
+/**
+ * 版本：打包时由 esbuild define 注入 `__DSHCLI_VERSION__`（自包含 exe 走这条）；
+ * 直接跑源码时退回读 package.json（单一事实来源 = package.json）。
+ */
+function readVersion() {
+  if (typeof __DSHCLI_VERSION__ === 'string') return __DSHCLI_VERSION__
+  try {
+    return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+  } catch {
+    return '0.0.0'
+  }
+}
+
+const VERSION = readVersion()
 
 const USAGE = `dshcli —— 用 dsh 跑任务 / 让别的 agent 调 dsh（单机）
 
