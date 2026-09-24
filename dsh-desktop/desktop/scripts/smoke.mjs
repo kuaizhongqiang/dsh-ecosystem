@@ -10,7 +10,7 @@
 // Usage: node scripts/smoke.mjs [--dsh <path-to-bin.js>]
 import { spawn, execFileSync } from 'node:child_process'
 import { createServer } from 'node:net'
-import { existsSync, openSync, readFileSync, closeSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readFileSync, closeSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -76,6 +76,27 @@ console.log(`[smoke] entry=${entry}`)
 console.log(`[smoke] port=${port} dshVersion=${dshVersion}`)
 
 const dshHome = join(tmpdir(), `dsh-smoke-${Date.now()}`)
+
+// issue #47：dsh 0.1.2-alpha.4 的 web 模板把 `patchReload` 默认写成 "live"，而 live 需要 Cordis HMR 服务；
+// 纯 npm 安装布局里它起不来（`user patch-layer watching requires the Cordis HMR service`）→ 全新 DSH_HOME
+// 首次启动必崩（本地已复现：同版本、同参数、同全新 DSH_HOME）。生产启动并不需要 live 热重载，
+// 这里显式先把 profile 清单落成 "startup"（上游允许的两个取值之一；**显式值不会被它自己改回去**——
+// 上游只在字段缺失时才套模板默认）。附带好处：CI 行为与「用户已有 DSH_HOME」的真实情形一致。
+function seedWebProfileManifest(home) {
+  const dir = join(home, 'profiles', 'web')
+  const file = join(dir, 'package.json')
+  if (existsSync(file)) return false
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(file, `${JSON.stringify({
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'], patchReload: 'startup' } },
+  }, null, 2)}\n`, 'utf8')
+  return true
+}
+
+if (seedWebProfileManifest(dshHome)) {
+  console.log('[smoke] seeded profiles/web manifest with patchReload=startup (issue #47 workaround)')
+}
+
 const childLog = join(tmpdir(), `dsh-smoke-child-${Date.now()}.log`)
 const logFd = openSync(childLog, 'w')
 
