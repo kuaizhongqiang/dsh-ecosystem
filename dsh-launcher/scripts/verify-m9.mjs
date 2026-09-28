@@ -12,18 +12,40 @@
 //   5. `--version` 与文件名版本不一致 → 非零退出
 //   6. 缺 .sha512 副档 → 明示"跳过摘要校验"但仍可用（如实告警，不假装验过）
 //   7. 非 Windows：status 明示不支持（安装/升级仅 Windows）
+//   8. 卸载注册项解析（parseUninstallDump 纯函数直测）：DisplayName **带版本后缀**（真机形态）
+//      / 不带后缀 / 无 DisplayVersion 时退回后缀 / 旧自建 dsh-desktop 不误匹配 / 多条取最高
 //
-// 用法：node scripts/verify-m9.mjs（先 `npm run build`）
+// 用法：node scripts/verify-m9.mjs（先 `npm run build`；第 8 节还需 Node ≥ 23.6 的 type-stripping，
+// 与 verify-m0 同法直载 src/*.ts）
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { register } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+// Node type-stripping 直载 .ts 源码时,把相对导入 `./x.js` 映射到 `./x.ts`
+// (源码按 esbuild/bundler 规范写 .js 后缀;脚本在运行时做后缀映射) —— 与 verify-m0 同法
+register(
+  'data:text/javascript,' +
+    encodeURIComponent(`export async function resolve(specifier, context, nextResolve) {
+  try {
+    return await nextResolve(specifier, context);
+  } catch (e) {
+    if (specifier.endsWith('.js')) {
+      return nextResolve(specifier.slice(0, -3) + '.ts', context);
+    }
+    throw e;
+  }
+}`),
+  import.meta.url
+);
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const launcherCli = join(root, 'dist', 'launcher.cjs');
+const desktopSrc = join(root, 'src', 'desktop.ts');
 const isWin = process.platform === 'win32';
 
 let failures = 0;
@@ -142,6 +164,51 @@ async function main() {
   }
 
   rmSync(base, { recursive: true, force: true });
+
+  console.log('8. 卸载注册项解析（已装版本读取口径，P0 回归）');
+  {
+    const { parseUninstallDump } = await import(pathToFileURL(desktopSrc).href);
+    /** 造一段 `reg query … /s` 形态的转储（tab/空格混排与真机一致用空格）。 */
+    const reg = (...blocks) => blocks.flat().join('\r\n') + '\r\n';
+    const entry = (key, ...values) => [
+      `HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${key}`,
+      ...values.map(([n, v]) => `    ${n}    REG_SZ    ${v}`),
+      '',
+    ];
+    // 真机形态（2026-09-28 实测）：DisplayName **带版本后缀**
+    const real = reg(
+      entry('1bf39983-50d0-5fe0-9ef4-cece76f67c5e',
+        ['DisplayName', 'DeepSeek Harness 0.1.7-rc.2'],
+        ['DisplayVersion', '0.1.7-rc.2'],
+        ['InstallLocation', 'C:\\Users\\x\\AppData\\Local\\Programs\\DeepSeek Harness']),
+      entry('old-legacy-dsh-desktop',
+        ['DisplayName', 'dsh-desktop 0.9.4'],
+        ['DisplayVersion', '0.9.4']),
+    );
+    ok(parseUninstallDump(real) === '0.1.7-rc.2', '8-1 DisplayName 带版本后缀也读得到（真机形态，旧实现读不到）');
+    ok(
+      parseUninstallDump(reg(entry('g1', ['DisplayName', 'DeepSeek Harness'], ['DisplayVersion', '0.1.7-rc.2']))) ===
+        '0.1.7-rc.2',
+      '8-2 DisplayName 不带后缀仍可读'
+    );
+    ok(
+      parseUninstallDump(reg(entry('g2', ['DisplayName', 'DeepSeek Harness 0.1.7-rc.2']))) === '0.1.7-rc.2',
+      '8-3 无 DisplayVersion 时退回 DisplayName 的版本后缀'
+    );
+    ok(
+      parseUninstallDump(reg(entry('g3', ['DisplayName', 'dsh-desktop 0.9.4'], ['DisplayVersion', '0.9.4']))) === '',
+      '8-4 旧自建 dsh-desktop 不误匹配'
+    );
+    ok(
+      parseUninstallDump(reg(
+        entry('g4', ['DisplayName', 'DeepSeek Harness 0.1.7-rc.1'], ['DisplayVersion', '0.1.7-rc.1']),
+        entry('g5', ['DisplayName', 'DeepSeek Harness 0.1.7-rc.2'], ['DisplayVersion', '0.1.7-rc.2']),
+      )) === '0.1.7-rc.2',
+      '8-5 多条并存取最高版本'
+    );
+    ok(parseUninstallDump('') === '', '8-6 空转储返回空且不抛错');
+  }
+
   console.log(`\n结果:${passed} 通过,${failures} 失败`);
   process.exit(failures === 0 ? 0 : 1);
 }

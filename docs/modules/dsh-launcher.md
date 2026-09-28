@@ -46,8 +46,10 @@ desktop 归上游后,launcher 补上「**首装 / 升级**」入口 —— 只�
   腾讯 CDN、带 `version`/`sha512`/`size`),失败**回退伞仓 Release 镜像**
   (`deepseek-harness-<ver>-win-x64.exe` + `.sha512` 副档);`--from <url|文件>` 可强制指定(离线/预置包)。
 - **安装**:上游是 electron-builder assisted NSIS(`perMachine=false`)→ **per-user、免管理员**;
-  `安装包 /S` **实测静默可用**(2026-09-28,0.1.7-rc.2,exit 0、无 UI)。装完回读 HKCU 卸载注册项
-  (`DisplayName = DeepSeek Harness` → `DisplayVersion`)确认版本。
+  `安装包 /S` **实测静默可用**(2026-09-28,0.1.7-rc.2,exit 0、无 UI)。装完回读卸载注册项确认版本 ——
+  注意 `DisplayName` **实测带版本后缀**(`DeepSeek Harness 0.1.7-rc.2`,NSIS 模板 `Name` = 产品名 + 版本),
+  匹配口径见 `parseUninstallDump()`;另:安装包进程**装完后还会驻留 2~3 分钟**才退出,
+  故等待逻辑是「进程退出」与「注册项回报目标版本」双信号,不干等进程。
 - **三个面**:GUI(安装卡「安装/升级桌面版」按钮 + 概览卡 desktop chip)、CLI
   (`desktop status` / `desktop install [--version|--from|--mirror|--silent|--wizard|--dry-run]`)、
   端点 `/api/desktop`(状态)与 `/api/desktop/install`(busy + `202` + 日志走 SSE)。
@@ -67,5 +69,6 @@ desktop 归上游后,launcher 补上「**首装 / 升级**」入口 —— 只�
 
 - 清单内容一变就必须**重算 sha + 同步两处清单 + `commit` 指向含该内容的伞仓提交** —— 照
   [RELEASING.md](../RELEASING.md) 发布前置做,`scripts/verify-release.mjs` 会校验。
-- 概览卡的 **desktop 版本** = 上游 Windows 卸载注册项(`DisplayName = DeepSeek Harness` → `DisplayVersion`),
-  实现见 `dsh-launcher/src/server.ts` 的 `readUpstreamDesktopVersion()`(枚举 Uninstall 键,不硬编码 GUID)。
+- 概览卡的 **desktop 版本** = 上游 Windows 卸载注册项(产品名 + 可选版本后缀的 `DisplayName` →
+  优先 `DisplayVersion`),实现见 `dsh-launcher/src/desktop.ts` 的 `installedDesktopVersion()` /
+  `parseUninstallDump()`(枚举 Uninstall 键,不硬编码 GUID),经 `server.ts` 的 `detectComponentVersions()` 出到状态。

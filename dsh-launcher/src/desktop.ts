@@ -18,7 +18,12 @@
 // 安装形态：上游是 electron-builder assisted NSIS
 // （`oneClick:false` / `perMachine:false` / `allowElevation:false`）→ **按用户安装、
 // 不需要管理员**；2026-09-28 实测 `安装包 /S` 静默成功（0.1.7-rc.2，exit 0，无 UI），
-// 装完在 HKCU 卸载注册项写 `DisplayName = DeepSeek Harness` / `DisplayVersion` / `InstallLocation`。
+// 装完在 HKCU 卸载注册项写 `DisplayName` / `DisplayVersion` / `InstallLocation`。
+//
+// 注册项口径（2026-09-28 真机校正）：上游 NSIS 模板的 `Name` 是
+// `${productName} ${version}`，故 **DisplayName 实测带版本后缀**：
+// `DisplayName = DeepSeek Harness 0.1.7-rc.2`。旧实现要求它**精确等于** `DeepSeek Harness`，
+// 结果永远读不到版本（UI 显示「未确认」）—— 匹配口径见 `parseUninstallDump()`。
 
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
@@ -40,8 +45,11 @@ export const FEED_DIR = 'dsh-desk/feeds/win-x64';
 export const BIN_DIR = 'dsh-desk/bin/win-x64';
 /** 上游通道：目前只有 nightly（版本全是 prerelease）。 */
 export const FEED_CHANNEL = 'nightly';
-/** 上游桌面版在 Windows 卸载注册项里的 DisplayName（用于识别「已装」）。 */
+/** 上游桌面版在 Windows 卸载注册项里的产品名（用于识别「已装」）。 */
 export const DESKTOP_PRODUCT_NAME = 'DeepSeek Harness';
+
+/** 产品名的正则安全形式（名字里带空格，直接插进正则不安全）。 */
+const DESKTOP_PRODUCT_RE = DESKTOP_PRODUCT_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const mirrorRepo = 'kuaizhongqiang/dsh-ecosystem';
 const mirrorAPI = `https://api.github.com/repos/${mirrorRepo}/releases/latest`;
@@ -95,8 +103,33 @@ export function desktopCacheDir(): string {
 // ---------- 已装版本（上游安装登记） ----------
 
 /**
- * 读上游桌面版的已装版本：枚举 Windows 卸载注册项，按 `DisplayName = DeepSeek Harness`
- * 匹配后取 `DisplayVersion`（注册项 GUID 不稳定，**不能硬编码**；HKCU 用户级 + HKLM 机器级都看）。
+ * 从 `reg query <Uninstall 键> /s` 的转储里解析上游桌面版已装版本（多条取最高；读不到 = ''）。
+ *
+ * 匹配口径（2026-09-28 真机校正，**修 P0**）：
+ *   - `DisplayName` 取「产品名前缀 + 可选版本后缀」—— 上游 NSIS 的 `Name` 是
+ *     `${productName} ${version}`，实测 `DeepSeek Harness 0.1.7-rc.2`；
+ *     只认不带后缀的精确匹配会**永远读不到版本**（UI 卡在「未确认」）。
+ *   - 版本优先取 `DisplayVersion`；该值缺失时退回 `DisplayName` 里的版本后缀。
+ *   - 按块匹配（`DisplayName` 与 `DisplayVersion` 必在同一注册项块内），
+ *     不会误匹配旧自建桌面版（`dsh-desktop 0.9.4`）等无关项。
+ * 纯函数（无 IO），供 `verify-m9` 直接单测。
+ */
+export function parseUninstallDump(dump: string): string {
+  let found = '';
+  const nameRe = new RegExp(`^\\s*DisplayName\\s+REG_SZ\\s+${DESKTOP_PRODUCT_RE}(?:\\s+(\\S+))?\\s*$`, 'im');
+  for (const block of dump.split(/\r?\n(?=HKEY_)/)) {
+    const name = nameRe.exec(block);
+    if (!name) continue;
+    const declared = /^\s*DisplayVersion\s+REG_SZ\s+(\S+)\s*$/im.exec(block);
+    const candidate = declared?.[1] ?? name[1] ?? '';
+    if (candidate !== '' && (found === '' || compare(candidate, found) > 0)) found = candidate;
+  }
+  return found;
+}
+
+/**
+ * 读上游桌面版的已装版本：枚举 Windows 卸载注册项（HKCU 用户级 + HKLM 机器级 + WOW6432Node，
+ * 注册项 GUID 不稳定，**不能硬编码**），解析口径见 `parseUninstallDump()`。
  * 非 Windows / 未装 / 读取失败一律返回 ''，绝不抛错。
  */
 export function installedDesktopVersion(): string {
@@ -114,11 +147,8 @@ export function installedDesktopVersion(): string {
     } catch {
       continue; // 键不存在 / 无权限：跳过
     }
-    for (const block of dump.split(/\r?\n(?=HKEY_)/)) {
-      if (!new RegExp(`^\\s*DisplayName\\s+REG_SZ\\s+${DESKTOP_PRODUCT_NAME}\\s*$`, 'im').test(block)) continue;
-      const version = /^\s*DisplayVersion\s+REG_SZ\s+(\S+)\s*$/im.exec(block);
-      if (version && (found === '' || compare(version[1], found) > 0)) found = version[1];
-    }
+    const v = parseUninstallDump(dump);
+    if (v !== '' && (found === '' || compare(v, found) > 0)) found = v;
   }
   return found;
 }
@@ -380,6 +410,85 @@ async function waitInstalledVersion(expect: string, waitMs: number): Promise<str
   return installedDesktopVersion();
 }
 
+/** 静默安装的整体上限（真机实测 20s~3min；这里只防「彻底卡死」）。 */
+const INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
+/** 注册项已回报目标版本后，仍等安装包进程收尾的时间；超时即按「已装」结论走。 */
+const INSTALL_SETTLE_MS = 60_000;
+/** 轮询注册项 / 安装包退出的间隔。 */
+const INSTALL_POLL_MS = 2_000;
+/** 静默安装期间的心跳日志间隔（避免几分钟静默像卡死）。 */
+const INSTALL_NOTE_MS = 30_000;
+
+/**
+ * 静默安装，并等一个**可确认的结果**（不再只看安装包退出码）。
+ *
+ * 真机实测（2026-09-28，`0.1.7-rc.2`）：`/S` 装完后安装包进程还会**驻留约 2~3 分钟**
+ * 才退出 —— 旧实现「干等进程退出 → 再轮询注册项 120s」于是白等 4 分半，还在注册项口径
+ * 有 bug 时误报「未确认」。现改为并行看两个信号：
+ *   - 注册项回报 ≥ 目标版本 → 最多再等 {@link INSTALL_SETTLE_MS} 收尾，到点即判成功；
+ *   - 安装包退出 → 按退出码判（非 0 返回该码，由调用方抛错）；
+ *   - 全程超 {@link INSTALL_TIMEOUT_MS} 且注册项始终没回报 → 抛超时。
+ * 期间每 {@link INSTALL_NOTE_MS} 打一次心跳日志。
+ * @param exePath 已下载并校验过的安装包
+ * @param expect 目标版本（注册项报告 ≥ 它才算装好）
+ * @param out 日志输出
+ * @returns 退出码（因滞留提前判成功时为 0）与读到的已装版本（可能为 ''）
+ */
+async function runSilentInstaller(
+  exePath: string,
+  expect: string,
+  out: (line: string) => void,
+): Promise<{ code: number; installed: string }> {
+  const child = spawn(exePath, ['/S'], { stdio: 'ignore', windowsHide: true });
+  child.unref(); // 安装包自行收尾，不拖住 launcher 退出
+  let exited = false;
+  let code = 0;
+  let spawnError: Error | null = null;
+  child.on('error', (e) => {
+    spawnError = new Error(`拉起安装包失败：${e.message}`);
+    exited = true;
+  });
+  child.on('exit', (c) => {
+    exited = true;
+    code = c ?? -1;
+  });
+
+  const start = Date.now();
+  let confirmed = '';
+  let confirmedAt = 0;
+  let lastNote = 0;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, INSTALL_POLL_MS));
+    if (spawnError) throw spawnError;
+    const v = installedDesktopVersion();
+    if (v !== '' && (expect === '' || compare(v, expect) >= 0)) {
+      confirmed = v;
+      if (confirmedAt === 0) {
+        confirmedAt = Date.now();
+        out(`注册项已回报已装版本 ${v}${exited ? '' : `（安装包仍在收尾，最多再等 ${INSTALL_SETTLE_MS / 1000}s）`}`);
+      }
+    }
+    const waited = Date.now() - start;
+    if (exited) {
+      if (code !== 0) return { code, installed: confirmed };
+      // 退出码 0：若注册项还没回报，给它 30s 落定（安装收尾 / 卸载重写注册项）
+      return { code: 0, installed: confirmed !== '' ? confirmed : await waitInstalledVersion(expect, 30_000) };
+    }
+    if (confirmedAt !== 0 && Date.now() - confirmedAt >= INSTALL_SETTLE_MS) {
+      out('注册项已确认装好；安装包进程仍在后台收尾，按成功处理');
+      return { code: 0, installed: confirmed };
+    }
+    if (waited >= INSTALL_TIMEOUT_MS) {
+      if (confirmed !== '') return { code: 0, installed: confirmed };
+      throw new Error(`安装包超过 ${INSTALL_TIMEOUT_MS / 60_000} 分钟仍未装好（注册项未回报版本）`);
+    }
+    if (waited - lastNote >= INSTALL_NOTE_MS) {
+      lastNote = waited;
+      out(`安装包仍在处理（已等 ${Math.round(waited / 1000)}s）……`);
+    }
+  }
+}
+
 /** installDesktop 的选项（GUI / CLI 共用）。 */
 export interface InstallOptions {
   /** 显式来源：http(s) 或本地路径（离线 / 自测 / 预置包）。 */
@@ -412,15 +521,18 @@ export async function installDesktop(
   }
   const silent = opts.silent !== false;
   out(`拉起安装包（${silent ? '/S 静默' : '向导'}）：${installer}`);
-  const code = await runInstaller(installer, { silent });
-  if (code === -1) {
+  if (!silent) {
+    await runInstaller(installer, { silent: false });
     out('已打开安装向导，请在窗口中完成安装');
     return { release, installer, installed: installedDesktopVersion() };
   }
-  if (code !== 0) throw new Error(`安装包退出码 ${code}`);
-  const installed = await waitInstalledVersion(release.version, 120_000);
+  const r = await runSilentInstaller(installer, release.version, out);
+  if (r.code !== 0) throw new Error(`安装包退出码 ${r.code}`);
+  const installed = r.installed !== '' ? r.installed : await waitInstalledVersion(release.version, 30_000);
   if (installed === '') {
-    out('安装包已返回 0，但注册项未出现 DisplayVersion：请用「系统设置 → 应用」确认安装结果');
+    out(`安装包已结束，但卸载注册项里读不到 ${DESKTOP_PRODUCT_NAME} 的版本：请用「系统设置 → 应用」确认安装结果`);
+  } else if (compare(installed, release.version) < 0) {
+    out(`已装桌面版：${installed}（低于取件版本 ${release.version}，可能未完成覆盖安装）`);
   } else {
     out(`已装桌面版：${installed}`);
   }

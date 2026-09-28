@@ -140,7 +140,7 @@
 | 更新可用性 | `getStatus().update.{checking,dshAvail,launcherAvail}`（后端 updateState） | ✅ 现成 |
 | 插件集 commit | `refreshEcosystem()` → `getEcosystem().manifest.pluginsCommit`（截 8 位，:451） | ✅ 现成 |
 | vscode 版本 | `getStatus().components.vscode`（后端扫用户 `.vscode*` 扩展目录取本产品版本） | ✅ 已落地 |
-| desktop 版本 | `getStatus().components.desktop`（后端枚举 Windows `Uninstall` 键，按 `DisplayName = DeepSeek Harness` 取 `DisplayVersion`） | ✅ 已落地（2026-09-28：desktop 归上游，读上游安装登记） |
+| desktop 版本 | `getStatus().components.desktop`（后端枚举 Windows `Uninstall` 键，`DisplayName` 允许带版本后缀，优先取 `DisplayVersion`） | ✅ 已落地（2026-09-28：desktop 归上游，读上游安装登记；口径见 `modules/dsh-desktop.md`） |
 | 插件包 sha256 | — | ☐ 缺口：`/api/ecosystem` manifest 无 sha；后端有（随包 ecosystem.json / 内嵌清单），需在接口补 `packages[].sha256` 供 #18 明细展示 |
 | 实时日志（非状态） | `bridge.onLog` ← SSE `/api/events`（server.ts handleEvents；`lineKind` 把 `[ERROR]→err / [WARN]→warn / [DEBUG]→''`） | ✅ 现成（只推新行，不重放） |
 

@@ -26,8 +26,10 @@ Electron 外壳包住**完整的 dsh Web 应用**:Electron 以 `ELECTRON_RUN_AS_
   清单 `dsh-desk/feeds/<target>/nightly.yml`,产物 `dsh-desk/bin/<target>/deepseek-harness-<ver>-<os>-<arch>.<ext>`;
   target 为 `mac-arm64` / `mac-x64` / `win-x64`。上游当前版本全是 prerelease,故只有 `nightly` 清单。
 - **安装形态(Windows)**:NSIS,`oneClick:false` + `perMachine:false` + `allowElevation:false`
-  → 按用户装到用户目录,并向 **HKCU** 的卸载注册项写 `DisplayName`(`DeepSeek Harness`)与
+  → 按用户装到用户目录,并向 **HKCU** 的卸载注册项写 `DisplayName` 与
   `DisplayVersion`/`InstallLocation`。伞仓 launcher 就靠这个读「已装版本」(见下)。
+  **`DisplayName` 实测带版本后缀**(NSIS 模板的 `Name` 是 `${productName} ${version}`,
+  2026-09-28 真机:`DeepSeek Harness 0.1.7-rc.2`)—— 解析必须允许后缀,不能要求精确等于产品名。
 - **数据边界**:shell 独占 `$DSH_HOME/profiles/desktop` 与其包管理状态;`$DSH_HOME` 下的会话/设置/凭证/插件
   与 CLI 共用,但可执行包、锁文件、`node_modules` 不共享。卸载**不碰** `~/.dsh` / `DSH_HOME`。
 - 上游 CI(`deepseek-harness/.github/workflows/`)不构建桌面版,产物由其内部发布流程上传到 COS。
@@ -41,8 +43,9 @@ Electron 外壳包住**完整的 dsh Web 应用**:Electron 以 `ELECTRON_RUN_AS_
   按钮 —— 取件上游 feed 优先、伞仓镜像兜底,`安装包 /S` 静默(per-user 免管理员)已实测;
   细节见 [dsh-launcher.md](dsh-launcher.md) 「上游桌面版入口」。
 - **本机识别**:launcher 概览卡的 desktop 版本 = `dsh-launcher/src/desktop.ts` 的
-  `readUpstreamDesktopVersion()` —— 枚举 `HKCU`/`HKLM`(+`WOW6432Node`)的 `Uninstall` 键,
-  按 `DisplayName == DeepSeek Harness` 匹配后读 `DisplayVersion`(注册项 GUID 不稳定,不能硬编码)。
+  `installedDesktopVersion()`(纯解析函数 `parseUninstallDump()`)—— 枚举 `HKCU`/`HKLM`(+`WOW6432Node`)
+  的 `Uninstall` 键,按「`DisplayName` = 产品名 + 可选版本后缀」匹配后**优先读 `DisplayVersion`**
+  (缺失时退回 `DisplayName` 的后缀),多条取最高(注册项 GUID 不稳定,不能硬编码)。
 - **launch-token 语义收窄**:launcher 解析激活连接后照写的 v1 `launch-token.json` 现在只有
   **dsh-vscode** 读(上游桌面版自带 Host 与鉴权,不读该文件);旧文档里「desktop 完全跟随」的说法已作废。
 - **不再有伞仓版本号**:desktop 不参与伞仓三方版本一致性校验,也不进 npm。

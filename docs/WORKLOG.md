@@ -1,5 +1,33 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-28(四)修 launcher 桌面版「已装却显示未确认」(真机回归)
+
+- **现象(用户报)**:GUI「安装/升级桌面版」跑完,日志出
+  「安装包已返回 0,但注册项未出现 DisplayVersion」,概览卡 desktop chip 空、安装卡摘要「未确认」;
+  整轮耗时 4 分半(09:47:24→09:52:03 与 09:54:17→09:58:52 两轮同形)。
+- **根因(两个,其一才是「未确认」)**:
+  1. **注册项口径错(主因)**:上游 assisted NSIS 模板的 `Name` 是 `${productName} ${version}`,
+     注册项真机回读 = `DisplayName: DeepSeek Harness 0.1.7-rc.2` / `DisplayVersion: 0.1.7-rc.2` /
+     `InstallLocation: %LOCALAPPDATA%\Programs\DeepSeek Harness`;旧实现却用
+     `^\s*DisplayName\s+REG_SZ\s+DeepSeek Harness\s*$` **精确匹配**,于是永远读不到版本
+     —— 桌面版其实 09:54:38 就装好了(目录 + HKCU 卸载项齐备)。
+     (三)C 里记的「`DisplayName=DeepSeek Harness`」是当时记录不精确,以真机回读为准。)
+  2. **等待策略白等**:旧流程「等安装包进程退出(实测装完后仍驻留 ~155s)→ 再轮询注册项 120s」,
+     两段叠加 ≈ 275s,且全程无进度日志,观感像卡死。
+- **修**:`dsh-launcher/src/desktop.ts`
+  - 新增纯函数 `parseUninstallDump()`(可直测,`verify-m9` 用):`DisplayName` 按
+    「产品名 + 可选版本后缀」匹配,版本优先 `DisplayVersion`、缺失时退回后缀,
+    按注册项块匹配(不误伤旧自建 `dsh-desktop 0.9.4`),多条取最高;`installedDesktopVersion()` 改为逐根键调它。
+  - 新增 `runSilentInstaller()`:静默安装时**并行**看「安装包退出」与「注册项回报 ≥ 目标版本」,
+    注册项确认后最多再等 60s 收尾即判成功;每 30s 一条心跳日志;15 分钟硬上限。
+    退出码非 0 仍抛错;装完读到版本低于取件版本时如实告警。
+- **门**:`verify-m9` 新增第 8 节(6 条,注册项解析真机形态回归)→ **30 通过 0 失败**(原 24/0);
+  真机复验 `desktop status`:由「已装版本:— / 可升级:是」变为「已装版本:0.1.7-rc.2 / 可升级:否」。
+- **文件清单**:`dsh-launcher/src/desktop.ts`、`dsh-launcher/scripts/verify-m9.mjs`、
+  `docs/modules/dsh-desktop.md`、`docs/modules/dsh-launcher.md`、`docs/launcher-ui-redesign.md`、本文件。
+- **遗留**:本机另有**旧自建**桌面版注册项(`dsh-desktop 0.9.4`,`D:\dsh\dsh-desktop`,不入本逻辑),
+  按 `modules/dsh-desktop.md`「迁移提示」应手工卸载(launcher 不代卸载)。
+
 ## 2026-09-28(三)已发 v0.11.7(#60 门收口 + launcher 上游桌面版入口)
 
 ### A. #60 判定与修复
