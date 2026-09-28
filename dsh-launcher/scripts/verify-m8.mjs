@@ -2,10 +2,15 @@
 //
 // 覆盖(M8 / Phase 8):
 //   1. lock 写入:writeLock → loadLock roundtrip
+//   1b. **旧布局 lock 被忽略**(repo 非 dsh-ecosystem → isUsableLock false / loadUsableLock 回退默认, #60)
 //   2. pull 默认收敛:无显式清单时使用 lock(不漂移到内嵌默认)
 //   3. 确认升级:显式 --manifest + --update-lock → lock 更新为新组合;之后再 pull 收敛到新 lock
 //   4. 显式清单不带 --update-lock → 不触碰 lock
 //   5. 回传 = profile push/pull(M4 已验);此处验 check-update 提示文案存在(源码级)
+//
+// 注:夹具 manifest 的 `plugins.source.repo` 必须是**伞仓 repo**(默认 UMBRELLA_REPO)。
+//     monorepo 化后 `isUsableLock()` 只认 repo 以 dsh-ecosystem.git 结尾的 lock,
+//     用旧布局 repo 造夹具会让随后的 lock 断言全部失真(这正是 #60 里 M8 三条失败的原因)。
 //
 // 用法:node scripts/verify-m8.mjs(直接载 TS,无需 build)
 
@@ -38,14 +43,19 @@ const ok = (cond, name) => {
 };
 const shaHex = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 
-/** 造清单文件(锁给定 commit,sha256 按插件目录现算)。 */
-function makeManifest(dir, commit) {
+/** 伞仓插件源 repo：lock 可用性判定要求 repo 以此结尾（见 ecosystem.isUsableLock，#60）。 */
+const UMBRELLA_REPO = 'https://github.com/kuaizhongqiang/dsh-ecosystem.git';
+/**
+ * 造清单文件（锁给定 commit，sha256 按插件目录现算）。
+ * repo 默认伞仓；传旧布局 repo（…/dsh-plugins.git）可造「过期 lock」现场。
+ */
+function makeManifest(dir, commit, repo = UMBRELLA_REPO) {
   const mf = join(dir, `manifest-${commit.slice(0, 4)}.json`);
   writeFileSync(mf, JSON.stringify({
     version: 1,
     dsh: { source: 'github', version: 'latest' },
     plugins: {
-      source: { repo: 'https://github.com/example/dsh-plugins.git', commit },
+      source: { repo, commit },
       packages: [
         { id: 'pkgA', dir: 'plugins/pkgA-dsh-plugin', sha256: { 'install.ps1': shaHex(join(dir, 'plugins', 'pkgA-dsh-plugin', 'install.ps1')) } },
       ],
@@ -78,6 +88,19 @@ async function main() {
     eco.writeLock(manifest, mfA);
     const lock = eco.loadLock();
     ok(lock && lock.version === 1 && lock.manifest.plugins.source.commit === 'a'.repeat(40), '1-1 writeLock/loadLock roundtrip');
+  }
+
+  console.log('1b. 旧布局 lock 被忽略（monorepo 后规则，避免旧 repo 的 lock 拖住升级）');
+  {
+    const legacy = makeManifest(pluginsDir, 'c'.repeat(40), 'https://github.com/example/dsh-plugins.git');
+    const { manifest } = await eco.loadManifest(legacy);
+    eco.writeLock(manifest, 'legacy-fixture');
+    ok(eco.loadLock() !== undefined, '1b-1 原始 lock 读得到（loadLock 不做可用性判断）');
+    ok(eco.isUsableLock(eco.loadLock()) === false, '1b-2 isUsableLock 判定不可用（repo 非 dsh-ecosystem）');
+    ok(eco.loadUsableLock() === undefined, '1b-3 loadUsableLock 忽略它并回退默认清单');
+    // 复原为伞仓 lock，后续用例继续走「可用 lock」路径
+    const { manifest: usable } = await eco.loadManifest(mfA);
+    eco.writeLock(usable, mfA);
   }
 
   console.log('2. pull 默认收敛到 lock');

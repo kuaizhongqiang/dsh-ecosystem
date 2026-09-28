@@ -170,6 +170,10 @@ jobs:
         run: npm run verify:m5
       - name: "Verify gates (m9: 上游桌面版取件 / sha512 / 预检安装,免网络)"
         run: npm run verify:m9
+      - name: "Verify gates (m2: 生态页后端契约 + UI 资源注入)"
+        run: npm run verify:m2
+      - name: "Verify gates (m8: 版本 lock / 旧布局 lock 忽略)"
+        run: npm run verify:m8
       - name: Package portable exe
         run: npx electron-builder --win portable --publish never
       - name: Package NSIS installer

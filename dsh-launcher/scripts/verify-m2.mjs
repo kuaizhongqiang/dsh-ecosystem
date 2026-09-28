@@ -1,14 +1,15 @@
 // scripts/verify-m2.mjs —— M2 自动验证脚本（GUI「生态」页后端契约 + 资源注入）。
 //
 // 覆盖(M2 / Phase 2):
-//   1. GET /api/ecosystem:清单(默认内嵌,11 包)+ 状态(无/有 ecosystem-state.json)+ busy
+//   1. GET /api/ecosystem:清单(默认内嵌)+ 状态(无/有 ecosystem-state.json)+ busy
+//      —— 包数/包 id 集合/插件源 commit 一律与 `ecosystem.json`(**单一事实源**)对比,不硬编码(#60)
 //   2. POST /api/ecosystem/pull:异步触发,dry-run 空选快速结束,busy 回落
 //   3. UI 静态资源注入:/ 含生态卡片控件;/app.js 含生态渲染逻辑
 //
 // 用法:node scripts/verify-m2.mjs（先 npm run build;脚本自行拉起 dist/launcher.cjs ui）
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -76,11 +77,20 @@ async function main() {
     console.log('1. GET /api/ecosystem（无状态）');
     const g1 = await getJson(base + '/api/ecosystem');
     ok(g1.status === 200 && g1.json?.ok === true, '1-1 /api/ecosystem 200 ok');
-    ok(Array.isArray(g1.json?.manifest?.packages) && g1.json.manifest.packages.length === 7, '1-2 默认清单 7 包(11→7)');
+    // #60:不硬编码包数/commit —— 一律与 dsh-launcher/ecosystem.json(单一事实源)对比
+    const eco = JSON.parse(readFileSync(join(root, 'ecosystem.json'), 'utf8'));
+    const wantIds = eco.plugins.packages.map((p) => p.id).sort();
+    const gotPkgs = Array.isArray(g1.json?.manifest?.packages) ? g1.json.manifest.packages : [];
+    const gotIds = gotPkgs.map((p) => p.id).sort();
+    ok(gotPkgs.length === wantIds.length, `1-2 默认清单包数 = ecosystem.json（${wantIds.length} 包）`);
+    ok(gotIds.join(',') === wantIds.join(','), '1-2b 包 id 集合 = ecosystem.json（无缺漏/无多余）');
     ok(g1.json.manifest.skills === true && !!g1.json.label, '1-3 skills=true 且带 label');
     ok(g1.json.state === null, '1-4 无状态时 state=null');
-    ok(g1.json.manifest.pluginsCommit === '9f472797785a70cf78de0042f98e01d05ef927cb', '1-5 插件源锁 9f47279');
-    ok(typeof g1.json.pluginsDir === 'string' && g1.json.pluginsDir.endsWith('dsh-plugins'), '1-6 pluginsDir 默认 launcher 旁');
+    ok(g1.json.manifest.pluginsCommit === eco.plugins.source.commit,
+      `1-5 插件源锁 = ecosystem.json 的 commit（${String(eco.plugins.source.commit).slice(0, 8)}）`);
+    // monorepo 后生态源检出目录叫 dsh-ecosystem（不再是 dsh-plugins），见 ecosystem.pluginsRootDir()
+    ok(typeof g1.json.pluginsDir === 'string' && /[\\/]dsh-ecosystem$/.test(g1.json.pluginsDir),
+      '1-6 pluginsDir 默认 = launcher 配置目录旁的 dsh-ecosystem 检出');
 
     console.log('2. GET /api/ecosystem（有状态）');
     const st = {

@@ -24,9 +24,11 @@ M0–M8 里程碑已全部落地(v0.7.3 线)。
 - **开发在伞仓内进行**:修改 `dsh-launcher/` 后随伞仓 git 提交推送;无独立 remote。
 - 原仓内层 `dsh-plugins` 子模块(dev 便利)已随 monorepo 化**清除**;运行时插件源逻辑
   (M1 `ensurePluginsSource` 锁 sha 从 GitHub 拉取)不受影响,插件目录统一为伞仓 `dsh-plugins/`。
-- 质量门:目录内 `npm run check`(tsc)/ `npm run build` / `verify:m0..m8`(`npm run verify:mX`,先 build;
-  **用 npm 勿用 pnpm**);本机 npm 开了 allow-scripts,electron/esbuild/koffi 的 postinstall 会被拦
-  (要打包或跑 GUI 前需批准脚本或手动补),CI runner 无此策略。
+- 质量门:目录内 `npm run check`(tsc)/ `npm run build` / `verify:m0..m9`(`npm run verify:mX`,先 build;
+  **用 npm 勿用 pnpm**);**CI 的 launcher job 跑 m2 + m5 + m8 + m9**(其余在本机跑)。
+  门脚本只做「行为断言」,期望值一律从单一事实源(`ecosystem.json` / 实现常量)读,**不硬编码包数/commit**
+  (#60:曾因硬编码 7 包 / 9f47279 长期误报)。本机 npm 开了 allow-scripts,electron/esbuild/koffi 的
+  postinstall 会被拦(要打包或跑 GUI 前需批准脚本或手动补),CI runner 无此策略。
 
 ## 发布注意点
 
