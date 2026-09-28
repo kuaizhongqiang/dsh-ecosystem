@@ -1,5 +1,50 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-28(二)清账收尾 + 已发 v0.11.6(desktop-mirror 首跑成功)
+
+### A. 清账收尾
+
+- **issue 卫生:open 17 → 3**。逐条跑组件门拿证据后关闭:
+  `#3 M0`(verify:m0 19/0)、`#5 M1`(15/0)、`#7 M3`(14/0)、`#8 M4`(13/0)、`#9 M5`(35/0)、
+  `#10 M6`(21/0)、`#11 M7`(8/0)、`#13–#16 PM1–PM4`(verify-pm2 34/0、pm3 34/0、pm4 9/0、image 42/0)、
+  `#48 T7`/`#49 T8`(verify-cli 95/0)、`EPIC #36`(P0–P8、T1–T8 全绿)。
+- **被门挡住的真相(本轮最有价值的发现)**:`M2 #6` / `M8 #12` **门本来就是红的** ——
+  `verify:m2` 10 通过 / 3 失败、`verify:m8` 5 通过 / 3 失败。失败全是**断言过期**,不是功能回归:
+  ① `1-2 默认清单 7 包`(现实 9 包);② `1-5 插件源锁 9f47279`(硬编码 commit,每次重钉必红);
+  ③ `1-6 pluginsDir 默认 launcher 旁`(monorepo 后语义已变);m8 三条 lock 断言与「忽略旧布局 lock」新语义冲突。
+  → **不关这两个 issue**,各留证据评论,**新开 #60** 承接「逐条判定门过期 vs 真回归 + 断言去硬编码」。
+  **教训:文档写「已落地」≠ 门是绿的;清账第一件事是跑门,不是读文档。**
+- **旧插件清场**:删 6 个 deprecated 旧包目录(38 文件:audio-read / audio-speak / video-read /
+  document-read / deepseek-balance / deepseek-recharge);`ue-mcp` **保留**(需本地 UE 工程,不入默认清单)。
+  清场后 `dsh-plugins/plugins/` = **10 个**,与 `docs/modules/dsh-plugins.md` 描述一致。
+  `verify-pm2` 第 5 节原依赖已删旧包 → 改为**直接造老装机现场**(旧载荷 + 旧节头),
+  老用户迁移路径继续被覆盖(复绿 34/0);`dsh-plugins/README` 目录树与 DEPRECATED 表述同步。
+- **陈旧文档**:`dsh-cli-execution` P6 四处版本→三方 + issue #47 注意作废;
+  `launcher-ui-redesign` 的 vscode/desktop 版本缺口改标「已落地」;
+  `modules/dsh-plugins` 与 `ECOSYSTEM-PLAN §8` 标注 PM1–PM4 已关闭。
+- **插件文案**:`dsh-launcher` 插件的 `launcher_connections` 把「desktop 完全跟随」收窄为
+  「vscode token 跟随,serverUrl 需手动同步;desktop 已归上游(不读 launch-token)」。
+- **清单重钉(两步提交)**:内容提交 `27f4522` → `ecosystem.json` 的 `commit` 指向 27f4522(`19060ff`)
+  → `scripts/verify-release.mjs` 通过。
+
+### B. 已发 v0.11.6
+
+- 三方版本 `0.11.5 → 0.11.6`(`f9f7da6`);tag `v0.11.6` → CI **7 个 job 全绿**(约 4 分钟)。
+- **`desktop-mirror` 首次真跑即成功(23s)**:下载上游 `deepseek-harness-0.1.7-rc.2-win-x64.exe`,
+  验 sha512 与字节数后上传;Release 资产大小 **288,245,480 B** 与上游 feed 声明**逐字节一致**,附 `.sha512`(170 B)。
+- Release 资产:launcher portable 68,093,265 + setup 74,826,880;`dshcli.exe` 93,824,000 与
+  `dshcli-linux-x64` 126,749,888(各带版本化副本);`dsh-vscode-0.11.6.vsix` 177,708;
+  镜像桌面版 + 副档。npm:`@kuaizhongqiang/dsh-cli@0.11.6` ✓;Open VSX:`kuaizhongqiang.dsh-vscode@0.11.6` ✓。
+- **顺带验证**:release notes 已由新 init job 文案生成(「launcher / vscode / dsh-cli 同一版本;
+  desktop 归上游,本 release 镜像其 win-x64 安装包」)——发布面与文档一致。
+- **本版特性**:desktop 归上游(镜像分发)、插件集清场与清单重钉、launcher 概览卡读上游桌面版版本。
+- **文件清单(本轮)**:`dsh-plugins/`(README + `scripts/verify-pm2.mjs` + 插件文案 + 删 6 个旧包目录 38 文件)、
+  `dsh-launcher/ecosystem.json`(清单重钉)、三处 `package.json`(版本 bump)、
+  `docs/`(ECOSYSTEM-PLAN、dsh-cli-execution、launcher-ui-redesign、modules/dsh-plugins、WORKLOG)。
+  提交链:`27f4522`(清场 + 文案 + 陈旧文档)→ `19060ff`(清单重钉)→ `f9f7da6`(发布准备 v0.11.6)。
+- **下一步**:① #60(M2/M8 门脚本判定与去硬编码);② C1 launcher 托管上游桌面版(设计待批);
+  ③ 观察 Open VSX / npm 发布历史(RELEASING「发布后」长期项)。
+
 ## 2026-09-28(desktop 归上游:移除自建 dsh-desktop + 发布流程改镜像 + 子模块 bump rc.2)
 
 - **子模块 bump**:`deepseek-harness` `46a7f68b`(dsh-v0.1.7-rc.1)→ **`477b4f42`(dsh-v0.1.7-rc.2)**。
