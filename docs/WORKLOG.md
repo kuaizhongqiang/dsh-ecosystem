@@ -1,5 +1,44 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-28(三)已发 v0.11.7(#60 门收口 + launcher 上游桌面版入口)
+
+### A. #60 判定与修复
+
+**结论:六条失败全部是「门/夹具过期」,不是实现回归。**
+
+- **m2**(10 通过 / 3 失败 → **14 通过 / 0 失败**):
+  ① `1-2 默认清单 7 包` 硬编码,现实 9 包 → 改为与 `dsh-launcher/ecosystem.json` 对比**包数**,
+  并新增 `1-2b` 对比**包 id 集合**(把「内嵌默认清单 = ecosystem.json 单一事实源」变成断言);
+  ② `1-5 插件源锁 9f47279` 硬编码 commit 每次发布重钉必红 → 改为读清单里的 commit;
+  ③ `1-6 pluginsDir 默认 launcher 旁` 断言以 `dsh-plugins` 结尾 → monorepo 后检出目录叫
+  `dsh-ecosystem`(见 `ecosystem.pluginsRootDir()`),改为按现状断言。
+- **m8**(5 通过 / 3 失败 → **11 通过 / 0 失败**):夹具 manifest 的 repo 写成旧布局
+  `example/dsh-plugins.git`,而实现有意按 `isUsableLock()` **忽略「repo 非 dsh-ecosystem.git」的 lock**
+  (monorepo 后规则)→ `2-1 / 3-2 / 4-2` 三条 lock 断言全部失真。夹具改用伞仓 repo,
+  并把「旧布局 lock 被忽略」做成**显式覆盖**(`1b-1..1b-3`:loadLock 读得到 / isUsableLock=false /
+  loadUsableLock 回退默认清单);脚本头补注「夹具 repo 必须用伞仓」。
+- **纳入常规门**:CI 的 launcher job 增加 `m2` / `m8` 两步(`m5` / `m9` 已在);
+  `docs/modules/dsh-launcher.md` 补齐「CI 跑哪几条 + 断言期望值一律取自单一事实源」的约定。
+- **教训固化**:门脚本的期望值必须**从单一事实源读**(包数 / commit / 目录名);
+  硬编码版会随生态演进而变红 —— 而**红了没人管就等于没有门**(本轮之前 m2/m8 已红着无人处理)。
+- **收口**:#60 随提交 `7af540c` 自动关闭;`#6`(M2)/`#12`(M8)随之关闭(各自验收断言现全绿)。
+
+### B. 已发 v0.11.7
+
+- 三方版本 `0.11.6 → 0.11.7`(`22c605f`);tag `v0.11.7` → CI **7 个 job 全绿**(launcher job 4m5s)。
+- **首次在 CI 跑 m2/m8**(日志确认):`m5` 35/0、`m9` 24/0、**`m2` 14/0**、**`m8` 11/0**。
+- 资产:launcher portable 68,096,455 + setup 74,831,274;`dshcli.exe` 93,824,000 与
+  `dshcli-linux-x64` 126,749,888(各带版本化副本);`dsh-vscode-0.11.7.vsix` 177,708;
+  镜像桌面版 288,245,480 + `.sha512`(170 B,与上游逐字节一致)。
+- npm `@kuaizhongqiang/dsh-cli@0.11.7` ✓;Open VSX `kuaizhongqiang.dsh-vscode@0.11.7` ✓。
+- 本版内容:launcher **上游桌面版安装/升级入口**(上一节 C)、**M2/M8 门去硬编码**、
+  README License 段更新 + 补 `dsh-cli/LICENSE`。
+- **提交链**:`b3ca0b6`(README License + `dsh-cli/LICENSE`)→ `7af540c`(M2/M8 门) →
+  `22c605f`(release prepare v0.11.7)。
+- **下一步**:① 观察 Open VSX / npm 发布历史(RELEASING「发布后」长期项);
+  ② launcher 旧版(0.7.x,运行时源为已归档 dsh-plugins 仓)升级路径说明待补;
+  ③ C1 已发,后续若要「桌面版静默升级/卸载」再单独评估(现不接管升级)。
+
 ## 2026-09-28(二)清账收尾 + 已发 v0.11.6(desktop-mirror 首跑成功)
 
 ### A. 清账收尾
