@@ -3,6 +3,7 @@
 
 import * as config from './config.js';
 import * as connections from './connections.js';
+import * as desktop from './desktop.js';
 import * as ecosystem from './ecosystem.js';
 import * as install from './install.js';
 import * as launch from './launch.js';
@@ -64,6 +65,13 @@ const usage = `dsh-launcher — dsh 本机安装 / 启动引导器（TS/JS 版�
                          [--plugins a,b] [--no-start] [--all]
                          新机器一条龙（M7）：core（缺口/离线）→ pull（插件+skills，lock 优先）
                          → 个人层（可选）→ 连接 → start；--update-lock = 确认升级并写 lock（M8）
+  dsh-launcher.exe desktop status   上游 DeepSeek Harness 桌面版：已装版本 + 可取到的最新版
+                                    （desktop 归上游，launcher 只做首装/升级，不替代其自带 updater）
+  dsh-launcher.exe desktop install [--version <v>] [--from <url|文件>]
+                                   [--mirror] [--silent|--wizard] [--dry-run]
+                                    下载 → sha512 校验 → 拉起上游安装包（默认 /S 静默，per-user 免管理员）；
+                                    取件默认上游 feed（download.deepseek.com），失败回退伞仓 Release 镜像；
+                                    仅 Windows（我们只镜像 win-x64）
   dsh-launcher.exe ui [--no-browser] [--port <端口>]  启动 Web UI 服务（默认端口 ${DefaultUIPort}）
   dsh-launcher.exe --version | -v   显示版本
   dsh-launcher.exe --help | -h      显示本帮助
@@ -174,6 +182,72 @@ async function runMove(rest: string[]): Promise<void> {
   const dir = parseMoveArgs(rest);
   await install.move(dir);
   log.info('移动完成。');
+}
+
+/**
+ * desktop 子命令：上游 DeepSeek Harness 桌面版的首装 / 升级（2026-09-28 起 desktop 归上游，
+ * 伞仓只镜像其 win-x64 安装包；launcher 不替代上游自带 updater）。
+ * `status` 只读；`install` 走「取件 → 下载校验 → 拉起安装包」。
+ */
+async function runDesktopCmd(rest: string[]): Promise<void> {
+  const sub = rest[0] ?? 'status';
+  if (sub === 'status') {
+    const statusOpts: desktop.StatusOptions = {};
+    for (let i = 1; i < rest.length; i++) {
+      const t = rest[i];
+      if (t === '--from') {
+        if (i + 1 >= rest.length) fail('--from 缺少参数');
+        statusOpts.from = rest[++i];
+      } else if (t === '--mirror') {
+        statusOpts.preferMirror = true;
+      } else {
+        fail(`desktop status 未知参数：${t}`);
+      }
+    }
+    const st = await desktop.desktopStatus(statusOpts);
+    log.raw('上游 DeepSeek Harness 桌面版\n');
+    log.raw(`  平台支持：${st.supported ? '是' : '否（仅 Windows：我们只镜像 win-x64）'}\n`);
+    log.raw(`  已装版本：${st.installed || '—'}\n`);
+    log.raw(`  最新版本：${st.latest || '—'}\n`);
+    log.raw(`  可升级：  ${st.hasUpdate ? '是' : '否'}\n`);
+    if (st.release) log.raw(`  取件来源：${st.release.source}（${st.release.url}）\n`);
+    if (st.error) log.raw(`  取件错误：${st.error}\n`);
+    return;
+  }
+  if (sub !== 'install') fail(`desktop 只支持 status | install，收到 "${sub}"`);
+
+  const opts: desktop.InstallOptions = {};
+  let silent = true;
+  for (let i = 1; i < rest.length; i++) {
+    const t = rest[i];
+    switch (t) {
+      case '--version':
+        if (i + 1 >= rest.length) fail('--version 缺少参数');
+        opts.version = rest[++i];
+        break;
+      case '--from':
+        if (i + 1 >= rest.length) fail('--from 缺少参数');
+        opts.from = rest[++i];
+        break;
+      case '--mirror':
+        opts.preferMirror = true;
+        break;
+      case '--silent':
+        silent = true;
+        break;
+      case '--wizard':
+        silent = false;
+        break;
+      case '--dry-run':
+        opts.dryRun = true;
+        break;
+      default:
+        fail(`desktop install 未知参数：${t}`);
+    }
+  }
+  opts.silent = silent;
+  const r = await desktop.installDesktop(opts, (line) => log.info(line));
+  log.info(`桌面版命令结束（目标 ${r.release.version}；已装 ${r.installed || '未确认'}）。`);
 }
 
 async function runStart(rest: string[]): Promise<void> {
@@ -562,6 +636,9 @@ export async function dispatch(args: string[]): Promise<void> {
       return;
     case 'setup':
       await runSetupCmd(args.slice(1));
+      return;
+    case 'desktop':
+      await runDesktopCmd(args.slice(1));
       return;
     case 'start':
       await runStart(args.slice(1));

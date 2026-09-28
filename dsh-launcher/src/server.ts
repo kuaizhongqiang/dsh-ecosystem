@@ -6,7 +6,7 @@
 // 只绑定 127.0.0.1（本机），不对外。
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -20,6 +20,7 @@ import faviconSvg from '../ui/favicon.svg';
 
 import * as config from './config.js';
 import * as connections from './connections.js';
+import * as desktop from './desktop.js';
 import * as ecosystem from './ecosystem.js';
 import * as install from './install.js';
 import * as launch from './launch.js';
@@ -67,6 +68,9 @@ let restartBusy = false;
 /** setup 一键部署是否进行中(防并发)。 */
 let setupBusy = false;
 
+/** 上游桌面版安装/升级是否进行中（防并发；GET /api/desktop 会带 busy）。 */
+let desktopBusy = false;
+
 /** 托盘图标状态用：最近一次升级检测结果（M6 黄色=有更新）。 */
 export function lastUpdateState(): { dshAvail: boolean; launcherAvail: boolean } {
   return { dshAvail: updateState.dshAvail, launcherAvail: updateState.launcherAvail };
@@ -105,6 +109,8 @@ const bridgeScript = `<script>
     getUiState: function () { return api('/api/ui-state'); },
     setUiState: function (patch) { return api('/api/ui-state', patch || {}); },
     open: function () { return api('/api/open'); },
+    desktopStatus: function () { return api('/api/desktop'); },
+    desktopInstall: function (opts) { return api('/api/desktop/install', opts || {}); },
     restartDsh: function () { return api('/api/dsh/restart?key=${bridgeKey}', {}); },
     setupFlow: function (opts) { return api('/api/setup', opts || {}); },
     defaultDir: ${JSON.stringify(defaultInstallDir())},
@@ -208,42 +214,10 @@ function readLaunchTokenRecord(): { url?: string; port?: number } | null {
 }
 
 /**
- * 读上游 DeepSeek Harness 桌面版的已装版本。
- * 自 2026-09-28 起 desktop **归上游**（`deepseek-harness/apps/desktop`），伞仓不再自建/自发布；
- * 上游 NSIS 按用户安装（perMachine=false），安装时在 Windows 卸载注册项写
- * DisplayName(`DeepSeek Harness`) / DisplayVersion。注册项 GUID 不稳定，故**枚举** Uninstall
- * 子键按 DisplayName 匹配（用户级 HKCU 与机器级 HKLM / WOW6432Node 都看，取最高版本）。
- * 非 Windows / 未安装 / 读取失败一律返回 ''，绝不抛错卡状态。
- */
-function readUpstreamDesktopVersion(): string {
-  if (process.platform !== 'win32') return '';
-  const uninstallRoots = [
-    'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-    'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-    'HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-  ];
-  let found = '';
-  for (const root of uninstallRoots) {
-    let dump = '';
-    try {
-      dump = execFileSync('reg', ['query', root, '/s'], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
-    } catch {
-      continue; // 键不存在 / 无权限：跳过
-    }
-    // reg query /s 以 `HKEY_...` 行分块，每个块是一个已安装项
-    for (const block of dump.split(/\r?\n(?=HKEY_)/)) {
-      if (!/^\s*DisplayName\s+REG_SZ\s+DeepSeek Harness\s*$/im.test(block)) continue;
-      const version = /^\s*DisplayVersion\s+REG_SZ\s+(\S+)\s*$/im.exec(block);
-      if (version && (found === '' || version[1] > found)) found = version[1];
-    }
-  }
-  return found;
-}
-
-/**
  * 尽力探测已装组件版本（#19 概览卡）。
  * - vscode：扫用户 .vscode* 扩展目录中本产品（publisher kuaizhongqiang / 名含 dsh 的扩展）的版本；
- * - desktop：**上游** DeepSeek Harness 桌面版（见 readUpstreamDesktopVersion），未装返回 ''（前端显示 —）。
+ * - desktop：**上游** DeepSeek Harness 桌面版（`desktop.installedDesktopVersion()`，读卸载注册项），
+ *   未装返回 ''（前端显示 —）。
  * 探测失败一律返回 ''，绝不抛错卡状态。
  */
 function detectComponentVersions(): { vscode: string; desktop: string } {
@@ -274,7 +248,7 @@ function detectComponentVersions(): { vscode: string; desktop: string } {
       /* 忽略单个扫描失败 */
     }
   }
-  return { vscode, desktop: readUpstreamDesktopVersion() };
+  return { vscode, desktop: desktop.installedDesktopVersion() };
 }
 
 function openDefaultBrowser(target: string): void {
@@ -741,6 +715,59 @@ async function handleApi(path: string, req: IncomingMessage, res: ServerResponse
           log.error(`一键更新失败：${errMessage(e)}`);
         } finally {
           ecoUpdateBusy = false;
+        }
+      })();
+      return;
+    }
+    case '/api/desktop': {
+      // 上游桌面版状态：已装版本（卸载注册项）+ 可取到的版本（上游 feed 优先、伞仓镜像兜底）。
+      // 与 /api/check-update 同定位：由前端按需触发，不塞进 statusPayload（避免每次取状态都打网络）。
+      const opts: { from?: string; preferMirror?: boolean } = {};
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        if (typeof body.from === 'string') opts.from = body.from;
+        if (body.preferMirror === true) opts.preferMirror = true;
+      }
+      const st = await desktop.desktopStatus(opts);
+      json(res, 200, { ok: true, ...st, busy: desktopBusy });
+      return;
+    }
+    case '/api/desktop/install': {
+      // 首装/升级上游桌面版（同步执行，进度经 /api/events SSE 推送；busy 期间 409）。
+      // 只下载 + 校验 + 拉起上游安装包（默认 /S 静默，实测可用）；**不替代**上游自带 updater。
+      if (desktopBusy) {
+        json(res, 409, { ok: false, message: '桌面版安装/升级正在进行中，请稍候' });
+        return;
+      }
+      const body = await readBody(req);
+      const opts: desktop.InstallOptions = {
+        from: typeof body.from === 'string' ? body.from : undefined,
+        version: typeof body.version === 'string' ? body.version : undefined,
+        preferMirror: body.preferMirror === true,
+        silent: body.silent !== false,
+        dryRun: body.dryRun === true,
+      };
+      const dryRun = opts.dryRun === true;
+      desktopBusy = true;
+      json(res, 202, {
+        ok: true,
+        message: dryRun
+          ? '桌面版预检已开始（只下载校验，不安装；进度见日志）'
+          : '桌面版安装/升级已开始（下载 → 校验 → 安装；进度见日志）',
+      });
+      void (async () => {
+        try {
+          log.info('桌面版安装/升级开始（GUI 触发）……');
+          const r = await desktop.installDesktop(opts);
+          log.info(
+            r.installed !== ''
+              ? `桌面版安装/升级完成：${r.installed}`
+              : '桌面版安装/升级结束（注册项未回报版本，见上方日志）',
+          );
+        } catch (e) {
+          log.error(`桌面版安装/升级失败：${errMessage(e)}`);
+        } finally {
+          desktopBusy = false;
         }
       })();
       return;

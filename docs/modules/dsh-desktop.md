@@ -37,7 +37,10 @@ Electron 外壳包住**完整的 dsh Web 应用**:Electron 以 `ELECTRON_RUN_AS_
 - **镜像(可选项,不做也行)**:`scripts/desktop-mirror.json`(pin)+ `scripts/mirror-desktop.mjs`(取件/校验),
   CI `desktop-mirror` job 在每次全量 tag 时把**上游 win-x64** 安装包挂到本仓 Release。
   pin 必须与子模块 `apps/desktop/package.json` 同号(`verify-release.mjs` 交叉校验)。
-- **本机识别**:launcher 概览卡的 desktop 版本 = `dsh-launcher/src/server.ts` 的
+- **launcher 入口(2026-09-28)**:`launcher desktop status|install` 与 GUI 安装卡的「安装/升级桌面版」
+  按钮 —— 取件上游 feed 优先、伞仓镜像兜底,`安装包 /S` 静默(per-user 免管理员)已实测;
+  细节见 [dsh-launcher.md](dsh-launcher.md) 「上游桌面版入口」。
+- **本机识别**:launcher 概览卡的 desktop 版本 = `dsh-launcher/src/desktop.ts` 的
   `readUpstreamDesktopVersion()` —— 枚举 `HKCU`/`HKLM`(+`WOW6432Node`)的 `Uninstall` 键,
   按 `DisplayName == DeepSeek Harness` 匹配后读 `DisplayVersion`(注册项 GUID 不稳定,不能硬编码)。
 - **launch-token 语义收窄**:launcher 解析激活连接后照写的 v1 `launch-token.json` 现在只有

@@ -22,6 +22,7 @@
     "verify:m6": "node scripts/verify-m6.mjs",
     "verify:m7": "node scripts/verify-m7.mjs",
     "verify:m8": "node scripts/verify-m8.mjs",
+    "verify:m9": "node scripts/verify-m9.mjs",
     "dist": "node scripts/build.mjs && electron-builder --win portable --publish never",
     "dist:installer": "node scripts/build.mjs && electron-builder --win nsis --publish never",
     "dist:all": "node scripts/build.mjs && electron-builder --win portable nsis --publish never",

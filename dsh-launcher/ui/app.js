@@ -51,6 +51,15 @@ const mock = {
     return { ok: true, tags: ['dsh-v0.1.2-alpha.1', 'dsh-v0.1.1-rc.2', 'dsh-v0.1.1-rc.1', 'dsh-v0.1.0-rc.8'] };
   },
   async move(dir) { await delay(800); return { ok: true }; },
+  async desktopStatus() {
+    await delay(200);
+    return { supported: true, installed: '', latest: '0.1.7-rc.2', hasUpdate: true, busy: false };
+  },
+  async desktopInstall(opts) {
+    await delay(300);
+    log('预览模式：桌面版安装/升级（模拟）。', 'ok');
+    return { ok: true };
+  },
   async checkUpdate() { await delay(1200); return { dshAvail: false, launcherAvail: false }; },
   async browse() { return 'C:\\Users\\kua\\AppData\\Local\\dsh'; },
   async getEcosystem() {
@@ -478,6 +487,11 @@ async function refreshStatus() {
       ? 'dsh ' + (s.dsh.version || 'v?') + (s.installedDir ? ' · ' + s.installedDir : '')
       : '未安装 —— 请在下方安装后使用「一键部署」';
   }
+  // 桌面版摘要（已装版本来自后端读上游卸载注册项；最新版要联网，只在点按钮时查）
+  const desktopSub = $('desktopSub');
+  if (desktopSub) {
+    desktopSub.textContent = s.components && s.components.desktop ? '已装 ' + s.components.desktop : '未装';
+  }
   const dirEl = $('settingsDir');
   if (dirEl) dirEl.value = s.installedDir || s.defaultDir || '';
   return true;
@@ -580,6 +594,60 @@ async function onInstall() {
   await refreshStatus();
   renderButtons();
   applyUiState(uiState); // 安装态变化可能影响默认展开（未安装→展开安装卡）
+}
+
+/**
+ * 安装 / 升级**上游** DeepSeek Harness 桌面版（2026-09-28 桌面版归上游后 launcher 的入口）。
+ * 只发起「取件 → 下载校验 → 拉起安装包」（服务端异步，进度走 SSE 日志）；
+ * 装完之后由桌面版**自带 updater** 自己升级，launcher 不接管。
+ */
+async function onDesktopInstall() {
+  if (state.busy) return;
+  setBusy(true);
+  setProgress(true, '桌面版：检查取件…');
+  let started = false;
+  try {
+    const st = await bridge.desktopStatus();
+    if (st && st.supported === false) {
+      log('桌面版仅支持 Windows（我们只镜像 win-x64；mac 请走上游官方通道）。', 'warn');
+    } else {
+      log(
+        '桌面版（上游）：已装 ' + ((st && st.installed) || '—') + '，可取到 ' + ((st && st.latest) || '—') +
+          (st && st.error ? '（取件告警：' + st.error + '）' : ''),
+        'brand',
+      );
+      const r = await bridge.desktopInstall({ silent: true });
+      if (r && r.ok === false) {
+        log('桌面版安装未发起：' + (r.message || '未知原因'), 'err');
+      } else {
+        started = true;
+        setProgress(true, '桌面版：下载 / 校验 / 安装中（进度见日志）…');
+        log('桌面版安装/升级已发起（下载 + sha512 校验 + 安装；具体进度见下方日志）。', 'ok');
+      }
+    }
+  } catch (e) {
+    log('桌面版操作失败：' + (e && e.message ? e.message : e), 'err');
+  }
+  if (started) {
+    // 服务端异步执行：轮询 busy 直到结束（约 8 分钟上限；下载 ~275MB + 安装）
+    for (let i = 0; i < 96; i++) {
+      await delay(5000);
+      let s2;
+      try {
+        s2 = await bridge.desktopStatus();
+      } catch (e) {
+        break;
+      }
+      if (!s2.busy) {
+        log('桌面版：已装 ' + ((s2.installed) || '未确认') + '（若显示未确认，请看上方日志）。', 'ok');
+        break;
+      }
+    }
+  }
+  setProgress(false);
+  setBusy(false);
+  await refreshStatus();
+  renderButtons();
 }
 
 /** 从 GitHub 拉取可选版本列表填入下拉框。 */
@@ -1124,6 +1192,7 @@ function scheduleAutoSize() {
   $('btnSetup').addEventListener('click', onSetup);
   $('btnInstall').addEventListener('click', onInstall);
   $('btnMove').addEventListener('click', onMove);
+  $('btnDesktop').addEventListener('click', onDesktopInstall);
   $('btnBrowse').addEventListener('click', onBrowse);
   $('btnUpdate').addEventListener('click', onUpdate);
   $('btnRefreshTags').addEventListener('click', refreshTags);
@@ -1222,6 +1291,8 @@ function scheduleAutoSize() {
      open(): Promise<{ok, url}>,                // #19 打开 dsh UI
      restartDsh(): Promise<{ok}>,
      setupFlow(opts): Promise<{ok}>,
+     desktopStatus(): Promise<{ok, supported, installed, latest, hasUpdate, busy, error, release}>,
+     desktopInstall(opts): Promise<{ok, message}>,   // 上游桌面版安装/升级（异步，进度走 onLog）
      defaultDir: string,
      onLog(fn): void   // 订阅日志流（SSE /api/events），fn(line, kind)
    }

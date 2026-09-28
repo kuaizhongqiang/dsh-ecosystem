@@ -35,6 +35,24 @@ M0–M8 里程碑已全部落地(v0.7.3 线)。
 - 涉及 M5/M6 seam 行为变化时,同步确认 dsh-vscode 的跟随语义(Phase 5 收窄表述;desktop 已归上游,
   不读 `launch-token.json`,launcher 概览卡的 desktop 版本改读上游卸载注册项)。
 
+## 上游桌面版入口(2026-09-28)
+
+desktop 归上游后,launcher 补上「**首装 / 升级**」入口 —— 只管把桌面版装上,**不接管升级**
+(装完由桌面版自带的 electron-updater 自己升)。
+
+- **取件**:上游 feed 优先(`https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml`;
+  腾讯 CDN、带 `version`/`sha512`/`size`),失败**回退伞仓 Release 镜像**
+  (`deepseek-harness-<ver>-win-x64.exe` + `.sha512` 副档);`--from <url|文件>` 可强制指定(离线/预置包)。
+- **安装**:上游是 electron-builder assisted NSIS(`perMachine=false`)→ **per-user、免管理员**;
+  `安装包 /S` **实测静默可用**(2026-09-28,0.1.7-rc.2,exit 0、无 UI)。装完回读 HKCU 卸载注册项
+  (`DisplayName = DeepSeek Harness` → `DisplayVersion`)确认版本。
+- **三个面**:GUI(安装卡「安装/升级桌面版」按钮 + 概览卡 desktop chip)、CLI
+  (`desktop status` / `desktop install [--version|--from|--mirror|--silent|--wizard|--dry-run]`)、
+  端点 `/api/desktop`(状态)与 `/api/desktop/install`(busy + `202` + 日志走 SSE)。
+- **代码与门**:`src/desktop.ts`(取件/校验/安装/版本读取);`scripts/verify-m9.mjs` = 本能力质量门
+  (免网络:本地夹具包 + 同名 `.sha512`,覆盖摘要不符/版本不符/缺副档/取件不可用)。
+- **不做**:mac(只镜像 win-x64)· 不 relocate(NSIS per-user 无移动语义)· 不接管升级 · 不改上游包、不重打包。
+
 ## 运行时关键文件 / seam
 
 | 文件 | 作用 |

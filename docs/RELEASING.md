@@ -75,7 +75,9 @@ plugins job 跑清单一致性校验(`node scripts/verify-release.mjs`)。
 - npm `@kuaizhongqiang/dsh-desktop` **不再发布/不再维护**(历史版本留在 npm 上,不删不动);发布流程里
   自建 desktop 的 job(NSIS + `latest.yml` + npm 发布)已整体删除。
 - **升级路径**:已装自建 desktop(0.11.x)的用户需手工卸载后装上游版;上游版与 dsh 同号、自带更新通道,
-  装好后由它自己升级。
+  装好后由它自己升级。**launcher 侧有入口**:`dsh-launcher.exe desktop status|install`
+  (GUI 安装卡的「安装/升级桌面版」按钮同源),取件上游 feed 优先、伞仓镜像兜底;
+  它的质量门是 `dsh-launcher` 的 `npm run verify:m9`(CI 的 launcher job 已挂)。
 
 ## 发布后
 

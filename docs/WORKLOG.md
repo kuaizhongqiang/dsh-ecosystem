@@ -42,8 +42,31 @@
   `dsh-launcher/ecosystem.json`(清单重钉)、三处 `package.json`(版本 bump)、
   `docs/`(ECOSYSTEM-PLAN、dsh-cli-execution、launcher-ui-redesign、modules/dsh-plugins、WORKLOG)。
   提交链:`27f4522`(清场 + 文案 + 陈旧文档)→ `19060ff`(清单重钉)→ `f9f7da6`(发布准备 v0.11.6)。
-- **下一步**:① #60(M2/M8 门脚本判定与去硬编码);② C1 launcher 托管上游桌面版(设计待批);
-  ③ 观察 Open VSX / npm 发布历史(RELEASING「发布后」长期项)。
+### C. launcher 托管上游桌面版(C1,代码已落 main,**不发版**,攒 v0.11.7)
+
+- **决策(用户拍板)**:取件**上游 feed 优先 + 伞仓镜像兜底**(`--from` 可强制);GUI + CLI 都做;
+  **不接管升级**(装完由桌面版自带 electron-updater 自己升);完成不单独发版。
+- **真机实测(关键前置,决定安装方式)**:`deepseek-harness-0.1.7-rc.2-win-x64.exe /S`
+  **静默安装成功** —— exit 0、无 UI、**per-user 免管理员**;装后注册项
+  `DisplayName=DeepSeek Harness` / `DisplayVersion=0.1.7-rc.2` /
+  `InstallLocation=%LOCALAPPDATA%\Programs\DeepSeek Harness`;
+  `Uninstall DeepSeek Harness.exe /S` 卸载后**零残留**(目录 / 注册项 / dsh 协议 / `$DSH_HOME\profiles\desktop` 全无)。
+  → 结论:launcher **默认走静默**,不需要管理员,也不必"退化为拉起向导"(`--wizard` 仍保留给想手点的人)。
+  实测算出的坑:装前先记注册项、装后回读版本、**卸载要自己清**,否则会在本机留一份桌面版。
+- **实现**:新增 `src/desktop.ts` —— 三源解析(上游 feed / 伞仓镜像 / 显式 `--from`,含"上游取不到自动回退镜像")+
+  流式 sha512 校验(**base64 与 hex 双格式**,与上游 feed / 伞仓副档各自对齐)+ 字节数校验 +
+  `--dry-run` 预检 + `/S` 静默安装 + 回读注册项版本(`installedDesktopVersion()`,从 `server.ts` 迁入);
+  `server.ts` 新增 `/api/desktop`(状态)与 `/api/desktop/install`(busy + `202` + 日志→SSE,复用生态拉齐范式);
+  `ui/index.html` + `ui/app.js` 安装卡加「安装/升级桌面版」按钮、`desktopSub` 摘要、bridge 契约与 mock 同步;
+  `cli.ts` 新增 `desktop status|install` 子命令与帮助文案。
+- **质量门**:新增 `scripts/verify-m9.mjs`(**免网络**:本地夹具包 + 同名 `.sha512`)——
+  覆盖 help / status / dry-run 落盘 / 摘要不符不落盘 / 版本不符 / 缺副档如实告警 / 取件不可用两类行为,
+  **24 通过 0 失败**;已挂进 CI `launcher` job(`npm run verify:m9`)。
+  回归 m0–m9:m2(10/3)、m8(5/3)仍是 #60 记录的**既有**红,其余全绿(与改动前基线逐项一致)。
+- **边界**:仅 Windows(只镜像 win-x64)· 不 relocate · 不静默卸载 · 不改上游包/不重打包 · 不接管升级。
+
+- **下一步**:① #60(M2/M8 门脚本判定与去硬编码);② 观察 Open VSX / npm 发布历史(RELEASING「发布后」长期项);
+  ③ **攒 v0.11.7** 把 C1 的「上游桌面版入口」发出去(三方 bump,launcher job 会跑 m9)。
 
 ## 2026-09-28(desktop 归上游:移除自建 dsh-desktop + 发布流程改镜像 + 子模块 bump rc.2)
 
