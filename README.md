@@ -84,4 +84,18 @@ Issue / PR 模板与发布说明模板在 [`.github/`](.github/)。
 
 ## License
 
-MIT(各组件目录各自持有 LICENSE;deepseek-harness 归 deepseek-ai)
+本仓(组件代码 + `docs/` + `scripts/` + 元数据)为 **MIT**,Copyright (c) 2026 kuaizhongqiang:
+根 [`LICENSE`](LICENSE) 与各自有组件目录 —— [dsh-launcher](dsh-launcher/LICENSE) /
+[dsh-plugins](dsh-plugins/LICENSE) / [dsh-vscode](dsh-vscode/LICENSE) / [dsh-cli](dsh-cli/LICENSE) /
+[agent-memory](agent-memory/LICENSE) —— 为同一份文本。
+
+第三方面(不在本仓 MIT 范围内,按各自条款):
+
+- **[deepseek-harness](deepseek-harness)(唯一 git 子模块)**:官方上游,版权归 **deepseek-ai**;
+  按其自身 `LICENSE` 与 `THIRD_PARTY_NOTICES.md` 使用 —— 本仓**只读跟随**(锁 commit),不改写、不重打包。
+- **desktop(桌面版)**:同样归上游(`deepseek-harness/apps/desktop`);本仓自 2026-09-28 起不再自建,
+  Release 里的桌面版安装包是**原样镜像**,权利与许可归上游。
+- **agent-memory 的记忆引擎**:第三方上游(TencentDB Agent Memory,本地部署分支),按其自身许可;
+  本仓只含协议桥 / 接入器。
+- **dsh-plugins 内各插件**:插件代码本仓 MIT;它们调用的外部服务与第三方包 / 工具
+  (MIMO、DeepSeek API、火山方舟 Seedream、Unity MCP、Unreal 等)归各自所有,按各自条款与凭证使用。
