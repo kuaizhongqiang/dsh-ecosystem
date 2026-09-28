@@ -1,5 +1,24 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-28(五)已发 v0.11.8(launcher 桌面版「已装未确认」修复)
+
+- 三方版本 `0.11.7 → 0.11.8`;tag `v0.11.8` → CI **7 个 job 全绿**(约 4 分钟):
+  Init 6s / dsh-cli(Linux)25s / **desktop-mirror 25s** / **launcher 3m55s** / plugins 4s /
+  vscode 32s / dsh-cli(Windows + npm)1m11s。
+- 资产(字节):`dsh-launcher.exe` **68,101,076**、`dsh-launcher-setup-0.11.8.exe` **74,831,906**、
+  `dshcli.exe`(=`dshcli-0.11.8.exe`)93,824,000、`dshcli-linux-x64`(=`dshcli-0.11.8-linux-x64`)126,749,888、
+  `dsh-vscode-0.11.8.vsix` 177,707、镜像 `deepseek-harness-0.1.7-rc.2-win-x64.exe` 288,245,480 + `.sha512`。
+- 渠道:npm `@kuaizhongqiang/dsh-cli@0.11.8` ✓;Open VSX `kuaizhongqiang.dsh-vscode@0.11.8` ✓(HTTP 200)。
+- 本版内容:**launcher 桌面版「已装却显示未确认」修复**(见上一节(四):注册项 `DisplayName` 带版本后缀
+  的匹配口径 + 安装等待改双信号);vscode / dsh-cli 无改动,按全量发布策略同号。
+- **发布前本机复核**:launcher 四道门 tsc / m5 35-0 / m9 30-0 / m2 14-0 / m8 11-0 全绿;
+  `TAG=v0.11.8 node scripts/verify-release.mjs` 通过;`/api/status` 的 `components.desktop` = `0.1.7-rc.2`
+  (GUI 概览卡的数据源);本地便携包 `release/win-unpacked/resources/app.asar` 内含 `parseUninstallDump`。
+- **提交链**:`6869355`(fix(dsh-launcher): 桌面版已装版本读取 + 安装等待) →
+  `ea37a95`(release: prepare v0.11.8) → 本文件。
+- **下一步**:① 让本机换成 v0.11.8 的 launcher(便携/安装包)并把旧自建 `dsh-desktop 0.9.4` 手工卸载;
+  ② 观察 npm / Open VSX 发布历史;③ 「桌面版静默升级/卸载」仍不接管,需要时再评估。
+
 ## 2026-09-28(四)修 launcher 桌面版「已装却显示未确认」(真机回归)
 
 - **现象(用户报)**:GUI「安装/升级桌面版」跑完,日志出
