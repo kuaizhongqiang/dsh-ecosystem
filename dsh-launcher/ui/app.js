@@ -396,7 +396,7 @@ function renderOverviewLine() {
   line.appendChild(ovChip('launcher ' + launcherVer, { title: '本启动器版本' }));
   if (s && s.components) {
     line.appendChild(ovChip('vscode ' + (s.components.vscode || '—'), { title: s.components.vscode ? '已检测 vscode 扩展版本' : '未检测到 vscode 扩展（安装后显示）' }));
-    line.appendChild(ovChip('desktop ' + (s.components.desktop || '—'), { title: s.components.desktop ? '已检测 desktop 版本' : '未检测到 desktop（安装后显示）' }));
+    line.appendChild(ovChip('desktop ' + (s.components.desktop || '—'), { title: s.components.desktop ? '已检测上游 DeepSeek Harness 桌面版（desktop 已归上游）' : '未检测到上游 DeepSeek Harness 桌面版（上游安装后显示）' }));
   }
   if (lastEco && lastEco.manifest) {
     const commit = (lastEco.manifest.pluginsCommit || '').slice(0, 8);

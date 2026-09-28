@@ -93,7 +93,10 @@ local vs remote dsh、token 轮换、CSP、与桌面/浏览器端同账号并发
   `dsh.token`、`dsh.localServerPath`、`dsh.launchTokenFollow`、`dsh.extraHeaders`
   （`vscode/src/config.ts:84-105`）。
 
-### 1.3 关键差异：dsh-desktop 的"顶栏直载"在 VS Code 里不可复制
+### 1.3 关键差异：桌面壳的"顶栏直载"在 VS Code 里不可复制
+
+> 本节对比的是**伞仓曾自建**的 `dsh-desktop`（2026-09-28 起已移除、桌面版归上游，见
+> [dsh-desktop.md](dsh-desktop.md)）；其结论（webview 主文档只能来自扩展资源）与路径引用保留作设计依据。
 
 伞仓 dsh-desktop（Electron）用 **BrowserWindow 把 dsh URL 作为顶级文档**直载
 （`dsh-desktop/desktop/src/main/windows.ts:96-99` `loadDshUrl`），顶级 site 就是 dsh origin →

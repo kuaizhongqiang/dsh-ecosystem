@@ -13,29 +13,28 @@
 ```
 dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 ├── docs/                       # 单一事实源
-├── scripts/                    # 伞仓级脚本(verify-release.mjs 发布校验门)
+├── scripts/                    # 伞仓级脚本(verify-release.mjs 发布校验门;mirror-desktop.mjs 上游桌面版镜像)
 ├── .github/workflows/          # release.yml = 全量发布 CI(tag v* 触发)
 ├── README.md / .AGENT.md / .gitmodules / LICENSE
 ├── dsh-launcher/               # L0 载体(安装 + 启动引导器;含插件源清单 ecosystem.json)
 ├── dsh-cli/                    # L1.5 入口层(终端 CLI + 本机工具服务:给别的 agent 调 dsh;见 docs/dsh-cli-*.md)
 ├── dsh-plugins/                # L3 插件合集(默认清单 9 包 + install-* 技能)
 ├── dsh-vscode/                 # L4 VSCode 扩展
-├── dsh-desktop/                # L4 Electron 桌面壳(应用代码在 desktop/ 子目录)
 ├── agent-memory/               # L5 记忆层(我们的协议桥源码;记忆引擎为第三方上游)
-└── deepseek-harness/           # ← 唯一 git 子模块(官方只读,按需 --init)
+└── deepseek-harness/           # ← 唯一 git 子模块(官方只读,按需 --init;桌面版 apps/desktop 在此)
 ```
 
 ## 组件清单(并入来源,均已归档只读)
 
 | 目录 | 角色 | 来源仓(归档) | 并入 HEAD | 当前版本 |
 |---|---|---|---|---|
-| [dsh-launcher](dsh-launcher/) | L0 载体(伞仓核心) | kuaizhongqiang/dsh-launcher | `979cec6` | 0.10.0 |
-| [dsh-cli](docs/dsh-cli-design.md) | **L1.5 入口层**(终端 CLI + 本机工具服务:让别的 agent 能调 dsh 执行任务) | 伞仓内目录 `dsh-cli/` | `0.11.0` | v0.11.0 已发布 |
+| [dsh-launcher](dsh-launcher/) | L0 载体(伞仓核心) | kuaizhongqiang/dsh-launcher | `979cec6` | 0.11.5 |
+| [dsh-cli](docs/dsh-cli-design.md) | **L1.5 入口层**(终端 CLI + 本机工具服务:让别的 agent 能调 dsh 执行任务) | 伞仓内目录 `dsh-cli/` | `0.11.0` | 0.11.5 |
 | [dsh-plugins](dsh-plugins/) | L3 插件(默认清单 9 包 + 技能) | kuaizhongqiang/dsh-plugins | `7a1b8a9` | 随伞仓 |
 | [agent-memory](agent-memory/) | L5 记忆层(协议桥: MCP 桥/HTTP 桥/autostore) | kuaizhongqiang/TencentAgentMemoryBridge | `4080826` | 0.3.0 |
-| [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.10.0 |
-| [dsh-desktop](dsh-desktop/) | L4 桌面壳 | kuaizhongqiang/dsh-desktop | `250abfb` | 0.10.0 |
-| deepseek-harness | L2 本体(官方只读) | deepseek-ai/deepseek-harness | 子模块 `46a7f68b` | — |
+| [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.11.5 |
+| [desktop](docs/modules/dsh-desktop.md) | L4 桌面客户端(**已归上游**;伞仓只镜像 win-x64 安装包) | deepseek-ai/deepseek-harness `apps/desktop` | 随子模块 | 0.1.7-rc.2 |
+| deepseek-harness | L2 本体(官方只读) | deepseek-ai/deepseek-harness | 子模块 `477b4f42` | — |
 
 > 组件目录为伞仓 git 的普通目录(嵌套 .git/.gitmodules 已清除),随伞仓统一提交;插件集即
 > `dsh-plugins/` 目录,launcher 安装/拉取按 `dsh-launcher/ecosystem.json` 锁定的伞仓 commit + sha256 获取。
@@ -52,10 +51,12 @@ git submodule update --init deepseek-harness   # 可选:需要 dsh 本体源码�
 
 ## 发布(全量,自动化)
 
-打 `v0.8.0` 式 tag → 伞仓根 CI 发布全部:launcher(portable+NSIS)/ desktop(NSIS+updater feed)/
-vscode(VSIX+Open VSX)/ plugins(清单校验)。详见 [docs/RELEASING.md](docs/RELEASING.md):
-- 前置:版本 bump 三处 + 插件清单同步(如有)+ `node scripts/verify-release.mjs` 通过
-- CI 需要 secrets:`OVSX_PAT`(vscode → Open VSX,可选)、`NPM_TOKEN`(desktop → npm,可选)
+打 `v0.8.0` 式 tag → 伞仓根 CI 发布全部:launcher(portable+NSIS)/ dsh-cli(exe + Linux 单文件 + npm)/
+vscode(VSIX+Open VSX)/ plugins(清单校验)/ **desktop-mirror(镜像上游桌面版 win-x64 安装包)**。
+详见 [docs/RELEASING.md](docs/RELEASING.md):
+- 前置:三方组件版本 bump(launcher / vscode / dsh-cli)+ 插件清单同步(如有)+ desktop 镜像 pin 与子模块同号 +
+  `node scripts/verify-release.mjs` 通过
+- CI 需要 secrets:`OVSX_PAT`(vscode → Open VSX,可选)、`NPM_TOKEN`(dsh-cli → npm,可选)
 - 产物与 Release 见 https://github.com/kuaizhongqiang/dsh-ecosystem/releases
 
 ## 生态路线图与审查

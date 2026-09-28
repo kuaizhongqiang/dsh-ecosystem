@@ -134,6 +134,10 @@ npm install            # devDeps: esbuild + postject
 npm run build:exe      # → dist/dshcli.exe（自包含，90MB 级）+ dist/dshcli-<ver>.exe
 ```
 
+> 本机若开了 npm **allow-scripts** 策略，esbuild 的 postinstall 会被拦 → 先手动
+> `node node_modules/esbuild/install.js` 再构建；CI（GitHub runner）无此策略。
+> `dist/` **不入库**，只进 Release 资产与 npm 包。
+
 发布跟随伞仓全量 tag：`vX.Y.Z` 时 CI 的 `build-dsh-cli` job 会跑质量门 → 构建 exe → 上传
 `dshcli.exe` 与 `dshcli-<ver>.exe` → 发 npm（`NPM_TOKEN` 存在时）。
 

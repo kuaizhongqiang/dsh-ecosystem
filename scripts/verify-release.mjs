@@ -3,7 +3,8 @@
 //   1) dsh-launcher/ecosystem.json 插件源 = kuaizhongqiang/dsh-ecosystem;
 //   2) 各包 install.ps1 与 skills 脚本 sha256 与清单一致(dir 前缀 dsh-plugins/);
 //   3) src/ecosystem.ts 内嵌默认清单与 ecosystem.json 同步(repo 与 commit);
-//   4) 四处组件版本一致(launcher / vscode / desktop / dsh-cli),给 TAG 时还要与 tag 一致。
+//   4) 三方组件版本一致(launcher / vscode / dsh-cli),给 TAG 时还要与 tag 一致;
+//   5) desktop 镜像 pin(scripts/desktop-mirror.json)与子模块 apps/desktop 版本同号(子模块已检出时)。
 // 失败 exit 1。无第三方依赖,node >=18 即可跑(仓库根执行)。
 
 import { createHash } from 'node:crypto';
@@ -50,12 +51,12 @@ if (!/import\s+[A-Za-z0-9_$]+\s+from\s+'\.\.\/ecosystem\.json'\s+with\s+\{\s*typ
 }
 console.log('  ✓ src/ecosystem.ts 默认清单单一来源 = ecosystem.json');
 
-// 四处组件版本一致（CI 会逐组件对 tag 断言，这里提前在本机/CI 都拦住漏 bump）：
-// launcher / vscode / desktop / dsh-cli 同属伞仓全量 tag，必须同一个版本号。
+// 三方组件版本一致（CI 会逐组件对 tag 断言，这里提前在本机/CI 都拦住漏 bump）：
+// launcher / vscode / dsh-cli 同属伞仓全量 tag，必须同一个版本号。
+// desktop 不再自建（归上游，见下方镜像 pin 校验），故不再参与伞仓版本号。
 const components = [
   ['dsh-launcher', join(root, 'dsh-launcher', 'package.json')],
   ['dsh-vscode', join(root, 'dsh-vscode', 'package.json')],
-  ['dsh-desktop', join(root, 'dsh-desktop', 'desktop', 'package.json')],
   ['dsh-cli', join(root, 'dsh-cli', 'package.json')],
 ];
 const versions = new Map();
@@ -67,11 +68,37 @@ for (const [name, file] of components) {
 }
 const unique = new Set(versions.values());
 if (unique.size !== 1) {
-  fail(`四处组件版本不一致: ${[...versions].map(([n, v]) => `${n}=${v}`).join(', ')}`);
+  fail(`三方组件版本不一致: ${[...versions].map(([n, v]) => `${n}=${v}`).join(', ')}`);
 }
 const tag = String(process.env.TAG ?? process.env.GITHUB_REF_NAME ?? '').replace(/^v/, '');
 if (tag !== '' && !unique.has(tag)) {
   fail(`组件版本 ${[...unique].join('/')} 与目标 tag ${tag} 不一致（先 bump 再打 tag）`);
 }
 
-console.log('[verify-release] OK — 伞仓插件源清单一致 + 四处组件版本一致, 可发布');
+// desktop 镜像 pin（2026-09-28 起 desktop 归上游，伞仓只镜像其安装包）：
+// pin 必须与子模块 apps/desktop 版本同号 —— 上游把 shell/runtime/契约当一个组合发布，
+// 「dsh 升级 = desktop 一次发布」；两者失配说明 bump 了子模块却漏改镜像 pin（或反之）。
+// CI 侧无子模块检出，由 desktop-mirror job 拿上游 feed 的 version 再校验一次。
+const mirrorPath = join(root, 'scripts', 'desktop-mirror.json');
+if (!existsSync(mirrorPath)) fail(`desktop 镜像配置不存在: ${mirrorPath}`);
+const mirror = JSON.parse(readFileSync(mirrorPath, 'utf8'));
+if (mirror.target !== 'win-x64' || mirror.channel !== 'nightly') {
+  fail(`desktop 镜像配置应为 target=win-x64 / channel=nightly, 实际: ${mirror.target} / ${mirror.channel}`);
+}
+const mirrorPin = String(mirror.version ?? '');
+if (mirrorPin === '') fail('desktop 镜像配置缺 version');
+const submoduleDesktopPkg = join(root, String(mirror.submoduleDesktopPackage ?? ''));
+if (existsSync(submoduleDesktopPkg)) {
+  const subVersion = JSON.parse(readFileSync(submoduleDesktopPkg, 'utf8')).version;
+  if (subVersion !== mirrorPin) {
+    fail(
+      `desktop 镜像 pin ${mirrorPin} != 子模块 apps/desktop ${subVersion}` +
+        '（bump 子模块后必须同批改 scripts/desktop-mirror.json 的 version）',
+    );
+  }
+  console.log(`  ✓ desktop 镜像 pin ${mirrorPin} = 子模块 apps/desktop ${subVersion}（${mirror.target}/${mirror.channel}）`);
+} else {
+  console.log('  - 子模块未检出，跳过 desktop 镜像 pin 交叉校验（CI 侧由上游 feed 版本校验兜底）');
+}
+
+console.log('[verify-release] OK — 伞仓插件源清单一致 + 三方组件版本一致 + desktop 镜像 pin 有效, 可发布');

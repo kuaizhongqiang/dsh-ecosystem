@@ -6,7 +6,7 @@
 // 只绑定 127.0.0.1（本机），不对外。
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -208,9 +208,42 @@ function readLaunchTokenRecord(): { url?: string; port?: number } | null {
 }
 
 /**
+ * 读上游 DeepSeek Harness 桌面版的已装版本。
+ * 自 2026-09-28 起 desktop **归上游**（`deepseek-harness/apps/desktop`），伞仓不再自建/自发布；
+ * 上游 NSIS 按用户安装（perMachine=false），安装时在 Windows 卸载注册项写
+ * DisplayName(`DeepSeek Harness`) / DisplayVersion。注册项 GUID 不稳定，故**枚举** Uninstall
+ * 子键按 DisplayName 匹配（用户级 HKCU 与机器级 HKLM / WOW6432Node 都看，取最高版本）。
+ * 非 Windows / 未安装 / 读取失败一律返回 ''，绝不抛错卡状态。
+ */
+function readUpstreamDesktopVersion(): string {
+  if (process.platform !== 'win32') return '';
+  const uninstallRoots = [
+    'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+    'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+    'HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+  ];
+  let found = '';
+  for (const root of uninstallRoots) {
+    let dump = '';
+    try {
+      dump = execFileSync('reg', ['query', root, '/s'], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+    } catch {
+      continue; // 键不存在 / 无权限：跳过
+    }
+    // reg query /s 以 `HKEY_...` 行分块，每个块是一个已安装项
+    for (const block of dump.split(/\r?\n(?=HKEY_)/)) {
+      if (!/^\s*DisplayName\s+REG_SZ\s+DeepSeek Harness\s*$/im.test(block)) continue;
+      const version = /^\s*DisplayVersion\s+REG_SZ\s+(\S+)\s*$/im.exec(block);
+      if (version && (found === '' || version[1] > found)) found = version[1];
+    }
+  }
+  return found;
+}
+
+/**
  * 尽力探测已装组件版本（#19 概览卡）。
  * - vscode：扫用户 .vscode* 扩展目录中本产品（publisher kuaizhongqiang / 名含 dsh 的扩展）的版本；
- * - desktop：暂无可靠落点（发行/安装形态未定），返回 ''（前端显示 —）。
+ * - desktop：**上游** DeepSeek Harness 桌面版（见 readUpstreamDesktopVersion），未装返回 ''（前端显示 —）。
  * 探测失败一律返回 ''，绝不抛错卡状态。
  */
 function detectComponentVersions(): { vscode: string; desktop: string } {
@@ -241,7 +274,7 @@ function detectComponentVersions(): { vscode: string; desktop: string } {
       /* 忽略单个扫描失败 */
     }
   }
-  return { vscode, desktop: '' };
+  return { vscode, desktop: readUpstreamDesktopVersion() };
 }
 
 function openDefaultBrowser(target: string): void {

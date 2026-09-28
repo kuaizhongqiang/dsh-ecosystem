@@ -2,7 +2,7 @@
 # 触发:push tag vX.Y.Z(如 v0.8.0)→ 一个 tag 发布所有包:
 #   - init:创建/重建该 tag 的 GitHub Release(幂等:先删同名 release,不动 tag)
 #   - launcher(windows):tsc + build + portable/NSIS + smoke → 上传资产
-#   - desktop(windows):build + smoke + NSIS(+latest.yml/blockmap)→ 上传资产
+#   - desktop-mirror(ubuntu):校验镜像 pin → 下载上游 DeepSeek Harness 桌面版安装包(win-x64,验 sha512)→ 上传资产
 #   - vscode(ubuntu):typecheck/test/build + vsix → 上传资产 + Open VSX(有 OVSX_PAT 时)
 #   - plugins(ubuntu):verify-release.mjs 校验伞仓插件源清单一致性
 # 流程与版本策略见 docs/RELEASING.md。
@@ -33,7 +33,7 @@ jobs:
           gh release delete "$tag" --yes 2>/dev/null || true
           gh release create "$tag" \
             --title "dsh-ecosystem $tag" \
-            --notes "dsh-ecosystem $tag — 全量发布(launcher / desktop / vscode / plugins 同一版本)。安装/下载入口见本 release 资产;vscode 同步发布 Open VSX;流程见 docs/RELEASING.md。"
+            --notes "dsh-ecosystem $tag — 全量发布(launcher / vscode / dsh-cli 同一版本)。desktop 归上游,本 release 镜像其 win-x64 安装包(资产名带的是上游桌面版号,与伞仓 tag 无关)。安装/下载入口见本 release 资产;vscode 同步发布 Open VSX;流程见 docs/RELEASING.md。"
 
   dsh-cli:
     name: Build dsh-cli (portable exe + npm)
@@ -213,60 +213,27 @@ jobs:
             dsh-launcher/release/dsh-launcher-setup-*.exe
           fail_on_unmatched_files: true
 
-  desktop:
-    name: Build dsh-desktop (NSIS + updater feed)
+  desktop-mirror:
+    name: Mirror upstream dsh-desktop (win-x64)
     needs: init
-    runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: dsh-desktop/desktop
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: dsh-desktop/desktop/package-lock.json
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Assert version matches tag
-        run: node -e "const p=require('./package.json');const t=process.argv[1].replace(/^v/,'');if(p.version!==t){console.error('package.json',p.version,'!= tag',t);process.exit(1)};console.log('version ok:',p.version)" "${{ github.ref_name }}"
-      - name: Build app
-        run: npm run build
-      - name: "Smoke: shared-server protocol (launch-token auth)"
-        run: node scripts/smoke.mjs
-      - name: Package (NSIS)
-        run: npx electron-builder --config electron-builder.yml --publish never
+          node-version: 22
+      - name: Preflight — mirror pin vs upstream feed
+        run: node scripts/mirror-desktop.mjs --check
+      - name: Download upstream installer (verify sha512)
+        run: node scripts/mirror-desktop.mjs --download desktop-mirror-out
       - name: Publish assets to release
         uses: softprops/action-gh-release@v2
         with:
+          # 镜像的是**上游**桌面版安装包(自带签名与 electron-updater 通道),伞仓不改包、不签名、不发版本号。
           files: |
-            dsh-desktop/desktop/release/dsh-desktop-*-setup.exe
-            dsh-desktop/desktop/release/dsh-desktop-*-setup.exe.blockmap
-            dsh-desktop/desktop/release/latest.yml
+            desktop-mirror-out/deepseek-harness-*-win-x64.exe
+            desktop-mirror-out/deepseek-harness-*-win-x64.exe.sha512
           fail_on_unmatched_files: true
-      - name: Publish to npm (optional)
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        shell: pwsh
-        run: |
-          $ver = (Get-Content package.json | ConvertFrom-Json).version
-          if (-not $env:NPM_TOKEN) { Write-Host "NPM_TOKEN not set — skip npm publish"; exit 0 }
-          npm view "@kuaizhongqiang/dsh-desktop@$ver" version *> $null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "npm: $ver already published — skip"
-            exit 0
-          }
-          node scripts/publish-npm.mjs
-          if ($LASTEXITCODE -ne 0) {
-            # 竞态兜底:发布失败但版本已在 registry → 视为成功(重跑场景)
-            npm view "@kuaizhongqiang/dsh-desktop@$ver" version *> $null
-            if ($LASTEXITCODE -eq 0) { Write-Host "npm: $ver is live — treat as success"; exit 0 }
-            exit $LASTEXITCODE
-          }
 
   vscode:
     name: Build dsh-vscode (VSIX + Open VSX)

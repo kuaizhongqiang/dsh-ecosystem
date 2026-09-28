@@ -18,7 +18,7 @@ body:
         - dsh-launcher(L0 载体)
         - dsh(deepseek-harness 构建 / L2 核心)
         - dsh-plugins 插件(L3)
-        - dsh-vscode / dsh-desktop(L4 周边)
+        - dsh-vscode / desktop(桌面版已归上游)(L4 周边)
         - dsh-remote(L6 广域网)
         - 不确定 / 其他
     validations:

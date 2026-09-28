@@ -17,7 +17,7 @@ body:
         - L0 载体(dsh-launcher)
         - L2 核心(dsh / deepseek-harness)
         - L3 插件(dsh-plugins)
-        - L4 周边(dsh-vscode / dsh-desktop)
+        - L4 周边(dsh-vscode;desktop 已归上游)
         - L5 个人层(%DSH_HOME%)
         - L6 广域网(dsh-remote)
         - 伞仓治理(文档 / 模板 / issue 流程)

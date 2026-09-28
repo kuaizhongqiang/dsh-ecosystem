@@ -7,7 +7,7 @@
 
 - **Tag**:`vX.Y.Z`
 - **日期**:YYYY-MM-DD
-- **性质**:全量发布(launcher / desktop / vscode / plugins 同一版本)
+- **性质**:全量发布(launcher / vscode / dsh-cli 同一版本;desktop 为**上游**产物的镜像,版本号与 tag 无关)
 
 ## 生态变更摘要
 
@@ -20,10 +20,11 @@
 | 组件 | 本 release 版本 | 产物 | 渠道 | 关键变更 |
 |---|---|---|---|---|
 | dsh-launcher | `vX.Y.Z` | portable exe + NSIS setup | 本 release 资产 | … |
-| dsh-desktop | `vX.Y.Z` | NSIS setup + latest.yml + blockmap | 本 release 资产 | … |
+| dsh-cli | `vX.Y.Z` | `dshcli.exe` + `dshcli-linux-x64` | 本 release 资产 + npm | … |
+| desktop(**镜像**) | 上游版号(如 `0.1.7-rc.2`) | 上游 `deepseek-harness-<上游版>-win-x64.exe` + `.sha512` | 本 release 资产(上游自有 COS 通道不变) | … |
 | dsh-vscode | `vX.Y.Z` | VSIX | 本 release 资产 + Open VSX | … |
 | dsh-plugins | 随伞仓 commit | 无独立产物 | launcher 清单 | … |
-| deepseek-harness | 子模块 `47f94385`(锁定) | — | 官方上游(只读跟随) | … |
+| deepseek-harness | 子模块 `477b4f42`(锁定,`dsh-v0.1.7-rc.2`) | — | 官方上游(只读跟随;桌面版亦在此) | … |
 
 ## 文档 / 治理更新
 
@@ -39,5 +40,6 @@
 
 ## 使用说明(对消费者)
 
-- 安装 launcher/desktop:本 release 资产下载 exe/setup;扩展:vscode 市场(Open VSX)或 vsix 手动安装
+- 安装 launcher / dsh-cli / 桌面版:本 release 资产下载 exe/setup(**桌面版是上游产物镜像,其版本号与 tag 不同**);
+  扩展:vscode 市场(Open VSX)或 vsix 手动安装;mac 桌面版走上游官方通道(伞仓不镜像 mac)
 - 拉取源码:README「拉取工作区」+ `git submodule update --init deepseek-harness`

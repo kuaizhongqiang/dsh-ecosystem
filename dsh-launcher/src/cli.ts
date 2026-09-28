@@ -56,7 +56,7 @@ const usage = `dsh-launcher — dsh 本机安装 / 启动引导器（TS/JS 版�
                                     add --id <id> --kind local --port <p> [--name <n>]
                                     add --id <id> --kind remote --url <u> [--token <t>] [--name <n>]
                                     use <id> 切换激活（写 .dsh-connection-changed 标记）；remove <id> 删除
-                                    激活连接照写 launch-token.json（desktop 完全跟随 / vscode token 跟随）
+                                    激活连接照写 launch-token.json（vscode token 跟随；desktop 归上游，不读该文件）
   dsh-launcher.exe start [--no-browser] [--connection <id>]  按（或指定）激活连接启动：
                                     local=绑子进程启动（D8 端口锁）；remote=健康检查+带 token 开浏览器
   dsh-launcher.exe setup [--manifest <url|file>] [--offline <目录>] [--connection <id>]

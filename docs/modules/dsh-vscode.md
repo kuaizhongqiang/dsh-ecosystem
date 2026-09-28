@@ -31,6 +31,9 @@ M0 协议对齐(clearLaunchToken source+pid 双匹配等)已合入(0.3.0 线)。
 - **手动发布**:本地打包 vsix → `ovsx publish`(Open VSX,需 OVSX_PAT)/ 上传伞仓 Releases;
   原仓 ci/release workflow(含 Open VSX 自动发布)已随归档停摆(见 [RELEASING.md](../RELEASING.md))。
 - M5/M6 若改动 token/连接语义,需回归验证扩展的 token 跟随路径。
+- 质量门(目录内):`pnpm typecheck` / `pnpm test`(vitest) / `pnpm build`(esbuild) /
+  `node scripts/check-webview-js.mjs`(webview 内联 JS 语法);真机联调用
+  `node --experimental-strip-types scripts/verify-live.mts <url> [token]`。
 
 ## 内嵌 dsh web / 聊天中聊天 / 保活（milestone #2，#20–#23）
 

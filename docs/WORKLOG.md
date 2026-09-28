@@ -1,5 +1,72 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-09-28(desktop 归上游:移除自建 dsh-desktop + 发布流程改镜像 + 子模块 bump rc.2)
+
+- **子模块 bump**:`deepseek-harness` `46a7f68b`(dsh-v0.1.7-rc.1)→ **`477b4f42`(dsh-v0.1.7-rc.2)**。
+  上游自 `dsh-v0.1.5`(2026-08-28,commit `19444907f0`)起自带 `apps/desktop`
+  (`@deepseek-ai/dsh-desktop`,与 dsh 本体严格同号、自带签名/NSIS/electron-updater),
+  伞仓自建桌面版的存在理由消失。
+- **移除自建 desktop**:`dsh-desktop/`(35 个文件)整体删除;`release.yml` 的 `desktop` job
+  (build + smoke + NSIS + `latest.yml` + npm 发布)与 `verify-release.mjs` 里的 desktop 版本一致性项
+  同批移除 —— 版本一致性从**四处变三方**(launcher / vscode / dsh-cli)。
+  顺带把 README / release-notes 模板里已过期的组件版本(launcher/vscode 0.10.0、dsh-cli 0.11.0)
+  对齐到实际 `0.11.5`(`node -e` 读 package.json 核过)。
+- **新形态:镜像上游产物**(决策:从「完全移出」改为「代理分发」):新增 `scripts/desktop-mirror.json`(pin)
+  与 `scripts/mirror-desktop.mjs`(取件/校验),CI 新 job `desktop-mirror` 在每次全量 tag 时把上游 **win-x64**
+  安装包镜像到本仓 Release(附 `.sha512` 副档)。
+  - 上游通道(公开、无需凭证):`https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml`
+    → `…/dsh-desk/bin/win-x64/deepseek-harness-<ver>-win-x64.exe`(实测 **274.9 MiB / 8.9s** 下完)。
+    上游版本目前全是 prerelease,故**只有 `nightly` 清单**,稳定别名 `latest.yml` 不出现。
+  - 版本锚点 = **子模块 pin**(已定):`verify-release.mjs` 交叉校验「镜像 pin == 子模块 `apps/desktop` 版本」,
+    CI 侧 `mirror-desktop.mjs` 再校验「pin == 上游 feed 版本」——两级都在,漏改任一处都拦得住。
+  - **只镜像 Windows**;mac(`mac-arm64`/`mac-x64`)按上游清单自行下载(我们无 mac 构建/验证能力)。
+  - npm `@kuaizhongqiang/dsh-desktop` **停更**、历史版本不删不动;迁移路径写进 RELEASING.md。
+- **launcher 跟随**:`detectComponentVersions()` 的 `desktop: ''` 占位改为真读值 ——
+  `readUpstreamDesktopVersion()` 枚举 `HKCU`/`HKLM`(+`WOW6432Node`)的 `Uninstall` 键,
+  按 `DisplayName == DeepSeek Harness` 匹配后取 `DisplayVersion`(上游 NSIS 是 `perMachine=false`,
+  且注册项 GUID 不稳定,不能硬编码;非 Windows / 未装 / 读失败一律返回 '' 不抛错)。
+  概览卡 chip 文案、以及 connections / launch / cli 里「desktop 完全跟随」的旧表述,
+  同步收窄为「vscode token 跟随;desktop 归上游,不读该文件」。
+- **坑(值得复用)**:
+  1. **Node 里 `process.exit()` 会和 undici 打架**:fetch 后(即使 body 已读干)紧接着 `process.exit(1)`,
+     本机 Windows 触发 libuv 断言 `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`,
+     退出码变成 `0xC0000409` —— CI 会把它误判成崩溃而不是业务失败。改法:
+     **`process.exitCode = 1` + 让进程自然收敛**,业务失败做成 `MirrorFailure` 哨兵异常在外层统一转码。
+     已实测:pin 不一致时干净 `exit 1`。
+  2. PowerShell `ConvertFrom-Json` 读 UTF-8 中文 JSON 会按 GBK 解 → 报「传入的对象无效,应为":"或"}"」;
+     **校验 JSON 一律用 `node -e` / `node scripts/*.mjs`**,别用 PS 读(本次查版本连踩三次)。
+- **治理/文档**:RELEASING.md 重写发布矩阵 + 新增「桌面版:归上游 + 镜像」章节;
+  `docs/modules/dsh-desktop.md` 改写为「归上游 + 伞仓镜像」;modules 索引、dsh-cli / dsh-launcher /
+  deepseek-harness / dsh-vscode / vscode-embed 设计页的 desktop 表述同步收窄;
+  README、release-notes 模板、issue 模板(组件下拉)同步;ECOSYSTEM-PLAN.md 的 L4 行与 Phase 5
+  「desktop 完全跟随」表述标注作废。
+- **`.AGENT.md` 蒸馏(161 → 73 行,用户要求)**:手册只留「是什么 / 铁律 / 去哪找 / 改动规约 / 仓级操作」,
+  细节一律下沉到对应位置 —— §4 术语速查 → `docs/modules/README.md`(新增「层级 / 决策 / 代号」速查);
+  launcher 运行时关键文件与质量门 → `docs/modules/dsh-launcher.md`;dsh-cli 运行时文件 / 参数元数据单一来源 /
+  本机构建坑 → `docs/modules/dsh-cli.md` + `dsh-cli/README.md`;vscode 质量门 → `docs/modules/dsh-vscode.md`;
+  子模块操作 → `docs/modules/deepseek-harness.md`;§7 形态演进史 → `docs/MONOREPO-UMBRELLA.md` §7;
+  发布后长期观察 → `docs/RELEASING.md`;旧文档引用清扫 / 旧版升级路径两项备忘 → 本段「下一步」。
+- **issue**:EPIC **#55** + 子任务 **#56–#59**(子模块 bump / 移除 + CI 改造 / launcher / 文档与治理);
+  四项已在工作区完成并通过质量门,**待本次提交落 main 后关闭**。
+- **文件清单**:
+  - 新增:`scripts/desktop-mirror.json`、`scripts/mirror-desktop.mjs`
+  - 改:`scripts/verify-release.mjs`、`.github/workflows/release.yml`、
+    `dsh-launcher/src/{server,connections,launch,cli}.ts`、`dsh-launcher/ui/app.js`、
+    `README.md`、`.AGENT.md`、`.github/release-notes-template.md`、
+    `.github/ISSUE_TEMPLATE/{01-bug-report,02-feature-request}.yml`、`dsh-cli/README.md`、
+    `docs/{RELEASING.md,ECOSYSTEM-PLAN.md,MONOREPO-UMBRELLA.md}`、
+    `docs/modules/{README,dsh-desktop,dsh-cli,dsh-launcher,dsh-vscode,deepseek-harness,dsh-vscode-embed-design}.md`
+  - 删:`dsh-desktop/`(35 文件)
+- **下一步(本轮未做,留作独立小改)**:
+  1. `dsh-plugins/plugins/dsh-launcher-dsh-plugin/plugins/launcher/index.js` 里还有一句用户可见文案
+     「desktop 完全跟随,vscode 需同步 serverUrl」;改它要连带重钉 `ecosystem.json` 的 `commit`(两步提交),
+     故本轮**故意不动**;
+  2. 老用户(已装自建 desktop 0.8.x–0.11.x)的升级说明目前只在 RELEASING.md,可在 release notes 里再点一次;
+  3. 镜像体量 274.9 MiB/次:若嫌 Release 变大,可改为「只挂上游 URL 不镜像」(只动 pin 配置与 job);
+  4. 组件内部旧文档对**已归档源仓 / 旧 submodule** 的引用清扫(原 `.AGENT.md` §6 备忘迁入);
+  5. launcher 旧版(0.7.x,运行时源为已归档 dsh-plugins 仓)用户的**升级路径说明**待补
+     (原 `.AGENT.md` §6 备忘迁入;可写进 `docs/modules/dsh-launcher.md` 或 release notes)。
+
 ## 2026-09-24(已发 v0.11.5 —— launcher 插件适配 dsh 0.1.7 + Linux/macOS 安装器)
 
 - **版本与发布**:四处组件 `0.11.4 → 0.11.5`;插件源重钉 `da74a66`(已用 `git cat-file -t` 与

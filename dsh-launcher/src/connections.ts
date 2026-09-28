@@ -2,7 +2,7 @@
 //
 // D5 连接即启动项:所有可连的 dsh 实例(本机不同端口、广域网)统一声明为
 //   %DSH_HOME%\connections.json 的连接组;激活连接解析后照写 v1 launch-token.json
-//   (desktop 完全跟随;vscode token 跟随,serverUrl 静态不自动切换)。
+//   (vscode token 跟随,serverUrl 静态不自动切换;desktop 已归上游,不读该文件)。
 // D8 协调:① connections.json 原子写(临时文件 + rename);③ active 切换写
 //   .dsh-connection-changed 标记;② 端口锁 .dsh-port-<port>.lock(spawn 前检查、退出清理)。
 // 红线(D2):connections.json 含各组 token,仅存本地,永不进 profile pack 同步

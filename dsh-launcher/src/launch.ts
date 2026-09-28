@@ -233,8 +233,8 @@ export async function verifyInstall(cfg: Config): Promise<void> {
 
 /**
  * remote 连接启动语义（M5 / Phase 5）：不 spawn；健康检查（含 token 自检）后带 token
- * 打开浏览器；激活连接解析后**照写 v1 launch-token.json**（desktop 完全跟随；vscode
- * token 跟随，serverUrl 静态不自动切换）。token 失效(401)提示更新且不打开坏 token URL。
+ * 打开浏览器；激活连接解析后**照写 v1 launch-token.json**（vscode token 跟随，
+ * serverUrl 静态不自动切换；desktop 已归上游，不读该文件）。token 失效(401)提示更新且不打开坏 token URL。
  */
 async function startRemote(conn: connections.Connection): Promise<boolean> {
   const target = connections.buildRemoteTarget(conn);
@@ -244,7 +244,7 @@ async function startRemote(conn: connections.Connection): Promise<boolean> {
     if (conn.token) {
       // 兼容层：照写 v1 launch-token.json（url/token/source 规范不变）
       writeLaunchToken({ token: conn.token, url: target, source: 'dsh-launcher', managedBy: 'dsh-launcher' });
-      log.info(`已照写共享 token 文件（remote ${conn.id}；dsh-desktop 完全跟随，dsh-vscode token 跟随）`);
+      log.info(`已照写共享 token 文件（remote ${conn.id}；dsh-vscode token 跟随；desktop 归上游不读该文件）`);
     }
   } else if (verdict === 'invalid') {
     log.error(

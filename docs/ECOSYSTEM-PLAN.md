@@ -17,7 +17,7 @@
 | L1 运行时 | Node.js ^22.19 \|\| >=24 | **用户预装(缺口)** | 目标机器 |
 | L2 核心 | dsh(deepseek-harness 构建,GitHub tag / npm 双源) | launcher `install` | 网络拉取 |
 | L3 插件 | dsh-plugins 8 个插件包 + install-* 技能 | dsh 会话内聊天装 / launcher 清单拉取 | 伞仓内目录 |
-| L4 周边 | dsh-desktop / dsh-vscode / dsh-remote | 各自 Releases(手动,缺口) | 可选拉取 |
+| L4 周边 | dsh-vscode;**desktop 归上游**(2026-09-28 起,伞仓只镜像产物);dsh-remote 已移除 | vscode:伞仓 Releases + Open VSX;desktop:上游自有通道 | 可选拉取 |
 | L5 个人层 | `%DSH_HOME%`:settings.yaml、profiles、skills、watchlist、stock 等;长期记忆数据在 `~/.openclaw/memory-tdai`(本机,永不入仓) | **不随行(缺口)** | 漫游包 |
 | L6 连接层 | 可连的 dsh 实例:本机(端口可配多组)+ 广域网(dsh-remote 部署) | `launch-token.json` 仅单组记录,launcher 只会启本地 3080(**缺口**) | `%DSH_HOME%\connections.json` |
 
@@ -98,7 +98,7 @@
 - 字段说明:`extraHeaders` 对齐 dsh-vscode 的 `dsh.extraHeaders` 配置,用于 Cloudflare Access 等需要自定义认证头的场景;`token` 可留空(见下条 remote token 生命周期)
 - CLI:`connections list|add|use|remove`;`start [--connection <id>]`(local → 在该端口绑子进程启动,端口不再写死 3080;remote → 不 spawn,健康检查后带 token 打开浏览器);`stop` / `status` 语义跟随激活连接
 - GUI:窗口顶部**连接切换器**(下拉 + 状态点:local=子进程健康,remote=HTTP ping);启动/停止/打开按钮按连接类型语义化;广域网组 token 可留空(认证交给 Cloudflare Access)
-- 兼容层(关键):激活连接无论 local/remote,解析后照写 v1 `launch-token.json`(`url`/`token`/`port`/`source`,规范不变)。跟随能力**收窄表述**(深度审查竞态场景 4):dsh-desktop 按 launch-token 的 url 连接,**完全跟随**;dsh-vscode 的 **token 自动跟随**,但 `dsh.serverUrl` 是静态配置**不会自动切换**——切到 remote 组后需同步更新 serverUrl;远期二者升级为直接读 `connections.json` 才实现全自动多组切换
+- 兼容层(关键):激活连接无论 local/remote,解析后照写 v1 `launch-token.json`(`url`/`token`/`port`/`source`,规范不变)。跟随能力**收窄表述**(深度审查竞态场景 4):**dsh-vscode 是唯一消费者** —— **token 自动跟随**,但 `dsh.serverUrl` 是静态配置**不会自动切换**——切到 remote 组后需同步更新 serverUrl;远期升级为直接读 `connections.json` 才实现全自动多组切换。(原「dsh-desktop 完全跟随」表述**于 2026-09-28 作废**:desktop 归上游,不读该文件,见 [RELEASING.md](RELEASING.md))
 - 监督者协调(D8):spawn 前检查端口锁文件、退出清理;active 切换写 `.dsh-connection-changed` 标记;connections.json 原子写(临时文件 + rename)
 - remote token 生命周期:token 留空 → 认证交给 Cloudflare Access 等外部机制;token 非空 → launcher 打开浏览器/健康检查前先做 token 自检(复用 `launch.ts` 现有校验逻辑),失效(401)即提示用户更新该组 token;远期考虑 remote 端提供 token 轮换接口
 - 红线(与 D2 基线一致):各组 token 明文仅存本地——0600 仅 POSIX 生效,Windows 下依赖 NTFS 默认 ACL(当前用户可读写);永不进 profile pack 同步等外部存储;远期可选 DPAPI

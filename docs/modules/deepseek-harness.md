@@ -5,13 +5,14 @@
 | 上游仓 | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)(**非自有仓**) |
 | 形态 | **git 子模块(伞仓唯一)**——默认未检出,需要时 `git submodule update --init deepseek-harness` |
 | 生态位 | L2 核心(dsh 本体) |
-| 子模块指针 | `46a7f68b`(`46a7f68b0922371ce7144b668b90e377d8e799f4`;= 官方 tag `dsh-v0.1.7-rc.1`,2026-09-24 bump;权威值 `git submodule status`) |
+| 子模块指针 | `477b4f42`(`477b4f420553e8a52c2fbccc464d7561b239c443`;= 官方 tag `dsh-v0.1.7-rc.2`,2026-09-28 bump;权威值 `git submodule status`) |
 | 消费方式 | **只读消费**:bump 只跟随官方 main/tag,永不改写、不 fork 推进 |
 
 ## 角色
 
-DeepSeek Harness(dsh)本体——生态里被 launcher 安装/拉起、被各端(web / desktop / vscode /
-插件)连接的核心服务。伞仓锁其官方 commit,即锁 dsh 的构建基线。
+DeepSeek Harness(dsh)本体——生态里被 launcher 安装/拉起、被各端(web / vscode / 插件)
+**与上游自带的桌面版**(`apps/desktop`)连接的核心服务。伞仓锁其官方 commit,即锁 dsh 的构建基线
+(桌面版号 = dsh 号,见 [dsh-desktop.md](dsh-desktop.md))。
 
 ## 自带文档 / 入口
 
@@ -29,4 +30,4 @@ DeepSeek Harness(dsh)本体——生态里被 launcher 安装/拉起、被各端
 - 跟随官方 tag 而非任意远端 HEAD;bump 前在本机验证新构建可用;提交
   `chore: bump deepseek-harness → <sha 前 8>`(不做 `update --remote` 自动推进)。
 - 与 launcher 的兼容面:Node 版本要求(^22.19 ‖ >=24)、端口/连接语义(Phase 5)变化时
-  需联动检查 dsh-launcher、dsh-vscode、dsh-desktop。
+  需联动检查 dsh-launcher、dsh-vscode(desktop 已归上游,跟随其桌面版发布节奏)。

@@ -84,3 +84,19 @@ dsh-ecosystem/                      # 伞仓 = 唯一权威代码仓(单一 git,
 - 不在伞仓根做统一构建/测试编排(各目录自持质量门)
 - 伞仓重建 CI、发布自动化、Open VSX 管道迁移 = 后续工作项(D-M2(b) 或另开会话)
 - 本次不在 GitHub 侧归档任何仓库(UI 动作归用户,阶段 B)
+
+## 7. 形态演进史(避免看旧文档时混淆)
+
+> 原 `.AGENT.md` §7「形态演进速记」迁入;每步都改变了「代码在哪 / 怎么发版」,读旧文档时按时间对照。
+
+1. **2026-09-04 前**:文档 + 6 gitlink 版本锁(各组件都是子模块)。
+2. **2026-09-04 直接工程**:5 个自有仓独立 git 检出在伞仓根(各自 remote)——RESTRUCTURE。
+3. **2026-09-04 monorepo**:5 组件并入伞仓单一 git,源仓归档只读,harness 仍是唯一子模块——本设计。
+4. **2026-09-04 发布重做**:`dsh-remote` 移除;改为全量 `vX.Y.Z` tag 发布(伞仓根 `release.yml`);
+   launcher 运行时源(插件 + 自更新)切到伞仓。
+5. **2026-09-24 入口层补齐**:新增 `dsh-cli/`(L1.5,终端 CLI + 本机工具服务),发布面从「四处版本」变
+   「四处版本 + dsh-cli 的 exe/npm 资产」;首个带它的版本 = v0.11.0。
+6. **2026-09-28 desktop 归上游**:上游自 `dsh-v0.1.5` 起自带 `apps/desktop`(`@deepseek-ai/dsh-desktop`,
+   与 dsh 严格同号),伞仓自建 `dsh-desktop/` 移除;发布从「自建 desktop」变「镜像上游 win-x64 安装包」,
+   版本一致性从四处变**三方**(launcher / vscode / dsh-cli)。详见 [RELEASING.md](RELEASING.md)
+   与 [modules/dsh-desktop.md](modules/dsh-desktop.md)。

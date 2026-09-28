@@ -1,0 +1,10 @@
+{
+  "note": "伞仓不自建 desktop（2026-09-28 起归上游 deepseek-harness/apps/desktop）；这里只声明要镜像到伞仓 Release 的上游产物。version 必须与子模块 apps/desktop/package.json 同号（verify-release.mjs 交叉校验）。",
+  "target": "win-x64",
+  "channel": "nightly",
+  "origin": "https://download.deepseek.com",
+  "feedDir": "dsh-desk/feeds/win-x64",
+  "binDir": "dsh-desk/bin/win-x64",
+  "version": "0.1.7-rc.2",
+  "submoduleDesktopPackage": "deepseek-harness/apps/desktop/package.json"
+}
