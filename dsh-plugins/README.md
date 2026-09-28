@@ -13,9 +13,9 @@
   - plugins/dsh-deepseek-dsh-plugin —— DeepSeek 账户二合一(balance/recharge)
   - plugins/dsh-launcher-dsh-plugin —— launcher 桥接(restart/status/connections/open/check_update,依赖 M5/M6 seam)
   - plugins/dsh-image-dsh-plugin —— 图片生成(`generate_image`,豆包 Seedream 5.0 / 火山方舟;文生图 · 图生图 · 多图融合 · 组图,结果落盘),独立凭证 `ARK_API_KEY`
-- **迁移**:旧 7 包已标 `DEPRECATED.md`(保留一个版本周期);仓库根 uninstall-old.ps1 清理旧载荷、patch 节
-  **与旧技能**(技能清理**默认执行**,`-KeepSkills` 可保留)—— 仓库删包 ≠ 本机干净:留着旧技能,
-  会话里仍可据此把已下线的服务装回来(issue #31)
+- **迁移**:旧 7 包曾标 `DEPRECATED.md` 保留一个版本周期,**已于 2026-09-28 从仓库清场**(git 历史保留);
+  仓库根 uninstall-old.ps1 清理旧载荷、patch 节 **与旧技能**(技能清理**默认执行**,`-KeepSkills` 可保留)
+  —— 仓库删包 ≠ 本机干净:留着旧技能,会话里仍可据此把已下线的服务装回来(issue #31)
 - **技能**:11→7 后新增 install-ue-mcp / install-memory / install-image,当前 10 个;旧 7 技能删除
 - 验证:`node scripts/verify-pm2.mjs`(安装/幂等/卸载/迁移)、`verify-pm3.mjs`(launcher 桥接 + 输出契约)、
   `verify-pm4.mjs`(技能集合与清单一致性)、`verify-image.mjs`(图片生成插件)
@@ -27,19 +27,16 @@ dsh-plugins/
 ├── plugins/                    插件安装包（自包含，可直接独立安装）
 │   ├── dsh-media-dsh-plugin/    感知合并包（音频/语音/视频/文档）
 │   ├── dsh-deepseek-dsh-plugin/ DeepSeek 账户合并包（余额/充值）
-│   ├── dsh-launcher-dsh-plugin/ launcher 桥接（重启/状态/连接）
+│   ├── dsh-launcher-dsh-plugin/ launcher 桥接（重启/状态/连接/CLI 安装）
 │   ├── dsh-image-dsh-plugin/    图片生成（Seedream 5.0；文生图/图生图/组图）
 │   ├── credentials-dsh-plugin/
-│   ├── unity-mcp-dsh-plugin/
-│   ├── ue-mcp-dsh-plugin/
-│   ├── video-read-dsh-plugin/
-│   ├── audio-read-dsh-plugin/
-│   ├── audio-speak-dsh-plugin/
 │   ├── stock-dsh-plugin/
-│   ├── deepseek-balance-dsh-plugin/
-│   ├── deepseek-recharge-dsh-plugin/
-│   ├── document-read-dsh-plugin/
+│   ├── unity-mcp-dsh-plugin/
+│   ├── ue-mcp-dsh-plugin/       需本地 UE 工程，不入默认清单
+│   ├── agent-memory-dsh-plugin/ 记忆层接入器
 │   └── github-dsh-plugin/
+│   （6 个 deprecated 旧包 audio-read / audio-speak / video-read / document-read /
+│     deepseek-balance / deepseek-recharge 已于 2026-09-28 清场，git 历史保留）
 ├── scripts/                    校验工具（validate-patch.mjs 与 verify-pm*.mjs）
 ├── skills/                     安装技能：描述每个插件的安装方法，可选择安装
 │   ├── README.md               技能机制与安装说明
@@ -52,6 +49,7 @@ dsh-plugins/
 │   ├── install-ue-mcp/SKILL.md
 │   ├── install-credentials/SKILL.md
 │   ├── install-stock/SKILL.md
+│   ├── install-memory/SKILL.md
 │   └── install-github/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
@@ -91,9 +89,10 @@ dsh-plugins/
 | [agent-memory](plugins/agent-memory-dsh-plugin/README.md) | 长期记忆接入（**native 原生插件为默认**，`--mode mcp` 可回退 MCP）：11 工具（`recall_memory`/`store_memory`/`search_memories` + `code_*` 8 个代码图谱工具）+ **进程内自动入库**（`turn/end` 直提 L0，无需守护/子进程）；引擎为第三方上游（TencentDB Agent Memory） | 团队身份三元组 + `USER_KEY`（本机自托管引擎） | `install-memory` |
 
 > 单工具旧包（`audio-read` / `audio-speak` / `video-read` / `document-read` /
-> `deepseek-balance` / `deepseek-recharge`）为 DEPRECATED，只作历史保留，不要新装；
-> `describe-image` 已**删除**——图片由主模型原生多模态直读，不需要外挂工具。本机若还残留
-> `install-describe-image` 等旧技能，跑仓库根 `uninstall-old.ps1`（技能清理已默认执行）。
+> `deepseek-balance` / `deepseek-recharge`）为 DEPRECATED，**已于 2026-09-28 从仓库移除**（git 历史保留），
+> 这些名字现在只作为合并包的 `-Only` 子服务名存在；`describe-image` 已**删除**——图片由主模型原生
+> 多模态直读，不需要外挂工具。本机若还残留旧载荷 / `install-describe-image` 等旧技能，
+> 跑仓库根 `uninstall-old.ps1`（技能清理已默认执行）。
 
 ## 环境要求（目标电脑）
 

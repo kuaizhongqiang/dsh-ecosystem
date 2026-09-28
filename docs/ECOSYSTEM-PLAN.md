@@ -169,6 +169,10 @@
 ## 8. 插件体系优化计划(11 → 7)
 
 > 工作仓:dsh-plugins,与 launcher 解耦可独立推进;PM3 依赖 launcher M5/M6 的 seam。
+>
+> **状态(2026-09-28)**:PM1–PM4 全部落地(issue #13–#16 已关闭)——默认清单已切新集合(现为**9 包**:
+> 7 包 + 后续新增的 dsh-image / agent-memory)、合并包与 `uninstall-old.ps1` 就位、
+> **6 个 deprecated 旧包已从仓库清场**(见 [modules/dsh-plugins.md](modules/dsh-plugins.md))。
 
 **问题**:11 个插件 = 11 套 install.ps1 + SKILL.md + cordis.patch 条目。感知类(audio-read / audio-speak / describe-image / video-read)与 document-read 全部消费同一把 `MIMO_API_KEY`、同一种「主模型保持 text-only」模式,却拆成 5 个包;deepseek-balance / deepseek-recharge 是两个单工具包共用 `DEEPSEEK_API_KEY`。安装面、补丁冲突面、会话技能列表都被放大。
 

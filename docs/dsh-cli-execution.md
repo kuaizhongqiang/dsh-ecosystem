@@ -119,12 +119,13 @@ dsh-cli/
 
 ### P6 发布（沿用现有流水线）
 
-- **范围**：版本 bump **四处一致**（`dsh-launcher` / `dsh-vscode` / `dsh-desktop/desktop` / **`dsh-cli`**）→ `verify-release.mjs` 扩展（四处版本一致 + CLI 可构建）→ `.github/workflows/release.yml` 新增 job `build-dsh-cli`（esbuild → Node SEA 单文件 exe → 上传 Release 资产）→ npm 发布 `@kuaizhongqiang/dsh-cli`（沿用 desktop 的 npm 步骤与 `NPM_TOKEN` 约定）→ 打 tag `vX.Y.Z` → CI 全绿 → 按 RELEASING.md「发布后」逐项核验 → 记 WORKLOG。
-- **验收**：Release 资产含 `dshcli-<ver>.exe`；npm `latest` = 该版本；四处版本与 tag 一致。
+- **范围**：版本 bump **三方一致**（`dsh-launcher` / `dsh-vscode` / **`dsh-cli`**；desktop 已于 2026-09-28 归上游、不参与伞仓版本号）→ `verify-release.mjs` 扩展（三方版本一致 + CLI 可构建）→ `.github/workflows/release.yml` 新增 job `build-dsh-cli`（esbuild → Node SEA 单文件 exe → 上传 Release 资产）→ npm 发布 `@kuaizhongqiang/dsh-cli`（沿用原 desktop 的 npm 步骤与 `NPM_TOKEN` 约定）→ 打 tag `vX.Y.Z` → CI 全绿 → 按 RELEASING.md「发布后」逐项核验 → 记 WORKLOG。
+- **验收**：Release 资产含 `dshcli-<ver>.exe`；npm `latest` = 该版本；三方版本与 tag 一致。
 - **状态（2026-09-24 / v0.11.0）**：**已落地并首发成功** —— tag `v0.11.0` 的 CI 中新 job `build-dsh-cli`
   54s 通过（质量门 → esbuild → Node SEA → postject → exe 冒烟 → 上传资产）；Release 资产 `dshcli.exe` +
   `dshcli-0.11.0.exe`；npm `@kuaizhongqiang/dsh-cli@0.11.0`（`latest`）。`verify-release.mjs` 已加四处版本一致校验。
-  **注意**：同一 tag 的 desktop job 因环境原因失败（npm 未跑 dsh 依赖的 install scripts），见 issue #47。
+  **注意（已作废）**：同一 tag 的 desktop job 曾因环境原因失败（npm 未跑 dsh 依赖的 install scripts，issue #47）；
+  该 job 已于 2026-09-28 整体移除，发布流程改为 `desktop-mirror`（镜像上游 win-x64 安装包），此注意不再适用。
 
 ### P7 cmd 面两层 + 第一接触提示（issue #48）
 
@@ -156,7 +157,7 @@ dsh-cli/
 |---|---|
 | `dsh-cli/scripts/verify-cli-*.mjs` | **桩 + 不触网**：假 dsh 实例 + 假会话事件日志；覆盖 · 上游投影被裁的场景（证明我们**没走** headless 投影）· 归属写保护 · step 分段完整性 · `out` 形态 |
 | 组件内 lint / build | `dsh-cli` 自身类型检查与构建 |
-| 伞仓 `node scripts/verify-release.mjs` | 发布前置：清单与**四处版本**一致 |
+| 伞仓 `node scripts/verify-release.mjs` | 发布前置：清单、**三方版本**与 desktop 镜像 pin 一致 |
 
 ## 6. 风险与对策
 

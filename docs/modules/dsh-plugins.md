@@ -16,6 +16,11 @@ dsh-stock / unity-mcp / ue-mcp / dsh-launcher / agent-memory;每包自带 `insta
 (支持 `-Only` / `-Uninstall`)与 `SKILL.md`,另有 `uninstall-old.ps1`(旧 11 包迁移清理:
 载荷 + patch 节 + **旧技能** —— 技能清理默认执行,`-KeepSkills` 保留)。
 
+> **目录即这 10 个**:**6 个 DEPRECATED 旧包**(audio-read / audio-speak / video-read / document-read /
+> deepseek-balance / deepseek-recharge)已于 **2026-09-28 从仓库清场**(git 历史保留)——
+> 这些名字现在只作为合并包的 `-Only` 子服务名存在(如 `dsh-media/install.ps1 -Only audio-read`)。
+> `ue-mcp` 需本地 UE 工程,故不入默认清单,但仍留在仓库与技能里。
+
 ## 自带文档 / 入口
 
 - 目录内 README、`docs/PLUGIN-SPEC.md`(分层规范与模板)、各插件 `install.ps1` / `SKILL.md`
@@ -31,5 +36,5 @@ dsh-stock / unity-mcp / ue-mcp / dsh-launcher / agent-memory;每包自带 `insta
 
 ## 发布注意点
 
-- PM 里程碑工作项集中在伞仓 issues(PM1–PM4=#13–#16);实现提交在伞仓 `dsh-plugins/`。
+- PM 里程碑工作项集中在伞仓 issues(PM1–PM4=#13–#16,**已于 2026-09-28 全部关闭**);实现提交在伞仓 `dsh-plugins/`。
 - 合并/迁移类改动(旧包 deprecated + `uninstall-old.ps1`)规则不变;凭证与 settings 在 DSH_HOME 层不受影响。

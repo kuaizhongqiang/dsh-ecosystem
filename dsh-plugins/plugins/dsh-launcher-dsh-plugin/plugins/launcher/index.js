@@ -591,7 +591,7 @@ export function apply(ctx) {
             restartNote = ';已触发 restart(经 launcherExe)'
           }
         }
-        return { message: `激活连接 → ${target.id}(${target.kind})${restartNote};desktop 完全跟随,vscode 需同步 serverUrl。` }
+        return { message: `激活连接 → ${target.id}(${target.kind})${restartNote};vscode token 跟随,serverUrl 需手动同步;desktop 已归上游(不读 launch-token)。` }
       }
       throw new Error("launcher_connections: action 只支持 'list' | 'use'")
     },

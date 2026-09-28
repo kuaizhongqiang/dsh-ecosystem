@@ -5,7 +5,7 @@
 //   2. -Only 子集安装(仅 2 服务)
 //   3. -Uninstall(载荷删除 + patch 节剥离)
 //   4. dsh-deepseek 全量(2 服务)
-//   5. uninstall-old.ps1:旧包载荷/patch 节清理(先装旧 audio-read 再迁移)
+//   5. uninstall-old.ps1:旧包载荷/patch 节清理(**造老装机现场**再迁移;旧包已从仓库清场,不再依赖仓库内旧包)
 //
 // 用法:node scripts/verify-pm2.mjs(需要 powershell 与 node 在 PATH;纯临时 DSH_HOME)
 
@@ -97,12 +97,20 @@ async function main() {
   console.log('5. uninstall-old.ps1 迁移(旧 audio-read → 清理)');
   {
     const home = makeHome(base, 'mig');
-    // 先用旧包安装器装出旧节头
-    const oldInstaller = join(pluginsDir, 'audio-read-dsh-plugin', 'install.ps1');
-    let r = ps(oldInstaller, [], { DSH_HOME: home });
-    ok(r.status === 0, '5-1 旧包安装成功(旧节头写入)');
+    // 6 个 deprecated 旧包已于 2026-09-28 从仓库清场 → 这里**直接造老装机现场**(旧载荷 + 旧节头),
+    // 不再依赖 plugins/audio-read-dsh-plugin(已删除);但老用户的迁移路径必须继续有效,故本段保留。
+    const web = join(home, 'profiles', 'web');
+    mkdirSync(join(web, 'plugins', 'audio-read'), { recursive: true });
+    writeFileSync(join(web, 'plugins', 'audio-read', 'index.js'), '// legacy payload\n', 'utf8');
+    writeFileSync(
+      join(web, 'cordis.patch.yml'),
+      ['# --- audio reading tools (native dsh) ---', '- insert:', '    - id: tool-audio-read',
+        '      name: "./plugins/audio-read/index.js"', ''].join('\n'),
+      'utf8',
+    );
+    ok(existsSync(join(web, 'plugins', 'audio-read', 'index.js')), '5-1 老装机现场就位(旧载荷)');
     ok(patch(home).includes('# --- audio reading tools (native dsh) ---'), '5-2 旧节头存在');
-    r = ps(oldUn, [], { DSH_HOME: home });
+    let r = ps(oldUn, [], { DSH_HOME: home });
     ok(r.status === 0, '5-3 uninstall-old 退出码 0');
     ok(!existsSync(join(home, 'profiles', 'web', 'plugins', 'audio-read')), '5-4 旧载荷已删');
     const p = patch(home);
