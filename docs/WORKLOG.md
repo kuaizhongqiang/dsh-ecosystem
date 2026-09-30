@@ -209,6 +209,67 @@
 - **文件清单**:`dsh-plugins/plugins/agent-modes-dsh-plugin/{install.ps1,README.md,presets/cordis.patch.yml}`、
   `dsh-plugins/skills/install-agent-modes/SKILL.md`、`dsh-plugins/scripts/verify-agent-modes.mjs`、
   `dsh-plugins/scripts/validate-patch.mjs`(修)、`dsh-plugins/README.md`(清单)。
+## 2026-09-30(dsh 本体 0.1.7-rc.2 → 0.2.0-rc.2 —— 上游工具缺陷一例 + 任务书事实错误一例)
+
+- **版本与分支**:deepseek-harness `master(19eb2c483b / 0.1.7-rc.2)` → 新分支
+  `upgrade/0.2.0-rc.2`,基底 tag `dsh-v0.2.0-rc.2`(commit `639ed01539`)。
+  落后 501 提交的跨越式升级,构建 `pnpm run build` exit 0。
+- **本地补丁处置(3 个,全部原地重放,cherry-pick 零冲突)**:
+  `381affc880`(去 manifest / pwa e2e 断言 / HMR SSE 心跳)、`615c226637`(公网域名视作 loopback)、
+  `19eb2c483b`(embed seam)。**先查上游是否已吸收**:rc.2 的 `browser-auth.ts` 里
+  `mintSessionCookie`/`EMBED_QUERY`/`embed`/`opener` 全 0 命中 → 未吸收 → 3 个全保留。
+  4 处脚本化补丁逐条 grep 复验通过(manifest=0、e2e=not.toContain、isLoopback=1、hmr ping 15_000+clearInterval)。
+- **`apply-v012-patches.py` 交叉校验留脏,已回退**:它往 `hmr/src/index.ts` 塞了个**未被使用**的
+  `const SSE_HEARTBEAT_MS = 15_000`(其 interval 补丁因锚点过时 [FAIL])。判定"权威是 3 个本地提交、
+  脚本只是交叉校验" → `git checkout --` 回退,工作区与 HEAD 逐字一致。
+  **教训:幂等脚本没有"已应用"判据时,会把"已打补丁"误报成 FAIL 并顺手留脏**。
+- **pi-ai 补丁:任务书说的"必然失配"不存在(有硬证据)**。旧 `master` 钉 `0.85.1` + `@0.85.1.patch`,
+  rc.2 钉 `0.87.1` + `@0.87.1.patch` —— **该条目来自上游自己的提交**
+  `6ed596f71b chore(deps): upgrade pi-ai to 0.87.1`,同一次提交把补丁文件一起升级;
+  3 个本地提交未触碰 `pnpm-workspace.yaml`/`patches/`。两版补丁**内容逐字相同**
+  (73 行 / 6 处 `parseStreamingJson` / 5 处 `-block.arguments` / 同 6 个 dist 文件)。
+  **判决性对照**:`npm pack` 取原包 → 应用补丁 → 与安装包 `diff -rq dist` = **0 差异**。
+  `pnpm install` 两次 exit 0,无 `ERR_PNPM_PATCH_NOT_APPLIED`。→ **无需重打、也未退役**。
+  **教训:别把"版本号变了"直接当"补丁失配";先看上游是否在同一次提交里同步升级了补丁。**
+- **上游工具缺陷(本次唯一失败项)**:`--dump-config-schema` 恒 **exit 1** + `complete=false`,
+  4 条 `error [/179..182] unrecognized Loader tree carrier`。定位:这 4 条是上游自带的
+  `preset-standard/ptc/minimal/cordis`(`name: @deepseek-ai/dsh-agent-preset`)。
+  三重取证判定为**工具缺陷而非运行时故障**:① 202 个条目里 `status='error'` 的为 **0**
+  (每个插件都成功 `loader.import()` 并取得 schema —— gate 的核心目的已达成);
+  ② A/B:整份移开本地 `cordis.patch.yml` 后**同样 4 条、同样索引** → 与本仓补丁无关;
+  ③ `pnpm dsh`(src) 与 `node apps/cli/lib/bin.js`(lib) 结果一致 → 非 src/lib 双实例假象。
+  根因:`packages/boot/app-boot/src/config-schema/collect.ts:114` 的 `carrier()` 只认
+  `cordis:group`/`cordis:include`,**不认自家 `agent-preset`** —— 而
+  `packages/preset/agent-preset/src/index.ts:15` 明确 `static readonly [EntryGroup.key] = true`
+  是**设计上合法**的子集合载体。上游 e2e `dump-config-schema.expected.e2e.ts:227` 还以 fixture
+  正向断言该报错,说明检查有意,只是与自家 preset 冲突。**建议向上游提 issue。**
+- **任务书事实错误(已规避)**:任务书称"没有 systemd 单元、起停用 `dsh-manager.sh`"。
+  实测为假 —— `dsh.service`(systemd user unit)在管,`ExecStart` 就是任务书引用的 lib 入口,
+  `Restart=always`;3080 归属 PID 的 **PPID = `/lib/systemd/systemd --user`**(决定性证据)。
+  照任务书执行 `dsh-manager.sh restart` 会 ① 与 systemd 抢 3080 导致 EADDRINUSE 循环,
+  ② 因其用 `pnpm dsh web`(源码模式)触发 src/lib 双实例使工具调用报 `.prepare` undefined。
+  经主人批准,重启/回滚一律改用 **`systemctl --user restart dsh`**。**建议修订任务书。**
+- **验收证据(生产已切 0.2.0-rc.2)**:新 MainPID `1059933`、`NRestarts=0`、实例数 1、favicon **200**;
+  启动日志无插件加载失败/无 unhandled error(`agent-memory ready tools=11`、`tool-github 8 tools`)。
+  **会话零丢失**:目录 14、v3/v4 文件 55,与重启前基线完全一致,无 `.bak`/`v5` 迁移产物。
+  **profile patch 未被新版重写**:insert 14=14、删除行 0。
+  **工具链端到端实测通过**:`node apps/cli/lib/bin.js --profile headless "运行 bash 工具执行
+  echo hello-020rc2"` → 返回 `hello-020rc2`、exit 0。
+- **dsh-cli 契约结论(第 7 步,未回滚)**:**无退化**。`dshcli doctor` = `ok:true, degraded:[]`、
+  `dshBin.command` 仍是真 node;`dshcli run "回答 OK 两个字"` → `OK`、exit 0;
+  `dshcli list sessions -n 3` 正常列出。→ **0.2.0 未重演 0.11.3 那类"会话事件日志改名导致
+  list/report/stats 静默变空"**。未删 dsh-cli、未动 launcher_cli、未动 `~/.dsh/bin/dshcli`。
+- **遗留问题**:
+  1. **launch token 报 401(历史遗留,非本次引入)**:重启后 journalctl 取出的 43 位 token
+     本地/广域网均 401,而 **9-28 的 cookie 仍有效(WAN 根路径 200)** —— cookie 签名密钥存于
+     `.credentials.yaml`,登录态跨重启存活。`browser-auth.ts` 的 token 绑进程所有者(WeakMap)、无 TTL,
+     9-28 也见过"同一 token 先 303 后 401"。**需单独立项排查**。
+  2. 上游 schema 导出缺陷(见上),建议提 issue。
+  3. 2 条 schema warning(`contactFormUrl` / `transcriptView`),仅警告不阻断。
+- **交付物**:回滚 tag `pre-upgrade-20260930-0824-v0.1.7-rc.2-local`;
+  备份 `/home/kuai/backup-dsh-upgrade-20260930-0824`(74M);
+  报告 `/home/kuai/dsh-upgrade-runs/20260930-0824-0.2.0-rc.2.md`。
+
 
 ## 2026-09-28(五)已发 v0.11.8(launcher 桌面版「已装未确认」修复)
 
