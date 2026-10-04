@@ -253,7 +253,13 @@ async function main() {
     ok(indexSrc.includes('export const version'), '9-3 index.js 导出 version');
     ok(indexSrc.includes("export const name = 'tool-handoff'"), '9-4 服务名 tool-handoff');
     ok(indexSrc.includes('ctx.inject([\'commands\']'), '9-5 命令面为可选挂载(headless 可装)');
-    ok(indexSrc.includes("source: { kind: 'plugin', plugin:"), '9-6 播种消息带 plugin 来源');
+    // 真机事故（2026-10-04）：v4 会话格式显式拒绝 kind:'plugin'
+    // （"format v4 message requires a producer-owned source kind"），且该失败发生在
+    // turn 内部、被 kick() 静默吞掉——消息根本不进日志。必须用生产方自有的 kind。
+    ok(indexSrc.includes('source: { kind: PLUGIN_ID }'), '9-6 播种消息用生产方自有的 source kind');
+    ok(!/\{\s*kind:\s*'plugin'/.test(indexSrc), '9-6b 没有对象字面量使用被 v4 禁用的 kind:"plugin"');
+    ok(!indexSrc.includes('handoff_probe'), '9-6c 临时诊断工具未随包交付');
+    ok(indexSrc.includes('pickFollowable') && indexSrc.includes('describeShape'), '9-6d 保留 agent 形状归一化与形状诊断');
     const installPath = join(pkgDir, 'install.ps1');
     const readmePath = join(pkgDir, 'README.md');
     ok(existsSync(installPath), '9-7 自带 install.ps1');

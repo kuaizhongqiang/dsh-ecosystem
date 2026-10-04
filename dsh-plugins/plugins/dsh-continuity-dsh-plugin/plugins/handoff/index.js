@@ -63,10 +63,42 @@ async function makeUserMessage(text) {
   }
   const input = {
     content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin: PLUGIN_ID },
+    // 真机教训（2026-10-04）：v4 会话格式**显式拒绝** `kind: 'plugin'`
+    // （dsh-session-format-v3-to-v4:126 "requires a producer-owned source kind"），
+    // 而且这个失败发生在 turn 内部、被 kick() 静默吞掉——消息根本不进日志。
+    // 约定：每个 producer 用自己的名字当 kind（cordis-host-runner / schedule /
+    // user-approval / dsh-session-title-llm 都是这么做的）。
+    source: { kind: PLUGIN_ID },
   }
   if (createUserMessageImpl) return createUserMessageImpl(input)
   return { id: randomUUID(), role: 'user', content: input.content, source: input.source }
+}
+
+/** 在几种已知包装形状里找出真正带 `followup`（= 可唤醒的 live agent）的那个对象。 */
+const FOLLOWABLE_PATHS = [[], ['agent'], ['handle'], ['handle', 'agent'], ['loop'], ['runtime'], ['runtime', 'agent']]
+function pickFollowable(value) {
+  for (const path of FOLLOWABLE_PATHS) {
+    let node = value
+    for (const key of path) {
+      if (node === null || typeof node !== 'object') { node = undefined; break }
+      node = node[key]
+    }
+    if (node && typeof node.followup === 'function') return node
+  }
+  return undefined
+}
+
+/** 把一个值压缩成可读的形状描述，用于把「到底是哪种返回」写进错误/日志。 */
+function describeShape(value) {
+  if (value === null || value === undefined) return String(value)
+  if (typeof value !== 'object') return typeof value
+  const own = Object.keys(value).slice(0, 10).join(',')
+  let proto = ''
+  try {
+    const descriptorOwner = Object.getPrototypeOf(value)
+    proto = descriptorOwner ? Object.getOwnPropertyNames(descriptorOwner).filter((k) => k !== 'constructor').slice(0, 12).join(',') : ''
+  } catch { proto = '?' }
+  return `own=[${own}] proto=[${proto}]`
 }
 
 /** 把 cordis ctx 适配成 core 需要的能力集合（缺服务时报可读错误，而不是 undefined 崩）。 */
@@ -80,25 +112,39 @@ function buildDeps(ctx) {
   }
 
   // 真机教训（2026-10-04）：profile 层的 `ctx.agents`（dsh-agent 的 AgentRegistry）
-  // 只有 create/get/list；`resolveAgent` / `presetForSession` / `ensureSession` 是
-  // api-session-controller 扩展出来的，挂在 `sessionController` 上。所以这里全部
-  // 运行时探测 + 分层兜底，不押注单一服务。
+  // 只有 create/get/list；resolveAgent / presetForSession / ensureSession 是
+  // api-session-controller 扩展出来的，挂在 `sessionController` 上。更麻烦的是
+  // ApiSessionAgentController.resolve() 的返回是 **union**：live agent / {agent} / {error}
+  // 三种形状。所以这里：运行时探测 + 分层兜底 + **形状归一化**（找到真正带 followup 的对象）。
   const resolveAgentLayered = async (sessionId) => {
     const controller = ctx.get('sessionController')
+    const agents = ctx.get('agents')
+    const attempts = []
     if (typeof controller?.resolveAgent === 'function') {
-      return await controller.resolveAgent(sessionId)   // 失败会抛，交给上层重试
+      attempts.push(['sessionController.resolveAgent', () => controller.resolveAgent(sessionId)])
     }
-    const agents = requireService('agents')
-    if (typeof agents.get === 'function') {
-      const live = agents.get(sessionId)
-      if (live) return live
+    if (typeof agents?.get === 'function') {
+      attempts.push(['agents.get', () => agents.get(sessionId)])
     }
-    if (typeof agents.resolveAgent === 'function') {
-      const found = await agents.resolveAgent(sessionId)
-      if (found?.error) throw found.error
-      return found?.agent ?? found
+    if (typeof agents?.resolveAgent === 'function') {
+      attempts.push(['agents.resolveAgent', () => agents.resolveAgent(sessionId)])
     }
-    throw new Error('无法解析会话 agent：agents 服务既没有 get，也没有 resolveAgent')
+    if (attempts.length === 0) {
+      throw new Error('无法解析会话 agent：既没有 sessionController.resolveAgent，也没有 agents.get/resolveAgent')
+    }
+    const failures = []
+    for (const [source, run] of attempts) {
+      try {
+        const raw = await run()
+        if (raw && typeof raw === 'object' && typeof raw.error !== 'undefined' && raw.error) throw raw.error
+        const agent = pickFollowable(raw)
+        if (agent) return agent
+        failures.push(`${source} → 不可 followup（${describeShape(raw)}）`)
+      } catch (error) {
+        failures.push(`${source} → 抛错（${error instanceof Error ? error.message : String(error)}）`)
+      }
+    }
+    throw new Error(`无法解析可 followup 的 agent：${failures.join('；')}`)
   }
 
   const resolvePresetLayered = (session) => {
@@ -148,6 +194,10 @@ function buildDeps(ctx) {
     mkdir: async (dir) => { await mkdir(dir, { recursive: true }) },
     writeFile: writeFileAtomic,
     seed: async (agent, text) => {
+      // 形状不对时把实际形状写进错误：真机第一次就是死在这里且无从判断拿到的到底是什么。
+      if (typeof agent?.followup !== 'function') {
+        throw new Error(`agent 缺少 followup 方法（${describeShape(agent)}）`)
+      }
       agent.followup(await makeUserMessage(text))
     },
   }
