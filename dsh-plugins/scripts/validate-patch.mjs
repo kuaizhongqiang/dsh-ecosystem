@@ -182,8 +182,10 @@ if (yaml === null) {
       // dsh 0.1.7 起，profile patch 也直接承载**扁平行**（`{id,name,config}`，不裹 insert）——
       // 设置迁移就是这样写进来的（ui-* / permission / llm-pi-ai / agent-default-model）。
       // 老版本只认 insert，会对升级后的 profile 全线误报。
-      if (typeof entry.id !== 'string' || typeof entry.name !== 'string') {
-        problems.push(`entry ${index} is neither an "insert:" object nor a direct {id,name} row (keys: ${JSON.stringify(keys)})`)
+      // 普通行条目只要求可定位（有字符串 id）：`{id, config}` 这类没有 name 的行同样合法
+      // （id 定向的配置覆盖 / 禁用行），其余字段交给 dsh 自己校验。
+      if (typeof entry.id !== 'string' || entry.id === '') {
+        problems.push(`entry ${index} is neither an "insert:" object nor an id-targeted row (keys: ${JSON.stringify(keys)})`)
         continue
       }
       rows.push(entry.id)

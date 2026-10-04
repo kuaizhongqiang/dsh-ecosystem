@@ -61,7 +61,7 @@ function Remove-PatchSection([string]$text, [string]$header) {
 }
 
 function Add-PatchEntry([string]$toolId, [string]$svcId) {
-  $current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
+  $current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw -Encoding UTF8 } else { '' }
   if ($current -match [regex]::Escape($toolId)) {
     Write-Host "SKIP $toolId already present in $patchFile" -ForegroundColor Yellow
     return
@@ -86,7 +86,7 @@ if ($Uninstall) {
     $dir = Join-Path $profileDir ("plugins\" + $id)
     if (Test-Path $dir) { Remove-Item $dir -Recurse -Force; Write-Host "OK  removed $dir" -ForegroundColor Green }
     if (Test-Path $patchFile) {
-      $raw = Get-Content $patchFile -Raw
+      $raw = Get-Content $patchFile -Raw -Encoding UTF8
       $cleaned = Remove-PatchSection $raw "dsh-deepseek: $id"
       if ($cleaned -ne $raw) {
         [System.IO.File]::WriteAllText($patchFile, $cleaned, (New-Object System.Text.UTF8Encoding($false)))

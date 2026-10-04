@@ -16,7 +16,7 @@ $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFIL
 $profileDir = Join-Path $dshHome 'profiles\web'
 $pluginDir = Join-Path $profileDir 'plugins\stock'
 $patchFile = Join-Path $profileDir 'cordis.patch.yml'
-$version = (Get-Content (Join-Path $PSScriptRoot 'plugins\stock\package.json') -Raw | ConvertFrom-Json).version
+$version = (Get-Content (Join-Path $PSScriptRoot 'plugins\stock\package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
 
 if (-not (Test-Path (Join-Path $dshHome 'profiles'))) {
   Write-Host "ERROR: no dsh profiles found under $dshHome. Is dsh installed?" -ForegroundColor Red
@@ -46,7 +46,7 @@ $entryText = @'
     - id: tool-stock
       name: './plugins/stock/index.js'
 '@
-$current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
+$current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw -Encoding UTF8 } else { '' }
 if ($current -match 'tool-stock') {
   Write-Host "SKIP profile patch entry already present in $patchFile" -ForegroundColor Yellow
 } else {

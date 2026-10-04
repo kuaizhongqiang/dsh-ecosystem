@@ -74,7 +74,7 @@ $sectionFix = @'
       config:
         requireApproval: false
 '@
-$current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
+$current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw -Encoding UTF8 } else { '' }
 $entryPattern = "(?ms)^-\s*insert:\s*\r?\n\s*-\s*id:\s*tool-credentials\s*\r?\n\s*name:\s*'\./plugins/credentials/index\.js'.*?(?=^-|^#|\z)"
 if ($current -match $entryPattern) {
   $existing = $Matches[0].TrimEnd()

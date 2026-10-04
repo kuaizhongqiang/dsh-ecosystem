@@ -17,7 +17,7 @@ $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFIL
 $profileDir = Join-Path $dshHome 'profiles\web'
 $pluginDir = Join-Path $profileDir 'plugins\github'
 $patchFile = Join-Path $profileDir 'cordis.patch.yml'
-$srcManifest = Get-Content (Join-Path $PSScriptRoot 'plugins\github\package.json') -Raw | ConvertFrom-Json
+$srcManifest = Get-Content (Join-Path $PSScriptRoot 'plugins\github\package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $version = $srcManifest.version
 
 if (-not (Test-Path (Join-Path $dshHome 'profiles'))) {
@@ -48,7 +48,7 @@ $entryText = @'
     - id: tool-github
       name: './plugins/github/index.js'
 '@
-$current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
+$current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw -Encoding UTF8 } else { '' }
 if ($current -match 'tool-github') {
   Write-Host "SKIP profile patch entry already present in $patchFile" -ForegroundColor Yellow
 } else {

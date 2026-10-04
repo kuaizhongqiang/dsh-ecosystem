@@ -19,7 +19,7 @@ $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFIL
 $profileDir = Join-Path $dshHome 'profiles\web'
 $pluginDir = Join-Path $profileDir 'plugins\ue-mcp'
 $patchFile = Join-Path $profileDir 'cordis.patch.yml'
-$version = (Get-Content (Join-Path $PSScriptRoot 'plugins\ue-mcp\package.json') -Raw | ConvertFrom-Json).version
+$version = (Get-Content (Join-Path $PSScriptRoot 'plugins\ue-mcp\package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
 
 if (-not (Test-Path (Join-Path $dshHome 'profiles'))) {
   Write-Host "ERROR: no dsh profiles found under $dshHome. Is dsh installed?" -ForegroundColor Red
@@ -89,7 +89,7 @@ $entryText = @'
         startupTimeoutMs: 180000
         maxStartupFailures: 3
 '@
-$current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
+$current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw -Encoding UTF8 } else { '' }
 if ($current -match '- id: mcp-ue') {
   Write-Host "SKIP profile patch entry already present in $patchFile" -ForegroundColor Yellow
 } else {
