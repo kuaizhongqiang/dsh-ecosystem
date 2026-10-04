@@ -181,21 +181,26 @@ export function apply(ctx) {
   }))
 
   // 命令面可选挂载：headless / ACP 没有命令平面，但工具仍然可用。
-  ctx.inject(['commands'], (commandCtx) => {
-    commandCtx.commands.register({
-      name: 'handoff',
-      description: '把当前任务交接给一个新会话并让它自动继续（上下文重置，交接文档落盘）',
-      input: { hint: '[--dry-run] [备注]' },
-      handler: async ({ agent, rawInput }) => {
-        if (!agent?.session) return { kind: 'error', text: 'handoff：没有收到当前会话。' }
-        const { dryRun, note } = parseCommandLine(rawInput)
-        try {
-          const result = await runHandoff(buildDeps(ctx), { agent, note, dryRun })
-          return { kind: result.kind, text: result.text }
-        } catch (error) {
-          return { kind: 'error', text: `handoff 失败：${error instanceof Error ? error.message : String(error)}` }
-        }
-      },
+  // 整段包 try/catch：命令面是附加能力，任何注册异常都不该让插件（以及工具面）加载失败。
+  try {
+    ctx.inject(['commands'], (commandCtx) => {
+      commandCtx.commands.register({
+        name: 'handoff',
+        description: '把当前任务交接给一个新会话并让它自动继续（上下文重置，交接文档落盘）',
+        input: { hint: '[--dry-run] [备注]' },
+        handler: async ({ agent, rawInput }) => {
+          if (!agent?.session) return { kind: 'error', text: 'handoff：没有收到当前会话。' }
+          const { dryRun, note } = parseCommandLine(rawInput)
+          try {
+            const result = await runHandoff(buildDeps(ctx), { agent, note, dryRun })
+            return { kind: result.kind, text: result.text }
+          } catch (error) {
+            return { kind: 'error', text: `handoff 失败：${error instanceof Error ? error.message : String(error)}` }
+          }
+        },
+      })
     })
-  })
+  } catch (error) {
+    ctx.logger?.warn?.(`${PLUGIN_ID}: /handoff 命令注册失败（handoff_start 工具不受影响）：${error instanceof Error ? error.message : String(error)}`)
+  }
 }
