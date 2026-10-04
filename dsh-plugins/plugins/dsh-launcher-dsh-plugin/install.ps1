@@ -33,13 +33,24 @@ if (-not (Test-Path $profileDir)) {
 function Remove-PatchSection([string]$text, [string]$header) {
   $lines = $text -split "`r?`n"
   $out = New-Object System.Collections.Generic.List[string]
-  $skip = $false
+  $skipping = $false
+  $blockIndent = -1
   foreach ($l in $lines) {
-    if (-not $skip -and $l -match '^\s*#\s*---\s*' -and $l -like "*$header*") { $skip = $true; continue }
-    if ($skip) {
-      if ($l -match '^\s*#' -or $l -match '^\s*- insert:' -or $l -match '^\s+- ' -or $l.Trim() -eq '') { continue }
-      $skip = $false
+    if (-not $skipping) {
+      if ($l -match '^\s*#\s*---\s*' -and $l -like "*$header*") { $skipping = $true; continue }
+      [void]$out.Add($l)
+      continue
     }
+    # Inside the section being removed: a new section header ends it, and its own
+    # comments belong to it.
+    if ($l -match '^\s*#\s*---\s*') { $skipping = $false; $blockIndent = -1; [void]$out.Add($l); continue }
+    if ($l -match '^\s*#') { continue }
+    if ($l.Trim() -eq '') { continue }
+    if ($l -match '^\s*- insert:\s*$') { $blockIndent = ($l.Length - $l.TrimStart().Length); continue }
+    if ($blockIndent -ge 0 -and ($l.Length - $l.TrimStart().Length) -gt $blockIndent) { continue }
+    # Anything else is outside the section: keep it and stop skipping.
+    $skipping = $false
+    $blockIndent = -1
     [void]$out.Add($l)
   }
   return (($out -join "`n").TrimEnd())

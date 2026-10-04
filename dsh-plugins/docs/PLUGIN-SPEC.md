@@ -65,6 +65,24 @@ plugins/<pkg>-dsh-plugin/
      写回时用 `[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))`
      保持 patch 文件本身无 BOM(patch 由 Node 读取,无 BOM 更稳)。
 
+9. **目标 profile 必须解析,不许硬编码 `profiles\web`(2026-10-04 实测补)**:
+   本机同时存在 `profiles\web` 与 `profiles\desktop`,桌面宿主跑的是 **desktop**;
+   安装器长期写死 `profiles\web`,于是"装完了但工具不存在"——插件进了没人加载的 profile。
+   解析顺序(每个候选都要**校验目录存在**,陈旧的 `DSH_PROFILE` 不能顶上来):
+   ① `-ProfileName <name>`;② `$env:DSH_PROFILE` / `$env:DSH_PROFILE_DIR`(会话内由
+   `dsh-shell-env` 注入,最可靠);③ 进程祖先链命令行里的 `profiles\<name>`;④ 唯一候选;
+   ⑤ 兜底 `web` 并打印警告(多 profile 时必须显式 `-ProfileName`)。
+   参考实现见 `plugins/dsh-continuity-dsh-plugin/install.ps1` 的 `Resolve-ProfileName`。
+   > 注:另外 14 个安装器尚未接入该解析(仍写死 web),迁移待办。
+10. **节剥离必须按缩进判定(2026-10-04 实测补)**:`Remove-PatchSection` 不能只跳
+    `#` / `- insert:` / `- ` / 空行——节内最后一行 `      name: './plugins/<svc>/index.js'`
+    不匹配上述任何模式,会被留下变成**孤儿行**,把 patch 变成非法 YAML(实测已污染
+    live profile 一次)。正确做法:记录 `- insert:` 的缩进,**缩进更大的行都算块内续行**;
+    遇到下一个节头注释(`^\s*#\s*---`)立即停止;节内普通注释行要跳过。回归测试见
+    `scripts/verify-continuity.mjs` 第 12 节(install → uninstall → install 全周期)。
+    仅 `dsh-continuity` / `dsh-deepseek` / `dsh-launcher` / `dsh-media` 四个安装器实现了
+    节剥离(已修复);其余 11 个的 `-Uninstall` 完全不动 patch 节,属待办。
+
 ## 5. SKILL.md 模板要素(install-* 技能)
 
 模板见 `_templates/SKILL.md.tmpl`,必备段:目的 / 前置(dsh 已装且 web profile 启动过)/
