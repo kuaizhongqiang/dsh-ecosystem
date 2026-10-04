@@ -59,6 +59,7 @@ powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -DryRun   #
 | `install-stock` | `plugins/stock-dsh-plugin` | A股行情/技术指标/自选股/舆情研判/交易建议/模拟盘（22 工具，腾讯公开接口，无依赖） |
 | `install-github` | `plugins/github-dsh-plugin` | GitHub 仓库管理与本地工作区同步（可选 GITHUB_TOKEN） |
 | `install-memory` | `plugins/agent-memory-dsh-plugin` | 长期记忆接入：主记忆 MCP + 代码图谱 MCP + 自动入库守护（需本机自托管引擎 + 团队身份三元组） |
+| `install-continuity` | `plugins/dsh-continuity-dsh-plugin` | 任务连续性：`/handoff` + `handoff_start` —— 交接文档 → 新会话续跑 → 克隆 goal（无额外依赖） |
 
 > 图片读取不需要技能：DeepSeek 主模型原生支持图片输入，会话直接读图。
 > 单工具旧包（audio-read / audio-speak / video-read / document-read /

@@ -16,9 +16,22 @@
 - **迁移**:旧 7 包曾标 `DEPRECATED.md` 保留一个版本周期,**已于 2026-09-28 从仓库清场**(git 历史保留);
   仓库根 uninstall-old.ps1 清理旧载荷、patch 节 **与旧技能**(技能清理**默认执行**,`-KeepSkills` 可保留)
   —— 仓库删包 ≠ 本机干净:留着旧技能,会话里仍可据此把已下线的服务装回来(issue #31)
-- **技能**:11→7 后新增 install-ue-mcp / install-memory / install-image,当前 10 个;旧 7 技能删除
+- **技能**:11→7 后新增 install-ue-mcp / install-memory / install-image / install-continuity,当前 11 个;旧 7 技能删除
 - 验证:`node scripts/verify-pm2.mjs`(安装/幂等/卸载/迁移)、`verify-pm3.mjs`(launcher 桥接 + 输出契约)、
-  `verify-pm4.mjs`(技能集合与清单一致性)、`verify-image.mjs`(图片生成插件)
+  `verify-pm4.mjs`(技能集合与清单一致性)、`verify-image.mjs`(图片生成插件)、`verify-continuity.mjs`(63)
+
+## 第 8 包:dsh-continuity(2026-10-04,PM4 之后)
+
+- **域**:**任务连续性** —— 不变量是「任务不因载体(会话/上下文窗口/进程)更替而中断」,
+  比 session 更大:后续 restart 恢复、跨会话 resume 索引、brief 自动维护、历史任务召回都归本包。
+- **v1 服务** `handoff`:`/handoff` 命令 + `handoff_start` 工具(交接文档 → 同 workspace 新开会话
+  → 克隆 goal(轮次归零) → 播种并自动开跑)。无凭证、无外部系统。
+- **为什么破例开新包**:准入三问(独立凭证?独立外部系统?工具数 ≥8?)三条全否,按
+  `docs/PLUGIN-SPEC.md` §2 本应并入既有层;但既有各包(感知/账户/凭证/图片/域工具/桥接/记忆)
+  **没有 session 域**,无层可并 —— 这是规范盲点。按「域独立例外」处理,并把该例外补进 §2(见规范)。
+- **不谈合并的内置能力**:`session.fork`(整段前缀复制,不释放 token)、自动 compaction +
+  `/compact`(会话内腾空间)已在 dsh 内;本包只补「干净会话 + 蒸馏交接」这条缺失路径。
+- 默认清单不含本包(会话内用 `install-continuity` 技能安装,与 `ue-mcp` 同理)。
 
 ## 目录结构
 
@@ -29,6 +42,7 @@ dsh-plugins/
 │   ├── dsh-deepseek-dsh-plugin/ DeepSeek 账户合并包（余额/充值）
 │   ├── dsh-launcher-dsh-plugin/ launcher 桥接（重启/状态/连接/CLI 安装）
 │   ├── dsh-image-dsh-plugin/    图片生成（Seedream 5.0；文生图/图生图/组图）
+│   ├── dsh-continuity-dsh-plugin/ 任务连续性域（handoff：交接文档 + 新会话续跑 + goal clone）
 │   ├── credentials-dsh-plugin/
 │   ├── stock-dsh-plugin/
 │   ├── unity-mcp-dsh-plugin/
@@ -50,6 +64,7 @@ dsh-plugins/
 │   ├── install-credentials/SKILL.md
 │   ├── install-stock/SKILL.md
 │   ├── install-memory/SKILL.md
+│   ├── install-continuity/SKILL.md
 │   └── install-github/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
@@ -87,6 +102,7 @@ dsh-plugins/
 | [credentials](plugins/credentials-dsh-plugin/README.md) | 凭证管理工具：`credentials_list` / `credentials_set` / `credentials_unset` / `credentials_verify` 在对话里管理 `%DSH_HOME%\.credentials.yaml`，走官方 seam、永不暴露 key 值；`requireApproval` 默认关（本部署 approval 策略为 `never`，开了必拒） | 无 | `install-credentials` |
 | [github](plugins/github-dsh-plugin/README.md) | GitHub 仓库管理：`github_repo`/`github_files`/`github_file_write`/`github_issue`/`github_pr`/`github_commit`/`github_search` 8 工具 + `github_sync` 本地工作区同步（clone/pull/commit/push，全局/项目双 scope，token 一次性注入不落盘） | `GITHUB_TOKEN`（可选：匿名只读公开仓库） | `install-github` |
 | [agent-memory](plugins/agent-memory-dsh-plugin/README.md) | 长期记忆接入（**native 原生插件为默认**，`--mode mcp` 可回退 MCP）：11 工具（`recall_memory`/`store_memory`/`search_memories` + `code_*` 8 个代码图谱工具）+ **进程内自动入库**（`turn/end` 直提 L0，无需守护/子进程）；引擎为第三方上游（TencentDB Agent Memory） | 团队身份三元组 + `USER_KEY`（本机自托管引擎） | `install-memory` |
+| [dsh-continuity](plugins/dsh-continuity-dsh-plugin/README.md) | **任务连续性域**（第 8 包）：`/handoff` 命令 + `handoff_start` 工具——确定性交接文档 → 同 workspace 新开会话 → 克隆 goal（轮次归零）→ 播种首条消息并自动开跑；plan mode（计划未批准）时拒绝 | 无（只用 dsh 自身 session/goal/plan 投影） | `install-continuity` |
 
 > 单工具旧包（`audio-read` / `audio-speak` / `video-read` / `document-read` /
 > `deepseek-balance` / `deepseek-recharge`）为 DEPRECATED，**已于 2026-09-28 从仓库移除**（git 历史保留），

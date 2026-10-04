@@ -10,16 +10,18 @@
 ## 角色
 
 dsh 会话内「说一句安装」即可落地的插件包 + 配套 `install-*` 技能。路线图 §8 合并已落地(v0.7.0 起),
-当前 **10 个插件包**(launcher 默认清单 9 包;ue-mcp 需本地 UE 工程,故不入默认清单)+ **10 个技能**:
+当前 **11 个插件包**(launcher 默认清单 9 包;ue-mcp 需本地 UE 工程、dsh-continuity 走会话内技能安装,均不入默认清单)+ **11 个技能**:
 dsh-media(感知四合一)/ dsh-image(图片生成)/ dsh-deepseek(账户二合一)/ dsh-credentials / dsh-github /
-dsh-stock / unity-mcp / ue-mcp / dsh-launcher / agent-memory;每包自带 `install.ps1`
+dsh-stock / unity-mcp / ue-mcp / dsh-launcher / agent-memory / **dsh-continuity**(任务连续性域:
+`/handoff` 交接文档 → 同 workspace 新开会话续跑 → 克隆 goal;2026-10-04 立项,PLUGIN-SPEC §2「域独立例外」首例);每包自带 `install.ps1`
 (支持 `-Only` / `-Uninstall`)与 `SKILL.md`,另有 `uninstall-old.ps1`(旧 11 包迁移清理:
 载荷 + patch 节 + **旧技能** —— 技能清理默认执行,`-KeepSkills` 保留)。
 
-> **目录即这 10 个**:**6 个 DEPRECATED 旧包**(audio-read / audio-speak / video-read / document-read /
+> **目录即这 11 个**:**6 个 DEPRECATED 旧包**(audio-read / audio-speak / video-read / document-read /
 > deepseek-balance / deepseek-recharge)已于 **2026-09-28 从仓库清场**(git 历史保留)——
 > 这些名字现在只作为合并包的 `-Only` 子服务名存在(如 `dsh-media/install.ps1 -Only audio-read`)。
-> `ue-mcp` 需本地 UE 工程,故不入默认清单,但仍留在仓库与技能里。
+> `ue-mcp` 需本地 UE 工程、`dsh-continuity` 走会话内 `install-continuity` 技能,故都不入默认清单,
+> 但仍留在仓库与技能里。
 
 ## 自带文档 / 入口
 
@@ -32,7 +34,8 @@ dsh-stock / unity-mcp / ue-mcp / dsh-launcher / agent-memory;每包自带 `insta
 - **开发在伞仓内进行**:修改 `dsh-plugins/` 后随伞仓 git 提交推送;launcher 运行时插件源即伞仓内
   该目录的发布结果(launcher M1 按清单 sha 拉取)。
 - 质量门:目录内 `scripts/verify-pm2..pm4.mjs`(安装/幂等/卸载/技能集合一致性)与
-  `verify-image.mjs`(图片生成载荷:三模式请求体 + 桩 fetch 端到端)等 —— 真 PowerShell + 临时桩件,不触网。
+  `verify-image.mjs`(图片生成载荷:三模式请求体 + 桩 fetch 端到端)、`verify-continuity.mjs`
+  (任务连续性:交接文档/新会话/goal clone 的纯逻辑与包结构)等 —— 真 PowerShell + 临时桩件,不触网。
 
 ## 发布注意点
 

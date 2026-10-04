@@ -20,6 +20,16 @@
 新插件入集合前先答:**独立凭证?独立外部系统(MCP)?工具数 ≥8?**
 三者皆否 → 并入既有层(包内多服务,`--only` 子集安装)。阈值随实践校准,非硬常数。
 
+**域独立例外(2026-10-04 补,由 dsh-continuity 触发)**:若三问皆否、**但既有各层都不同域**
+(没有可并入的层),允许按「新域」立包,条件是:
+
+1. 该域有**独立不变量**,能一句话说清(例:dsh-continuity = 任务不因载体更替而中断);
+2. 域内**已有明确的第 2、第 3 个候选能力**,不是为单个功能开壳
+   (例:handoff → restart 恢复 / 跨会话 resume 索引 / brief 自动维护 / 历史召回);
+3. 在包 README 里写明「为什么破例 + 预期长成的工具集」,便于后续按 D7 再收敛。
+
+三条缺一 → 仍然并入既有层,或先做成既有包内的第二个服务。
+
 ## 3. 包结构规范
 
 ```
@@ -44,6 +54,16 @@ plugins/<pkg>-dsh-plugin/
 5. **cordis.patch.yml 合并**:剥离裸 `[]` 占位行后按序列合并;UTF-8 无 BOM 写回。
 6. **凭证**:只提示(credentials seam → 环境变量),绝不写入/打印真实 key(D2 红线)。
 7. **额外步骤**(如 apiproxy 补丁、python 依赖探测)必须可重跑、失败降级为 WARN,不中断安装。
+8. **文件编码(PS 5.1 双陷阱,2026-10-04 实测补)**:
+   - **读 patch 文件必须写 `Get-Content <file> -Raw -Encoding UTF8`**。Windows PowerShell 5.1
+     的 `Get-Content` 默认按 ANSI 代码页解码,而回写用的是 `UTF8Encoding($false)`——
+     一读一写就把文件里的中文逐次写坏(实测每跑一次 +301 字节,且不可逆)。
+     2026-10-04 已同批修复 14 个安装器的 21 处。
+   - **含中文的 `.ps1` 必须存成 UTF-8 with BOM**。PS 5.1 对无 BOM 文件按 ANSI 解码,
+     中文字节会"吃掉"后续字符(引号/括号),表现为莫名其妙的语法错误
+     ——`dsh-continuity/install.ps1` 首次就是因此报 `Unexpected token ')'`。
+     写回时用 `[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))`
+     保持 patch 文件本身无 BOM(patch 由 Node 读取,无 BOM 更稳)。
 
 ## 5. SKILL.md 模板要素(install-* 技能)
 
