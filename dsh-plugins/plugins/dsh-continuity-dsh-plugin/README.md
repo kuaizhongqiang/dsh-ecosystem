@@ -45,17 +45,23 @@
 ## 安装
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1          # 安装
+powershell -ExecutionPolicy Bypass -File .\install.ps1                       # 安装（自动识别正在运行的 profile）
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProfileName desktop  # 多 profile 机器显式指定
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Only handoff
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 ```
 
-无凭证。安装后重启 web：命令面与工具面在重启后出现。配套技能：`skills/install-continuity`。
+无凭证。**profile 解析**：`-ProfileName` → `$env:DSH_PROFILE` / `$env:DSH_PROFILE_DIR`
+（会话内由 dsh-shell-env 注入，最可靠）→ 进程祖先链 → 唯一候选 → 兜底 web。
+**别再写死 `profiles\web`**：本机桌面宿主跑的是 `profiles\desktop`，写死会把插件装进没人加载的
+profile（2026-10-04 实测踩到）。安装后**需要重启**：载荷 JS 换代不会自动换模块
+（`dsh-plugin-manager`：「Package replacements require restarting the process to load a fresh
+JavaScript module generation」），只有 config 改动可热应用。配套技能：`skills/install-continuity`。
 
 ## 验证
 
 ```bash
-node scripts/verify-continuity.mjs     # 纯逻辑（桩 deps）+ 包结构，53 项
+node scripts/verify-continuity.mjs     # 纯逻辑（桩 deps）+ 包结构 + 卸载节剥离，83 项
 ```
 
 覆盖：plan 模式拒绝、dry-run 不建会话、goal 克隆参数（objective/maxGoalRounds/不 pause）、

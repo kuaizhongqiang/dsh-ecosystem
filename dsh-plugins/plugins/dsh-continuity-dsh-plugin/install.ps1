@@ -11,12 +11,14 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProfileName desktop
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Only handoff
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 #
 # 幂等：载荷覆盖复制；patch 条目按 tool-<svc> 判重跳过；卸载按节头精确剥离。
 param(
   [string]$Only = '',
+  [string]$ProfileName = '',
   [switch]$Uninstall
 )
 
@@ -47,17 +49,66 @@ if ($unknown) {
 }
 
 # --- 0. 前置 ------------------------------------------------------------------
+# 目标 profile 解析（2026-10-04 补，血泪教训）：
+# 本机同时存在 profiles\web 与 profiles\desktop，桌面宿主跑的是 **desktop**，而
+# install.ps1 长期硬编码 profiles\web —— 插件装进了没人加载的 profile，表现是
+# "装完了但工具不存在"。解析顺序（先命中先用）：
+#   1) -ProfileName <name>
+#   2) $env:DSH_PROFILE / $env:DSH_PROFILE_DIR（会话内由 dsh-shell-env 注入，最可靠）
+#   3) 进程祖先链命令行里的 profiles\<name>（在会话里跑安装器时命中）
+#   4) $dshHome\profiles 下唯一一个带 cordis.patch.yml 的 profile
+#   5) 兜底 web + 大声警告（多 profile 时必须显式 -ProfileName）
+function Resolve-ProfileName([string]$explicit, [string]$dshHomePath) {
+  $profilesRoot = Join-Path $dshHomePath 'profiles'
+  # 每个候选都要验证「该 profile 真的存在」——陈旧的 DSH_PROFILE（例如在临时
+  # DSH_HOME 下复用当前 shell 的环境变量）不能把一个不存在的 profile 顶上来。
+  $candidates = New-Object System.Collections.Generic.List[string]
+  if ($explicit) { [void]$candidates.Add($explicit) }
+  if ($env:DSH_PROFILE) { [void]$candidates.Add($env:DSH_PROFILE) }
+  if ($env:DSH_PROFILE_DIR -and $env:DSH_PROFILE_DIR -match 'profiles[\\/]([^\\/]+?)[\\/]?$') { [void]$candidates.Add($Matches[1]) }
+  try {
+    $cur = $PID
+    for ($i = 0; $i -lt 8; $i++) {
+      $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$cur" -ErrorAction SilentlyContinue
+      if (-not $proc) { break }
+      if ($proc.CommandLine -and $proc.CommandLine -match 'profiles[\\/]([A-Za-z0-9._-]+)') { [void]$candidates.Add($Matches[1]); break }
+      $cur = $proc.ParentProcessId
+      if (-not $cur) { break }
+    }
+  } catch { }
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path (Join-Path $profilesRoot ($candidate + '\cordis.patch.yml')))) { return $candidate }
+  }
+  # 唯一候选（只有一个 profile 出现过）→ 直接用，不必让用户显式指定。
+  $dirs = @(Get-ChildItem $profilesRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object { Test-Path (Join-Path $_.FullName 'cordis.patch.yml') })
+  if ($dirs.Count -eq 1) { return $dirs[0].Name }
+  # 显式指定但目录不存在：返回它，让后面的报错直说「profile X not found」。
+  if ($explicit) { return $explicit }
+  return ''
+}
+
 $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
-$profileDir = Join-Path $dshHome 'profiles\web'
-$patchFile = Join-Path $profileDir 'cordis.patch.yml'
+$profileName = Resolve-ProfileName $ProfileName $dshHome
 
 if (-not (Test-Path (Join-Path $dshHome 'profiles'))) {
   Write-Host "ERROR: no dsh profiles found under $dshHome. Is dsh installed?" -ForegroundColor Red
   Write-Host 'Install dsh first:  npm install -g @deepseek-ai/dsh   (or run via npx @deepseek-ai/dsh)'
   exit 1
 }
+if (-not $profileName) {
+  $available = (@(Get-ChildItem (Join-Path $dshHome 'profiles') -Directory -ErrorAction SilentlyContinue |
+    Where-Object { Test-Path (Join-Path $_.FullName 'cordis.patch.yml') }).Name) -join ', '
+  Write-Host "WARN 无法确定正在运行的 profile（候选: $available），回退到 web。" -ForegroundColor Yellow
+  Write-Host '     多 profile 机器请显式指定：-ProfileName <name>（会话内安装时通常能自动识别）' -ForegroundColor Yellow
+  $profileName = 'web'
+}
+$profileDir = Join-Path $dshHome ("profiles\" + $profileName)
+$patchFile = Join-Path $profileDir 'cordis.patch.yml'
+Write-Host "profile: $profileName -> $profileDir" -ForegroundColor Cyan
+
 if (-not (Test-Path $profileDir)) {
-  Write-Host "ERROR: web profile not found at $profileDir" -ForegroundColor Red
+  Write-Host "ERROR: profile '$profileName' not found at $profileDir" -ForegroundColor Red
   Write-Host 'Boot it once with:  dsh web   (or  npx @deepseek-ai/dsh web)'
   exit 1
 }
@@ -69,13 +120,24 @@ if (-not (Test-Path $profileDir)) {
 function Remove-PatchSection([string]$text, [string]$header) {
   $lines = $text -split "`r?`n"
   $out = New-Object System.Collections.Generic.List[string]
-  $skip = $false
+  $skipping = $false
+  $blockIndent = -1
   foreach ($l in $lines) {
-    if (-not $skip -and $l -match '^\s*#\s*---\s*' -and $l -like "*$header*") { $skip = $true; continue }
-    if ($skip) {
-      if ($l -match '^\s*#' -or $l -match '^\s*- insert:' -or $l -match '^\s+- ' -or $l.Trim() -eq '') { continue }
-      $skip = $false   # 未知内容：停止剥离（安全）
+    if (-not $skipping) {
+      if ($l -match '^\s*#\s*---\s*' -and $l -like "*$header*") { $skipping = $true; continue }
+      [void]$out.Add($l)
+      continue
     }
+    # Inside the section being removed: a new section header ends it, and its own
+    # comments belong to it.
+    if ($l -match '^\s*#\s*---\s*') { $skipping = $false; $blockIndent = -1; [void]$out.Add($l); continue }
+    if ($l -match '^\s*#') { continue }
+    if ($l.Trim() -eq '') { continue }
+    if ($l -match '^\s*- insert:\s*$') { $blockIndent = ($l.Length - $l.TrimStart().Length); continue }
+    if ($blockIndent -ge 0 -and ($l.Length - $l.TrimStart().Length) -gt $blockIndent) { continue }
+    # Anything else is outside the section: keep it and stop skipping.
+    $skipping = $false
+    $blockIndent = -1
     [void]$out.Add($l)
   }
   return (($out -join "`n").TrimEnd())

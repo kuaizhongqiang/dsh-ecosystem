@@ -24,15 +24,24 @@ session / goal / plan / sessionProjections seam。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "<dsh-plugins>/plugins/dsh-continuity-dsh-plugin/install.ps1"
+# 多 profile 机器显式指定目标：-ProfileName desktop
 # 只装单服务：-Only handoff      卸载：-Uninstall [-Only handoff]
 ```
 
+**目标 profile 自动解析**：`-ProfileName` → `$env:DSH_PROFILE` / `$env:DSH_PROFILE_DIR`（会话内
+由 dsh-shell-env 注入）→ 进程祖先链 → 唯一候选 → 兜底 web。**不要写死 `profiles\web`**：
+桌面宿主跑的是 `profiles\desktop`，写死会让插件装进没人加载的 profile。
+
 幂等：载荷覆盖复制；patch 条目（`tool-handoff`）判重跳过；卸载按节头
-`# --- dsh-continuity: handoff (native dsh) ---` 精确剥离。
+`# --- dsh-continuity: handoff (native dsh) ---` 按缩进整段剥离（含最后一行 `name:`）。
 
 ## 3. 重启并验证
 
-1. 重启：优先 `launcher_restart`（带 `reason` 写明要恢复的工作），否则手动重启 web；
+1. 重启：**必须重启进程**——载荷 JS 换代不会自动换模块
+   （`dsh-plugin-manager`：「Package replacements require restarting the process to load a
+   fresh JavaScript module generation」）；config 改动才可热应用。优先 `launcher_restart`
+   （带 `reason`），但注意桌面部署下 launcher 可能早已停摆（注册心跳陈旧 → 静默空操作），
+   此时请用户手动退出并重开 DeepSeek Harness；
 2. 验证：
    - 命令面：`/handoff --dry-run` —— 应只写交接文档、**不**建会话，并回显文档路径；
    - 工具面：`handoff_start` 应出现在工具列表里（`dryRun=true` 可安全试跑）；

@@ -78,14 +78,50 @@ function buildDeps(ctx) {
     }
     return svc
   }
+
+  // 真机教训（2026-10-04）：profile 层的 `ctx.agents`（dsh-agent 的 AgentRegistry）
+  // 只有 create/get/list；`resolveAgent` / `presetForSession` / `ensureSession` 是
+  // api-session-controller 扩展出来的，挂在 `sessionController` 上。所以这里全部
+  // 运行时探测 + 分层兜底，不押注单一服务。
+  const resolveAgentLayered = async (sessionId) => {
+    const controller = ctx.get('sessionController')
+    if (typeof controller?.resolveAgent === 'function') {
+      return await controller.resolveAgent(sessionId)   // 失败会抛，交给上层重试
+    }
+    const agents = requireService('agents')
+    if (typeof agents.get === 'function') {
+      const live = agents.get(sessionId)
+      if (live) return live
+    }
+    if (typeof agents.resolveAgent === 'function') {
+      const found = await agents.resolveAgent(sessionId)
+      if (found?.error) throw found.error
+      return found?.agent ?? found
+    }
+    throw new Error('无法解析会话 agent：agents 服务既没有 get，也没有 resolveAgent')
+  }
+
+  const resolvePresetLayered = (session) => {
+    const controller = ctx.get('sessionController')
+    if (typeof controller?.presetForSession === 'function') {
+      const preset = controller.presetForSession(session)
+      if (preset !== undefined) return preset
+    }
+    const agents = ctx.get('agents')
+    if (typeof agents?.presetForSession === 'function') {
+      const preset = agents.presetForSession(session)
+      if (preset !== undefined) return preset
+    }
+    // presetForSession 的实现就是读 `agentPreset` 投影，最后直接兜到投影上。
+    try { return ctx.get('sessionProjections')?.stateOf(session, 'agentPreset') ?? undefined } catch { return undefined }
+  }
+
   return {
     stateOf: (session, key) => requireService('sessionProjections').stateOf(session, key),
     planMode: { get: (agent) => ctx.get('planMode')?.get(agent) },
     goals: { create: (agent, request) => requireService('goals').create(agent, request) },
-    agents: {
-      resolveAgent: (sessionId) => requireService('agents').resolveAgent(sessionId),
-      presetForSession: (session) => ctx.get('agents')?.presetForSession?.(session),
-    },
+    agents: { resolveAgent: resolveAgentLayered },
+    resolvePreset: resolvePresetLayered,
     workspaces: () => ctx.get('workspaceRegistry')?.list() ?? [],
     createSession: async ({ workspaceId, cwd, preset }) => {
       const controller = ctx.get('sessionController')
@@ -93,7 +129,11 @@ function buildDeps(ctx) {
         // 与浏览器「新建会话」走同一条链：preset 组合、持久化、workspace 挂载都由它负责。
         const request = workspaceId !== undefined ? { workspaceId } : { cwd }
         if (preset !== undefined) request.agentPreset = preset
-        return await controller.create(request)
+        const created = await controller.create(request)
+        // 顺手把 agent 解析出来：create 已经把 agent 建好了，省一次往返；解析不到也不算错。
+        let agent
+        try { agent = await resolveAgentLayered(created?.sessionId) } catch { agent = undefined }
+        return { sessionId: created?.sessionId, agent }
       }
       const agents = requireService('agents')
       if (typeof agents.ensureSession !== 'function') {
@@ -101,7 +141,7 @@ function buildDeps(ctx) {
       }
       const sessionId = `session-${randomUUID()}`
       const agent = await agents.ensureSession(sessionId, cwd, false, preset)
-      return { sessionId: agent?.session?.id ?? sessionId }
+      return { sessionId: agent?.session?.id ?? sessionId, agent }
     },
     home: () => process.env.DSH_HOME ?? join(homedir(), '.dsh'),
     now: () => new Date(),
@@ -134,7 +174,7 @@ export function apply(ctx) {
       + '把首条消息播种进去让它自动继续跑。默认交接文档是确定性生成的（不调用模型）；'
       + '你也可以用 brief 参数自己写一份更好的交接文档。dryRun=true 只写文档、不建会话。'
       + '当前会话处于计划模式（计划未批准）时会被拒绝。'
-      + `交接文档写入 %DSH_HOME%\\handoff\\<workspace>\\。`,
+      + `交接文档写入 %DSH_HOME%\\handoff\\<workspace>\\。（dsh-continuity v${version}）`,
     parameters: {
       brief: { type: 'string', description: '（可选）由你写好的交接文档全文，替换确定性生成的那份。建议包含：目标/已完成/在途/下一步/关键决策/文件清单/未决问题。' },
       nextStep: { type: 'string', description: '（可选）「下一步」一行的内容，写进确定性生成的文档里。' },

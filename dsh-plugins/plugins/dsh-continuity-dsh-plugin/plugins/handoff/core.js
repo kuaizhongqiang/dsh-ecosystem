@@ -47,7 +47,12 @@ export function messageText(message) {
   if (!Array.isArray(content)) return ''
   const parts = []
   for (const block of content) {
-    if (block && typeof block === 'object' && typeof block.text === 'string') parts.push(block.text)
+    // 必须按 type === 'text' 过滤：assistant 消息里还有 {type:'reasoning', text}
+    // （实测本会话 191 条 reasoning vs 39 条 text），不过滤会把思维链写进交接文档。
+    if (!block || typeof block !== 'object') continue
+    if (block.type !== 'text') continue
+    if (typeof block.text !== 'string') continue
+    parts.push(block.text)
   }
   return parts.join('\n').trim()
 }
@@ -290,12 +295,14 @@ export async function runHandoff(deps, options = {}) {
   }
 
   // 1) 新会话（同一 workspace，preset 尽量与源会话一致）
-  const preset = safe(() => deps.agents?.presetForSession?.(agent.session))
+  const preset = safe(() => deps.resolvePreset?.(agent.session))
   const workspaceId = findWorkspaceId(deps, state.sessionId)
   let sessionId
+  let newAgent
   try {
     const created = await deps.createSession({ workspaceId, cwd: state.cwd, preset })
     sessionId = created?.sessionId
+    newAgent = created?.agent          // createSession 能解析出 agent 就直接用，省一次解析
     if (!sessionId) throw new Error('createSession 未返回 sessionId')
   } catch (error) {
     return {
@@ -305,17 +312,17 @@ export async function runHandoff(deps, options = {}) {
     }
   }
 
-  // 2) clone goal（轮次归零；不保持 paused —— 用户 2026-10-04 决定）
+  // 2) 解析新 agent（真机教训：profile 层的 ctx.agents 只有 create/get/list，
+  //    resolveAgent 是 sessionController 的方法 → 由 deps 分层兜底，并给注册留出重试窗口）
   let goalCloned = false
   let goalNote = ''
-  let newAgent
-  try {
-    const found = await deps.agents.resolveAgent(sessionId)
-    if (found?.error) throw found.error
-    newAgent = found?.agent
-  } catch (error) {
-    goalNote = `；但新会话 agent 未能解析（${errText(error)}），goal 未克隆、首条消息未发送`
-    return { kind: 'error', briefPath, sessionId, goalCloned, text: `新会话已建（${sessionId}）${goalNote}。请手动在侧栏切过去。` }
+  if (!newAgent) {
+    try {
+      newAgent = await resolveAgentWithRetry(deps, sessionId)
+    } catch (error) {
+      goalNote = `；但新会话 agent 未能解析（${errText(error)}），goal 未克隆、首条消息未发送`
+      return { kind: 'error', briefPath, sessionId, goalCloned, text: `新会话已建（${sessionId}）${goalNote}。请手动在侧栏切过去。` }
+    }
   }
 
   if (state.goal?.goal && state.goal.goal.phase !== 'complete') {
@@ -365,6 +372,24 @@ function findWorkspaceId(deps, sessionId) {
     if (Array.isArray(ws?.sessionIds) && ws.sessionIds.includes(sessionId)) return ws.id
   }
   return undefined
+}
+
+/** 解析新会话的 live agent：新建后注册可能有极短延迟，给几次重试。 */
+async function resolveAgentWithRetry(deps, sessionId, attempts = 4, delayMs = 150) {
+  let lastError
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const found = await deps.agents.resolveAgent(sessionId)
+      if (found?.error) throw found.error
+      const agent = found?.agent ?? found
+      if (agent) return agent
+      lastError = new Error('resolveAgent 未返回 agent')
+    } catch (error) {
+      lastError = error
+    }
+    if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs))
+  }
+  throw lastError ?? new Error('无法解析新会话 agent')
 }
 
 function errText(error) {

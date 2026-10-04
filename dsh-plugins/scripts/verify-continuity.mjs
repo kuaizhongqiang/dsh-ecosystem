@@ -6,7 +6,7 @@
 //
 // 用法: node scripts/verify-continuity.mjs
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -34,8 +34,15 @@ const ok = (cond, name) => {
 };
 
 /** 构造一份可控的桩环境。 */
-function makeEnv({ goal = null, todos = null, planGet = { active: false }, messages = [] } = {}) {
-  const calls = { stateOf: [], created: [], goalCreated: [], paused: [], seeded: [], files: [] };
+function makeEnv({
+  goal = null,
+  todos = null,
+  planGet = { active: false },
+  messages = [],
+  resolveAgentFailures = 0,   // 前 N 次解析 agent 失败，模拟新建后注册延迟
+  createdReturnsAgent = false, // createSession 是否顺手给出 agent
+} = {}) {
+  const calls = { stateOf: [], created: [], goalCreated: [], paused: [], seeded: [], files: [], resolveAgent: 0 };
   const home = mkdtempSync(join(tmpdir(), 'continuity-verify-'));
   const deps = {
     stateOf: (session, key) => {
@@ -50,11 +57,18 @@ function makeEnv({ goal = null, todos = null, planGet = { active: false }, messa
       pause: (...args) => { calls.paused.push(args); },
     },
     agents: {
-      resolveAgent: async (sessionId) => ({ agent: { id: sessionId, session: { id: sessionId } } }),
-      presetForSession: () => 'standard',
+      resolveAgent: async (sessionId) => {
+        calls.resolveAgent = (calls.resolveAgent ?? 0) + 1;
+        if (resolveAgentFailures > 0) { resolveAgentFailures -= 1; throw new Error('agent 尚未注册（模拟真机时序）'); }
+        return { agent: { id: sessionId, session: { id: sessionId } } };
+      },
     },
+    resolvePreset: () => 'standard',
     workspaces: () => [{ id: 'ws-1', sessionIds: [SRC_ID], path: 'G:\\project\\demo' }],
-    createSession: async (request) => { calls.created.push(request); return { sessionId: NEW_ID }; },
+    createSession: async (request) => {
+      calls.created.push(request);
+      return createdReturnsAgent ? { sessionId: NEW_ID, agent: { id: NEW_ID, session: { id: NEW_ID } } } : { sessionId: NEW_ID };
+    },
     home: () => home,
     now: () => new Date('2026-10-04T13:00:00Z'),
     mkdir: async () => {},
@@ -124,6 +138,27 @@ async function main() {
     ok(brief.includes('[~] 改 core') && brief.includes('[ ] 跑测试'), '3-7 brief 含 todo 勾选表');
     ok(brief.includes('注意缓存'), '3-8 brief 含交接备注');
     ok(brief.includes('轮次计数归零'), '3-9 brief 声明 goal 轮次归零');
+
+    // 真机教训（2026-10-04）：assistant 消息里 {type:'reasoning',text} 与
+    // {type:'text',text} 并存（实测 191 vs 39），只按 text 字段取值会把思维链
+    // 写进交接文档。
+    const reasoningAgent = {
+      session: {
+        id: SRC_ID,
+        header: { cwd: 'G:\\project\\demo' },
+        deriveMessages: () => [{
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', text: 'SECRET-REASONING-TRACE' },
+            { type: 'tool-call', toolCall: { name: 'read', arguments: '{}' } },
+            { type: 'text', text: '可见回复内容' },
+          ],
+        }],
+      },
+    };
+    const reasoningBrief = renderBrief(collectHandoffState(deps, reasoningAgent), {});
+    ok(reasoningBrief.includes('可见回复内容'), '3-10 brief 收进可见文本');
+    ok(!reasoningBrief.includes('SECRET-REASONING-TRACE'), '3-11 brief 不泄漏 reasoning 思维链');
     cleanup();
   }
 
@@ -274,6 +309,71 @@ async function main() {
     const rBad = spawnSync(process.execPath, [join(root, 'scripts', 'validate-patch.mjs'), bad], { encoding: 'utf8' });
     ok(rBad.status === 1, '10-2 裸 config: 后紧跟注释仍被判失败（守护能力未减弱）');
     rmSync(dir, { recursive: true, force: true });
+  }
+
+  console.log('11. 新会话 agent 解析分层与重试（真机教训：ctx.agents 没有 resolveAgent）');
+  {
+    const env1 = makeEnv({ createdReturnsAgent: true });
+    const r1 = await runHandoff(env1.deps, { agent: makeAgent() });
+    ok(r1.kind === 'success', '11-1 createSession 顺手给出 agent 时成功');
+    ok(env1.calls.resolveAgent === 0, '11-2 已有 agent 就不再解析');
+    ok(env1.calls.seeded.length === 1, '11-3 仍然播种');
+    env1.cleanup();
+
+    const env2 = makeEnv({ resolveAgentFailures: 2 });
+    const r2 = await runHandoff(env2.deps, { agent: makeAgent() });
+    ok(r2.kind === 'success', '11-4 注册延迟（前 2 次解析失败）时重试成功');
+    ok(env2.calls.resolveAgent >= 3, `11-5 确实重试了（${env2.calls.resolveAgent} 次）`);
+    env2.cleanup();
+
+    const env3 = makeEnv({ resolveAgentFailures: 99 });
+    const r3 = await runHandoff(env3.deps, { agent: makeAgent() });
+    ok(r3.kind === 'error' && r3.sessionId === NEW_ID, '11-6 始终解析不到时报错并带上已建会话 id');
+    ok(env3.calls.seeded.length === 0, '11-7 解析失败不播种');
+    env3.cleanup();
+
+    const indexSrc2 = readFileSync(join(payloadDir, 'index.js'), 'utf8');
+    ok(indexSrc2.includes('controller?.resolveAgent'), '11-8 从 sessionController 解析 agent');
+    ok(indexSrc2.includes('presetForSession'), '11-9 preset 走分层兜底');
+    ok(!/ctx\.get\('agents'\)\?\.resolveAgent\(/.test(indexSrc2), '11-10 不再直接押注 ctx.agents.resolveAgent');
+  }
+
+  console.log('12. 卸载节剥离（真 PowerShell + 临时 DSH_HOME）');
+  {
+    const home = mkdtempSync(join(tmpdir(), 'continuity-uninstall-'));
+    const profDir = join(home, 'profiles', 'web');
+    mkdirSync(profDir, { recursive: true });
+    const patch = join(profDir, 'cordis.patch.yml');
+    writeFileSync(patch, [
+      '# keep me',
+      '- id: ui-theme',
+      '  name: "@deepseek-ai/dsh-client-ui-theme"',
+      '',
+      '# --- dsh-continuity: handoff (native dsh) ---',
+      '# payload: ./plugins/handoff/index.js',
+      '- insert:',
+      '    - id: tool-handoff',
+      "      name: './plugins/handoff/index.js'",
+      '',
+      '# --- other-plugin: svc (native dsh) ---',
+      '- insert:',
+      '    - id: tool-other',
+      "      name: './plugins/other/index.js'",
+      '',
+    ].join('\n'), 'utf8');
+    const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(pkgDir, 'install.ps1'), '-Uninstall'], {
+      // 清掉会话注入的 DSH_PROFILE*，让脚本只按 -ProfileName / 存在性 / 唯一候选解析。
+      env: { ...process.env, DSH_HOME: home, DSH_PROFILE: '', DSH_PROFILE_DIR: '' }, encoding: 'utf8', windowsHide: true,
+    });
+    ok(r.status === 0, `12-1 卸载退出码 0（${(r.stderr ?? '').trim().split('\n')[0] || 'ok'}）`);
+    const after = readFileSync(patch, 'utf8');
+    // 2026-10-04 真机事故：旧实现在这里留下孤儿 `name:` 行，把 live profile 弄成非法 YAML。
+    ok(!after.includes('tool-handoff'), '12-2 目标节整段剥离（含最后一行 name:）');
+    ok(after.includes('tool-other'), '12-3 相邻节没被误删');
+    ok(after.includes('ui-theme') && after.includes('keep me'), '12-4 前面的普通行保留');
+    const v = spawnSync(process.execPath, [join(root, 'scripts', 'validate-patch.mjs'), patch], { encoding: 'utf8' });
+    ok(v.status === 0, '12-5 剥离后残留文件仍通过校验');
+    rmSync(home, { recursive: true, force: true });
   }
 
   console.log('');
