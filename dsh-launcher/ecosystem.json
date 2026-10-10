@@ -7,63 +7,63 @@
   "plugins": {
     "source": {
       "repo": "https://github.com/kuaizhongqiang/dsh-ecosystem.git",
-      "commit": "27f4522369e62d9736091a59b0d6099b0818364f"
+      "commit": "fc720868d2b863c8f3fb48c6691b02de5c1f54aa"
     },
     "packages": [
       {
         "id": "dsh-media",
         "dir": "dsh-plugins/plugins/dsh-media-dsh-plugin",
         "sha256": {
-          "install.ps1": "af6852ef2a25ec1a18866a04e1ec58b26fc173f5ad99f6ab7c0fcb9de5bd763e"
+          "install.ps1": "5ef39ede050d71b2f8aa5fdb98a65a2811e79049e5a14f262ea0235e035aec5a"
         }
       },
       {
         "id": "dsh-deepseek",
         "dir": "dsh-plugins/plugins/dsh-deepseek-dsh-plugin",
         "sha256": {
-          "install.ps1": "64821f594bb58516bce53ad9de2470b36ea1e1b115092b8855e3d45fabe7b59f"
+          "install.ps1": "997d1a45bd0eedb5cd30e8c8507db5fb6ec3817e104b5b88bbfe5c3fd0a4ff94"
         }
       },
       {
         "id": "dsh-credentials",
         "dir": "dsh-plugins/plugins/credentials-dsh-plugin",
         "sha256": {
-          "install.ps1": "812643a25e3305034e7c6076581e38c17c9198f01aaf9cb52e64db7c49099f97"
+          "install.ps1": "632e258e8420a047a254933f33c49b88aa2b72fe7a2c888b95c69f7fe89eea7c"
         }
       },
       {
         "id": "dsh-github",
         "dir": "dsh-plugins/plugins/github-dsh-plugin",
         "sha256": {
-          "install.ps1": "d69340d34628549cb793fc7600632ceeabdf23f1a3fed09bafb6b0afe0414254"
+          "install.ps1": "9ffc8c89038128c5ae5663c3688446ee3cc9b321b74254b887a141e56dbe4284"
         }
       },
       {
         "id": "dsh-stock",
         "dir": "dsh-plugins/plugins/stock-dsh-plugin",
         "sha256": {
-          "install.ps1": "e20fed7cac47e4bb4d976dbc752d5c6dd735fc94c215c4920425ba7fe4731a89"
+          "install.ps1": "a3be68b5aba3de83b74bc683811ce4e65b34a0c5c15feb38b800a1e782428ffc"
         }
       },
       {
         "id": "dsh-unity",
         "dir": "dsh-plugins/plugins/unity-mcp-dsh-plugin",
         "sha256": {
-          "install.ps1": "e76e308719dd22c804276e48584c6d5b3c16ce5a2c5a205f3b598165576e02a5"
+          "install.ps1": "ce1d8d8e929338d133e9e5cce7275705180d627de4132bf1eec9623d4771bd8b"
         }
       },
       {
         "id": "dsh-launcher",
         "dir": "dsh-plugins/plugins/dsh-launcher-dsh-plugin",
         "sha256": {
-          "install.ps1": "5b317ae4981dae20201efce32fe9c09290c4ae5ad6b6d9292834c663d5bba2fc"
+          "install.ps1": "29af1cbcffc2c2c0788ea1d4ed203c085fdfe49ac82b5517cab89dc0ede48934"
         }
       },
       {
         "id": "dsh-image",
         "dir": "dsh-plugins/plugins/dsh-image-dsh-plugin",
         "sha256": {
-          "install.ps1": "136afae785253a5f9f9d9faa6828816d533771d299efc8ef8589259454a7f3cd"
+          "install.ps1": "9d109600f0afbab65e1d159aa6f7adbca819a0032ecd7419a11a480e424e39f9"
         }
       },
       {
