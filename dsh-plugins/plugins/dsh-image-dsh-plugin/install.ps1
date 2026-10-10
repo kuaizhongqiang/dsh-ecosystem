@@ -89,7 +89,8 @@ function Test-ProfilePatch {
 }
 
 function Add-PatchEntry([string]$toolId, [string]$svcId) {
-  $current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
+  # 读 patch 必须带 -Encoding UTF8（PS 5.1 默认按 ANSI 解码，回写 UTF8 会把中文注释逐次写坏）：
+  $current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw -Encoding UTF8 } else { '' }
   if ($current -match [regex]::Escape($toolId)) {
     Write-Host "SKIP $toolId already present in $patchFile" -ForegroundColor Yellow
     return
@@ -117,7 +118,7 @@ if ($Uninstall) {
     $dir = Join-Path $profileDir ("plugins\" + $id)
     if (Test-Path $dir) { Remove-Item $dir -Recurse -Force; Write-Host "OK  removed $dir" -ForegroundColor Green }
     if (Test-Path $patchFile) {
-      $raw = Get-Content $patchFile -Raw
+      $raw = Get-Content $patchFile -Raw -Encoding UTF8
       $cleaned = Remove-PatchSection $raw "dsh-image: $id"
       if ($cleaned -ne $raw) {
         [System.IO.File]::WriteAllText($patchFile, $cleaned, (New-Object System.Text.UTF8Encoding($false)))
