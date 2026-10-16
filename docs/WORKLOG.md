@@ -1,5 +1,51 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-10-16(二)拉齐上游 + 装 dsh-continuity + handoff 支持指定接手模式
+
+- **先拉齐上游**:本机 clone 落后 **8 个提交**。`git fetch` 后发现上游不仅**已经加了第 8 包
+  dsh-continuity(handoff)**,还**修了我同一天踩到的同一批 bug**:
+  `912ea8e`(install.ps1 读 patch 缺 `-Encoding UTF8` → 中文注释逐次写坏)、
+  `64efabf`(Remove-PatchSection 按缩进整段剥离)、`fc72086` / `644d24c`(同类漏修 + 源清单 sha256 重钉)。
+  → 把本地那 1 个提交 rebase 到 `origin/main`(644d24c);唯一冲突在 `dsh-plugins/README.md`,
+  解成「dsh-continuity 与 agent-modes 两个包都保留」。
+  **关键差异**:上游**没有**块标量处理(其 `validate-patch.mjs` 无 `BLOCK_SCALAR`),它修的是
+  「普通行条目只要求字符串 id」。两条修复**互补且现在都在**,已用两个用例各验一遍。
+- **装 dsh-continuity**(第 8 包;`handoff` 服务 = `/handoff` 命令 + `handoff_start` 工具):
+  用其自带安装器装进 **web 与 desktop 两个 profile**;载荷落位、`tool-handoff` 行、结构门通过、重跑幂等。
+  交接文档落到 `%DSH_HOME%\handoff\<workspace>\`。
+- **handoff 支持指定接手模式(本次新功能,v0.1.2)**:原本 `handoff_start` 只有
+  `brief/nextStep/note/dryRun`,`/handoff` 只解析 `--dry-run` —— **只能继承源会话模式,无法跨模式交接**。
+  管线其实早就通了(`sessionController.create` 全链支持 `agentPreset`),缺的只是入口。已加:
+  工具参数 `preset` + 命令 `--preset <模式id>`(标志顺序任意),透传到已有的 `createSession({ preset })`;
+  **默认仍继承源会话模式**;dry-run 会报出接手模式。`verify-continuity.mjs` 86 → **92 项全过**
+  (新增:显式覆盖 / 空白回落 / dry-run 报模式)。这样阶段模式才真正串得起来:
+  需求 →(--preset design)→ 设计 →(--preset impl)→ 实现 →(--preset verify)→ 验证 …
+- **agent-modes 安装器对齐仓规**:删掉自造的 `-Profile web|desktop`,改为 `-ProfileName` + 省略时自动解析
+  (显式 → `$env:DSH_PROFILE` → `$env:DSH_PROFILE_DIR` → 进程祖先链 → 唯一候选 → 兜底 web),
+  与 dsh-continuity 同规范。实测:本会话注入的 `DSH_PROFILE=web` 被正确命中。
+- **web profile 从 bundle 路径切到 patch 路径**:`plugin_manager remove_bundle @local/dsh-agent-modes`
+  → `install.ps1`(自动解析)。两个 profile 现在**同一条安装路径**。最终态:各 7 个 preset 行、
+  `tool-handoff` 各 1、结构门通过、bundle 引用已清除。往返:uninstall 后**内容与安装前完全一致**
+  (归一 CRLF→LF 后逐字符相等)。
+- **顺带修的门**:`verify-pm4.mjs` 技能数 11→12(新增 install-agent-modes);
+  `verify-agent-modes.mjs` 改为**无参可跑**(默认校验本包载荷,与其余 verify-*.mjs 一致)。
+  整组门 `verify-pm2/3/4`、`verify-image`、`verify-agent-modes`、`verify-continuity` **全 PASS**。
+- **两条操作教训(都实际踩到)**:
+  1. **edit / write 工具会吃掉 UTF-8 BOM**。改完任何 `.ps1` 必须回填 BOM 并复验首三字节 +
+     `Parser::ParseFile` —— PS 5.1 对无 BOM 文件按 GBK 解码会直接解析失败(子代理中途也报过 4 处错)。
+  2. **不要对原生命令用 `Select-Object -First N`**:它会提前关闭管道并**杀掉子进程**,安装器会被腰斩
+     (表现为 `[exit code: 1]` 而输出看似正常)。要用 `Select-String`,或先 `Out-String` 读完。
+- **未闭合**:①「新建会话时可选模式」—— dsh 客户端**本来就有**
+  (`conversation.hero.agentPreset` 槽 = 新会话空白页的模式 chip;`sessionController.create` 支持
+  `agentPreset`),但**未在真机界面上确认过该 chip 是否出现**;
+  ② `-ProfileName <不存在的名字>` 在「唯一候选」机器上会静默装到那个唯一 profile
+  (照搬自 dsh-continuity 的既有顺序),是否改成「显式值无条件优先」需与 dsh-continuity 同改,待定;
+  ③ 祖先链扫描较宽泛,祖先进程命令行若恰好含 `profiles\<别的名字>` 可能误命中。
+- **文件清单**:`dsh-plugins/plugins/dsh-continuity-dsh-plugin/{README.md,plugins/handoff/{index.js,core.js,package.json}}`、
+  `dsh-plugins/plugins/agent-modes-dsh-plugin/{README.md,install.ps1}`、
+  `dsh-plugins/scripts/{verify-continuity.mjs,verify-pm4.mjs,verify-agent-modes.mjs}`、
+  `dsh-plugins/skills/install-agent-modes/SKILL.md`、`docs/WORKLOG.md`。
+
 ## 2026-10-16(二)agent-modes 追加:desktop profile + PS 5.1 编码坑 + 卸载路径修复
 
 - **桌面版安装**:`web` 与 `desktop` 是**两个独立 profile**(`%DSH_HOME%\profiles\{web,desktop}`),

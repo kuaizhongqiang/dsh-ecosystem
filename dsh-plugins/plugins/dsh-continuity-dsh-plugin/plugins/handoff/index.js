@@ -203,15 +203,20 @@ function buildDeps(ctx) {
   }
 }
 
-/** 命令面：/handoff [--dry-run] [备注] */
+/** 命令面：/handoff [--dry-run] [--preset <模式id>] [备注]（标志顺序任意） */
 function parseCommandLine(rawInput) {
   let rest = String(rawInput ?? '').trim()
   let dryRun = false
-  if (/^--dry-run\b/.test(rest) || /^--dryrun\b/.test(rest)) {
-    dryRun = true
-    rest = rest.replace(/^--dry-?run\b/, '').trim()
+  let preset
+  // 逐个剥离已知标志；不认识的 --xxx 一律留在 rest 里当备注文本，不吞掉用户输入。
+  for (;;) {
+    const dry = rest.match(/^--dry-?run\b\s*/i)
+    if (dry) { dryRun = true; rest = rest.slice(dry[0].length).trim(); continue }
+    const pre = rest.match(/^--preset(?:=|\s+)(\S+)\s*/i)
+    if (pre) { preset = pre[1]; rest = rest.slice(pre[0].length).trim(); continue }
+    break
   }
-  return { dryRun, note: rest || undefined }
+  return { dryRun, preset, note: rest || undefined }
 }
 
 export function apply(ctx) {
@@ -223,13 +228,16 @@ export function apply(ctx) {
       '把当前会话的任务状态（goal / 计划 / todo / 最近进展）落成一份交接文档，并在同一工作区新开一个会话、'
       + '把首条消息播种进去让它自动继续跑。默认交接文档是确定性生成的（不调用模型）；'
       + '你也可以用 brief 参数自己写一份更好的交接文档。dryRun=true 只写文档、不建会话。'
+      + 'preset 指定接手会话的模式（省略时继承当前会话的模式）——这是把「阶段模式」串起来的方式：'
+      + '例如在「需求」模式里交接给「设计」模式，就传 preset="design"。'
       + '当前会话处于计划模式（计划未批准）时会被拒绝。'
       + `交接文档写入 %DSH_HOME%\\handoff\\<workspace>\\。（dsh-continuity v${version}）`,
     parameters: {
       brief: { type: 'string', description: '（可选）由你写好的交接文档全文，替换确定性生成的那份。建议包含：目标/已完成/在途/下一步/关键决策/文件清单/未决问题。' },
       nextStep: { type: 'string', description: '（可选）「下一步」一行的内容，写进确定性生成的文档里。' },
       note: { type: 'string', description: '（可选）给接手会话的交接备注（会写进文档并内联在首条消息里）。' },
-      dryRun: { type: 'boolean', description: '（可选）true = 只写交接文档、不创建会话。用于先看一眼交接内容。' },
+      preset: { type: 'string', description: '（可选）接手会话使用的 Agent Preset id。省略时继承当前会话的模式。id 不存在时新会话创建会失败并原样报错（交接文档仍然已写盘）。' },
+      dryRun: { type: 'boolean', description: '（可选）true = 只写交接文档、不创建会话。用于先看一眼交接内容（会同时显示接手会话将用哪个模式）。' },
     },
     output: {
       schema: {
@@ -257,6 +265,7 @@ export function apply(ctx) {
         brief: typeof args.brief === 'string' ? args.brief : undefined,
         nextStep: typeof args.nextStep === 'string' ? args.nextStep : undefined,
         note: typeof args.note === 'string' ? args.note : undefined,
+        preset: typeof args.preset === 'string' ? args.preset : undefined,
         dryRun: args.dryRun === true,
       })
       return {
@@ -276,13 +285,13 @@ export function apply(ctx) {
     ctx.inject(['commands'], (commandCtx) => {
       commandCtx.commands.register({
         name: 'handoff',
-        description: '把当前任务交接给一个新会话并让它自动继续（上下文重置，交接文档落盘）',
-        input: { hint: '[--dry-run] [备注]' },
+        description: '把当前任务交接给一个新会话并让它自动继续（上下文重置，交接文档落盘；可用 --preset 指定接手模式）',
+        input: { hint: '[--dry-run] [--preset <模式id>] [备注]' },
         handler: async ({ agent, rawInput }) => {
           if (!agent?.session) return { kind: 'error', text: 'handoff：没有收到当前会话。' }
-          const { dryRun, note } = parseCommandLine(rawInput)
+          const { dryRun, note, preset } = parseCommandLine(rawInput)
           try {
-            const result = await runHandoff(buildDeps(ctx), { agent, note, dryRun })
+            const result = await runHandoff(buildDeps(ctx), { agent, note, preset, dryRun })
             return { kind: result.kind, text: result.text }
           } catch (error) {
             return { kind: 'error', text: `handoff 失败：${error instanceof Error ? error.message : String(error)}` }

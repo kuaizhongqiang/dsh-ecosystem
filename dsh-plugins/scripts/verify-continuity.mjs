@@ -211,6 +211,29 @@ async function main() {
     env.cleanup();
   }
 
+  console.log('6b. preset 指定接手模式（阶段模式串联）');
+  {
+    const env = makeEnv({});
+    const result = await runHandoff(env.deps, { agent: makeAgent(), preset: 'design' });
+    ok(result.kind === 'success', '6b-1 成功');
+    ok(env.calls.created.length === 1, '6b-2 创建 1 个会话');
+    ok(env.calls.created[0].preset === 'design', '6b-3 显式 preset 覆盖源 preset(standard)');
+    env.cleanup();
+  }
+  {
+    const env = makeEnv({});
+    const result = await runHandoff(env.deps, { agent: makeAgent(), preset: '   ' });
+    ok(result.kind === 'success' && env.calls.created[0].preset === 'standard', '6b-4 空白 preset 回落到源 preset');
+    env.cleanup();
+  }
+  {
+    const env = makeEnv({});
+    const result = await runHandoff(env.deps, { agent: makeAgent(), preset: 'impl', dryRun: true });
+    ok(result.dryRun === true && result.text.includes('模式=impl'), '6b-5 dry-run 报出接手模式');
+    ok(env.calls.created.length === 0, '6b-6 dry-run 不建会话');
+    env.cleanup();
+  }
+
   console.log('7. 边界：无 goal / goal 已 complete');
   {
     const env = makeEnv();

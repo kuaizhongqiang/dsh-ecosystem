@@ -245,7 +245,8 @@ export function renderSeed({ briefPath, state, note }) {
  *   agents.resolveAgent(id) · createSession({workspaceId,cwd,preset}) ·
  *   workspaces() → [{id, sessionIds, path}] · home() → DSH_HOME ·
  *   writeFile(path,text) · mkdir(path) · now()
- * @param options - { agent, note, brief, dryRun, nextStep }
+ * @param options - { agent, note, brief, dryRun, nextStep, preset }
+ *   preset 指定接手会话的模式；省略或空串时继承源会话的当前模式。
  * @returns { kind:'success'|'error', text, briefPath?, sessionId?, goalCloned?, seed?, dryRun? }
  */
 export async function runHandoff(deps, options = {}) {
@@ -278,6 +279,13 @@ export async function runHandoff(deps, options = {}) {
 
   const seed = renderSeed({ briefPath, state, note: options.note })
 
+  // 接手会话的模式：显式 preset 优先，否则继承源会话当前模式（原有行为）。
+  // 两者都没有就让 createSession 走部署默认——不在这里猜。
+  const requestedPreset = typeof options.preset === 'string' ? options.preset.trim() : ''
+  const sourcePreset = safe(() => deps.resolvePreset?.(agent.session))
+  const preset = requestedPreset !== '' ? requestedPreset : sourcePreset
+  const presetLabel = preset ?? '部署默认'
+
   if (options.dryRun) {
     return {
       kind: 'success',
@@ -288,14 +296,13 @@ export async function runHandoff(deps, options = {}) {
       text: [
         `[dry-run] 交接文档已写入：${briefPath}`,
         `（latest.md 同步更新）`,
-        `会创建的会话：workspace=${state.cwd ?? '未知'}；goal 克隆=${state.goal?.goal ? '是' : '否'}`,
+        `会创建的会话：workspace=${state.cwd ?? '未知'}；模式=${presetLabel}；goal 克隆=${state.goal?.goal ? '是' : '否'}`,
         '未创建任何会话。去掉 dryRun 才真正执行。',
       ].join('\n'),
     }
   }
 
-  // 1) 新会话（同一 workspace，preset 尽量与源会话一致）
-  const preset = safe(() => deps.resolvePreset?.(agent.session))
+  // 1) 新会话（同一 workspace）
   const workspaceId = findWorkspaceId(deps, state.sessionId)
   let sessionId
   let newAgent

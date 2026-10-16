@@ -1,7 +1,7 @@
-// scripts/verify-pm4.mjs —— PM4 自动验证(skills 11→7;后续追加 install-ue-mcp / install-memory / install-image / install-continuity → 11 + install-skills 联动)。
+// scripts/verify-pm4.mjs —— PM4 自动验证(skills 11→7;后续追加 install-ue-mcp / install-memory / install-image / install-continuity / install-agent-modes → 12 + install-skills 联动)。
 //
 // 覆盖:
-//   1. skills 目录恰为 EXPECT.length 个集合(install-media/deepseek/launcher/credentials/github/stock/unity-mcp/ue-mcp/memory/image/continuity)
+//   1. skills 目录恰为 EXPECT.length 个集合(install-media/deepseek/launcher/credentials/github/stock/unity-mcp/ue-mcp/memory/image/continuity/agent-modes)
 //   2. install-skills.ps1 -DryRun 自动发现同样数量且不含旧名
 //   3. 真实安装到临时 DSH_HOME 后技能目录落位
 //   4. 仓库根 README/spec 引用一致(源码级)
@@ -28,7 +28,7 @@ async function main() {
   const home = mkdtempSync(join(base, 'home-'));
   const skillsDir = join(root, 'skills');
 
-  const EXPECT = ['install-media', 'install-deepseek', 'install-launcher', 'install-credentials', 'install-github', 'install-stock', 'install-unity-mcp', 'install-ue-mcp', 'install-memory', 'install-image', 'install-continuity'].sort();
+  const EXPECT = ['install-media', 'install-deepseek', 'install-launcher', 'install-credentials', 'install-github', 'install-stock', 'install-unity-mcp', 'install-ue-mcp', 'install-memory', 'install-image', 'install-continuity', 'install-agent-modes'].sort();
   const OLD = ['install-audio-read', 'install-audio-speak', 'install-video-read', 'install-document-read', 'install-deepseek-balance', 'install-deepseek-recharge']; // install-describe-image 已随图片读取下线删除
 
   console.log(`1. skills 目录 = ${EXPECT.length} 个集合`);

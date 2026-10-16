@@ -1,6 +1,6 @@
 # agent-modes — 7 个开发阶段模式的 preset 包
 
-面向原生 dsh 的**声明型**插件包:它不提供任何工具,而是往 web profile 注入 7 个
+面向原生 dsh 的**声明型**插件包:它不提供任何工具,而是往目标 profile(默认自动解析)注入 7 个
 **Agent Preset(模式)** 声明,让同一个 dsh 能按「开发阶段」切换工具面与人格。
 
 ## 它解决什么
@@ -44,12 +44,21 @@
 
 ```powershell
 cd dsh-plugins\plugins\agent-modes-dsh-plugin
-powershell -ExecutionPolicy Bypass -File .\install.ps1                     # 浏览器版 profile
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Profile desktop    # 桌面版 profile
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall [-Profile desktop]
+powershell -ExecutionPolicy Bypass -File .\install.ps1                      # 省略 -ProfileName:自动解析
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProfileName desktop # 显式指定桌面版 profile
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall [-ProfileName desktop]
 ```
 
-`-Profile` 选择目标 profile(默认 `web`):
+`-ProfileName` **省略时自动解析**正在运行的 profile,与 `dsh-continuity-dsh-plugin/install.ps1`
+同一套规范(`docs/PLUGIN-SPEC.md`:别再写死 `profiles\web`)。解析顺序,先命中先用:
+
+1. `-ProfileName <name>` 显式值;
+2. `$env:DSH_PROFILE` / `$env:DSH_PROFILE_DIR`(会话内由 `dsh-shell-env` 注入,最可靠);
+3. 进程祖先链命令行里的 `profiles\<name>`(在 dsh 会话里跑安装器时命中);
+4. `%DSH_HOME%\profiles` 下**唯一一个**带 `cordis.patch.yml` 的 profile;
+5. 兜底 `web` **并大声警告** —— 多 profile 机器请显式给 `-ProfileName`。
+
+显式指定时的常用值:
 
 | profile | 目录 | 适用 |
 |---|---|---|
@@ -57,22 +66,23 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall [-Profile desk
 | `desktop` | `%DSH_HOME%\profiles\desktop` | 桌面版 |
 
 **两个 profile 各自独立**:preset 声明必须**分别安装** —— 只装一个,另一个的模式选择器里看不到。
-`install.ps1` 还会检查目标 profile 的 `package.json`,若同一批 preset 已作为 bundle 安装则直接拒绝
-(见下节)。
+`install.ps1` 还会检查**解析出来的**那个 profile 的 `package.json`,若同一批 preset 已作为 bundle
+安装则直接拒绝(见下节)。
 
-安装器做的事:把 `presets/cordis.patch.yml` 追加进 `%DSH_HOME%\profiles\web\cordis.patch.yml`,
+安装器做的事:把 `presets/cordis.patch.yml` 追加进 `%DSH_HOME%\profiles\<profile>\cordis.patch.yml`,
 节头 `# --- dsh-agent-modes: agent-modes (native dsh) ---`,以 `preset-clarify` 判重(幂等)。
 写入前会先跑 `scripts/validate-patch.mjs` 结构门,不通过就**不落盘**。
 
 `-Only agent-modes` 可写可不写(单服务包)。
 
-装完**重启 `dsh web`**,再新建会话,在模式选择器里应能看到 7 个模式。
+装完**重启目标 profile 对应的 dsh**(`dsh web`,或桌面版),再新建会话,在模式选择器里应能看到 7 个模式。
 
 ## ⚠️ 与 bundle 安装路径互斥
 
 本包也可以打成 bundle(`package.json` + `dsh.bundle.patch`)用 `plugin_manager install_bundle`
 安装。**两条路径不能同时存在** —— 它们声明同一批 preset id,同时存在会造成重复 id。
-`install.ps1` 会检查 profile 的 `package.json`,发现 `@local/dsh-agent-modes` 就直接拒绝并给出移除指引。
+`install.ps1` 会检查**解析出来的**那个 profile 的 `package.json`,发现 `@local/dsh-agent-modes`
+就直接拒绝并给出移除指引。
 
 本仓采用 patch 合并路径,因为它与其余 9 个插件包一致,且支持 `-Uninstall` 与幂等。
 

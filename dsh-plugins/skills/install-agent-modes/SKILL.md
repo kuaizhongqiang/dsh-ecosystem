@@ -1,6 +1,6 @@
 ---
 name: install-agent-modes
-description: 把 7 个开发阶段模式（需求/文档·写/文档·审/设计·美化/实现/测试反馈/交付·仓库）的 preset 声明装进 dsh web profile，让会话可按阶段切换工具面与权限
+description: 把 7 个开发阶段模式（需求/文档·写/文档·审/设计·美化/实现/测试反馈/交付·仓库）的 preset 声明装进 dsh profile（省略 -ProfileName 时自动解析），让会话可按阶段切换工具面与权限
 whenToUse: 用户要求安装/升级/卸载/排查 agent-modes（阶段模式、按阶段切工具面、防止 agent 越过阶段自动继续）时使用
 ---
 
@@ -25,7 +25,8 @@ whenToUse: 用户要求安装/升级/卸载/排查 agent-modes（阶段模式、
 
 ## 前置
 
-1. dsh 已安装且 web profile 存在（`%DSH_HOME%\profiles\web`；没启动过先 `dsh web` 一次）；
+1. dsh 已安装且目标 profile 存在（`%DSH_HOME%\profiles\<profile>`；没启动过先 `dsh web`
+   或桌面版一次完成初始化）；安装器不写死 `web`，省略 `-ProfileName` 时自动解析正在运行的 profile；
 2. **不要同时用 bundle 路径安装同一批 preset** —— 两条路径声明同一批 preset id，会撞重复 id；
    安装器会自动检测并拒绝；
 3. 无凭证需求。
@@ -36,11 +37,13 @@ whenToUse: 用户要求安装/升级/卸载/排查 agent-modes（阶段模式、
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File "<dsh-plugins>/plugins/agent-modes-dsh-plugin/install.ps1"
-   powershell -ExecutionPolicy Bypass -File "<dsh-plugins>/plugins/agent-modes-dsh-plugin/install.ps1" -Profile desktop
+   powershell -ExecutionPolicy Bypass -File "<dsh-plugins>/plugins/agent-modes-dsh-plugin/install.ps1" -ProfileName desktop
    ```
 
-   - `-Profile`：目标 profile，默认 `web`；桌面版用 `desktop`。**两者独立，必须分别安装**；
-   - 卸载：`-Uninstall [-Profile desktop]`；
+   - `-ProfileName`：目标 profile；**省略时自动解析**（顺序：显式值 → `$env:DSH_PROFILE` /
+     `$env:DSH_PROFILE_DIR` → 进程祖先链里的 `profiles\<name>` → `%DSH_HOME%\profiles` 下唯一候选 →
+     兜底 `web` 并警告）。桌面版显式给 `desktop`。**两者独立，必须分别安装**；
+   - 卸载：`-Uninstall [-ProfileName desktop]`；
    - 幂等：以 `preset-clarify` 判重，可重复执行；
    - 写入前会跑 `scripts/validate-patch.mjs` 结构门，不通过**不落盘**。
 
@@ -61,7 +64,10 @@ whenToUse: 用户要求安装/升级/卸载/排查 agent-modes（阶段模式、
   已存在的会话保留启动时的插件版本，必须**新建会话**才能看到新模式。
 - **报重复 preset id**：bundle 路径与 patch 路径同时在用，二选一。
 - **桌面版看不到新模式**：`web` 与 `desktop` 是两个独立 profile，需要单独跑
-  `install.ps1 -Profile desktop` 并**重启桌面版**。
+  `install.ps1 -ProfileName desktop` 并**重启桌面版**。
+- **安装器报 `WARN 无法确定正在运行的 profile`**：机器上有多个 profile 而自动解析没能命中，
+  安装器回退到了 `web`。改跑 `install.ps1 -ProfileName <name>` 显式指定（`<name>` 是
+  `%DSH_HOME%\profiles` 下的目录名）。
 - **改了 `install.ps1` 后脚本报 `Missing closing`**：多办是编辑过程把 UTF-8 BOM 吃掉了。
   Windows PowerShell 5.1 读无 BOM 文件会按 GBK 解码而无法解析——**BOM 必须保留**；
   同时脚本内读文件一律走 `Read-TextUtf8`，不要用 `Get-Content -Raw`。

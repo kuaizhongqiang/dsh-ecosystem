@@ -54,7 +54,9 @@ if (yaml === null) {
   process.exit(1)
 }
 
-const file = process.argv[2]
+// 无参运行时默认校验本包载荷（与其他 verify-*.mjs 一致，便于整组跑门）。
+const defaultPayload = join(scriptDir, '..', 'plugins', 'agent-modes-dsh-plugin', 'presets', 'cordis.patch.yml')
+const file = process.argv[2] ?? defaultPayload
 const text = readFileSync(file, 'utf8')
 const problems = []
 
