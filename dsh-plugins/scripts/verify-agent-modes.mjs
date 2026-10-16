@@ -107,6 +107,8 @@ for (const [index, entry] of doc.entries()) {
     }
     const seen = new Set()
     const top = []
+    let personaPrefix = ''
+    let fsWrite = false
     for (const plugin of cfg.plugins) {
       if (typeof plugin?.id !== 'string' || typeof plugin?.name !== 'string') {
         problems.push(`${item.id}: plugin entry missing id/name`)
@@ -115,6 +117,8 @@ for (const [index, entry] of doc.entries()) {
       if (seen.has(plugin.id)) problems.push(`${item.id}: duplicate plugin id "${plugin.id}"`)
       seen.add(plugin.id)
       top.push(plugin.id)
+      if (plugin.id === 'persona' && typeof plugin.config?.prefix === 'string') personaPrefix = plugin.config.prefix
+      if (plugin.id === 'tool-fs' && plugin.config?.write === true) fsWrite = true
       if (plugin.name === 'cordis:group') {
         if (!Array.isArray(plugin.config)) {
           problems.push(`${item.id}/${plugin.id}: group config must be a list`)
@@ -130,7 +134,7 @@ for (const [index, entry] of doc.entries()) {
         }
       }
     }
-    presets.push({ preset: cfg.id, name: cfg.name, order: cfg.order, rows: cfg.plugins.length, ids: top })
+    presets.push({ preset: cfg.id, name: cfg.name, order: cfg.order, rows: cfg.plugins.length, ids: top, write: fsWrite, persona: personaPrefix })
   }
 }
 
@@ -149,6 +153,21 @@ for (const preset of presets) {
   const bans = ['tool-goal', 'command-goal', 'tool-ralph', 'tool-schedule', 'tool-subagent', 'tool-subagent-fork', 'tool-workflow']
   for (const ban of bans) {
     if (preset.ids.includes(ban)) problems.push(`${preset.preset}: "${ban}" must not be mounted in a stage mode`)
+  }
+}
+
+// 自足性不变量。共同前提:Agent Teams 层下 teammate 不能换模式(它禁用了 subagent /
+// subagent_fork),所以任何模式一旦发现需要别的专长,只能自己干或停下。据此:
+//   1) 有写权限的模式必须在 persona 里显式声明「文档授权:」——否则模型容易把本阶段
+//      理应由自己产出的伴随文档(接口说明/发布说明/记录)误判为越界而卡住流程;
+//   2) 有写权限的模式必须挂 tool-ask-user —— 否则遇到阻塞只能硬停,同样断流程。
+for (const preset of presets) {
+  if (!preset.write) continue
+  if (!preset.persona.includes('文档授权：')) {
+    problems.push(`${preset.preset}: 有写权限却没在 persona 里声明「文档授权：」一节(会把本阶段的伴随文档误判为越界)`)
+  }
+  if (!preset.ids.includes('tool-ask-user')) {
+    problems.push(`${preset.preset}: 有写权限却没挂 tool-ask-user(遇阻只能硬停,流程会断)`)
   }
 }
 
