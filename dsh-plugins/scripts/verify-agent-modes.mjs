@@ -171,6 +171,26 @@ for (const preset of presets) {
   }
 }
 
+// 阶段交接不变量。没有这条,agent 交接时不知道该显式传哪个模式 —— 而 handoff 省略 preset 时会
+// **继承当前模式**,于是「在需求模式里让 agent 交接去写文档」会得到一个需求模式的新会话
+// (2026-10-16 真机踩到)。每个模式必须在 persona 里声明「阶段交接：」,引用的 preset id 必须真
+// 存在;非终点模式至少要给出一个下一阶段。
+const roster = new Set(presets.map((preset) => preset.preset))
+const TERMINAL_MODES = new Set(['ship'])
+for (const preset of presets) {
+  if (!preset.persona.includes('阶段交接：')) {
+    problems.push(`${preset.preset}: persona 缺「阶段交接：」一节(agent 会不知道该把活交给哪个模式)`)
+    continue
+  }
+  const refs = [...preset.persona.matchAll(/preset:\s*['"]([a-z0-9-]+)['"]/g)].map((match) => match[1])
+  for (const ref of refs) {
+    if (!roster.has(ref)) problems.push(`${preset.preset}: 阶段交接引用了不存在的 preset "${ref}"`)
+  }
+  if (!TERMINAL_MODES.has(preset.preset) && refs.length === 0) {
+    problems.push(`${preset.preset}: 非终点模式必须在「阶段交接：」里给出下一阶段(preset: '<id>')`)
+  }
+}
+
 if (problems.length > 0) {
   for (const problem of problems) console.error(`FAIL ${problem}`)
   process.exit(1)

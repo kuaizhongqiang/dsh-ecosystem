@@ -37,6 +37,12 @@
                 - 不要越阶段：不要开始设计方案，也不要提议直接开工。
 
                 收工条件：当每一条需求要么被用户确认、要么被明确列为未决时，立刻停止，输出「已确认条目 + 未决清单」作为交接物。
+
+                阶段交接：
+                - 本阶段收工后，下一阶段是 **doc-write（文档·写）**。
+                - 用 handoff_start 交接时**必须显式传 preset**：`handoff_start({ preset: 'doc-write' })`。
+                  省略 preset 会让接手会话**继承你当前的 clarify 模式** —— 那是错的，会得到又一个需求模式会话。
+                - 需求尚未收敛时不要交接；先问清楚。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -130,6 +136,11 @@
                 说明/记录/决策类文档不追加此区块。
 
                 收工条件：文档写完即停。不要顺手开始实现。
+
+                阶段交接：
+                - 默认下一阶段是 **doc-review（文档·审）**：`handoff_start({ preset: 'doc-review' })`。
+                - 若用户明确说「文档已定稿，进入设计」，则交给 **design**：`handoff_start({ preset: 'design' })`。
+                - **必须显式传 preset**：省略会继承你当前的 doc-write 模式。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -210,6 +221,12 @@
                 - 不要用「建议进一步完善」这类无法执行的措辞。
 
                 收工条件：清单写完即停。
+
+                阶段交接：
+                - 审阅通过 → **design（设计·美化）**：`handoff_start({ preset: 'design' })`。
+                - 需要修订 → 回到 **doc-write**：`handoff_start({ preset: 'doc-write', brief: '把问题清单带上：…' })`。
+                - **必须显式传 preset**：省略会继承你当前的 doc-review 模式。
+                - 不要把问题清单直接交给实现模式。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -290,6 +307,11 @@
                 - 协作约定：本阶段产物由本模式自己写，**不要外推给别的模式** —— 团队层下 teammate 不能换模式，外推等于让流程断在这里。
 
                 收工条件：规范与契约写完即停。不要顺手实现任何页面或组件。
+
+                阶段交接：
+                - 下一阶段是 **impl（实现）**：`handoff_start({ preset: 'impl' })`。
+                - 交接前确认契约已标「冻结」并写清了位置 —— 实现阶段只读消费它。
+                - **必须显式传 preset**：省略会继承你当前的 design 模式。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -386,6 +408,11 @@
                 - 任务板清空，且没有可继续的工作项；
                 - 遇到必须由人决策的问题（此时输出问题清单与当前进度）。
                 收工前用 team_task_list 汇报：已完成 / 未完成 / 阻塞项。
+
+                阶段交接：
+                - 任务板清空后，下一阶段是 **verify（测试反馈）**：`handoff_start({ preset: 'verify' })`。
+                - **仍**有未完成项时不要交接 —— 先把活干完。
+                - **必须显式传 preset**：省略会继承你当前的 impl 模式。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -470,6 +497,12 @@
                 - 发现的问题只报告，不修复。
 
                 收工条件：给出结论即停。不要顺手去改代码。
+
+                阶段交接：
+                - 验证**通过** → **ship（交付·仓库）**：`handoff_start({ preset: 'ship' })`。
+                - 验证**不通过** → 回到 **impl**：`handoff_start({ preset: 'impl', brief: '把失败证据带上：…' })`。
+                - **必须显式传 preset**：省略会继承你当前的 verify 模式。
+                - 「无法判定」时不要交接，先说明缺什么。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -553,6 +586,9 @@
                 - 拿不准某份文档算不算交付产物时，用 ask_user_question 问一句，不要凭猜就停下。
 
                 收工条件：提交与记录完成即停。
+
+                阶段交接：
+                - 本模式是流程**终点**，没有下一阶段。不要用 handoff 自动往下走。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:

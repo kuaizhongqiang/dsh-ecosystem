@@ -1,5 +1,29 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-10-16(二·续二)修 agent-modes 阶段交接:交接时不知道该传给哪个模式
+
+- **现象(用户报)**:在「需求」模式里讨论完,让 agent 去 handoff 写文档 —— 期望得到一个「文档·写」模式的
+  新会话,实际得到的是**又一个「需求」模式**会话。
+- **诊断**:机制没坏(`handoff_start` 的 `preset` 已实测可用,投影缓存可证),坏的是**默认值 + 提示词缺环**:
+  `handoff` 省略 `preset` 时**继承源会话模式**;而 7 个模式的人格各自只讲"我这一阶段干什么",
+  **没有任何一个说"下一阶段是谁"**。入口有了,但没人知道该填什么 ⇒ agent 不传 preset ⇒ 继承 clarify。
+- **修法**:
+  1. 每个模式的人格加一节**「阶段交接:」**,写明下一阶段的模式 id 与调用示例,并明确
+     **"必须显式传 preset —— 省略会继承你当前的模式"**。流水线:
+     需求 clarify → 文档·写 doc-write → 文档·审 doc-review → 设计 design → 实现 impl →
+     测试反馈 verify → 交付 ship;另含分支「文档·审不通过 → 回 doc-write」「测试反馈不通过 → 回 impl」
+     与终点「ship 没有下一阶段」。
+  2. `handoff_start` 的工具说明改为**明确警告**:要进入下一阶段就必须显式传 `preset`,
+     省略会继承当前模式(并给出"在需求模式里省略 → 得到又一个需求模式会话"这个具体后果)。
+- **固化成门**:`verify-agent-modes.mjs` 新增「阶段交接」不变量 —— 每个模式必须有「阶段交接:」一节;
+  其中引用的 preset id **必须真实存在于 roster**;非终点模式至少要给出一个下一阶段。
+  已做两条负例验证(去掉该节 / 把 `doc-write` 写成 `doc-writ` → 门立刻 FAIL)。
+- **落地**:agent-modes 与 dsh-continuity 两个包都重装到 web + desktop;各 7 个 preset 行 +
+  7 个阶段交接节 + 结构门 OK;整组门全绿(verify-continuity 95 项)。
+- **文件清单**:`dsh-plugins/plugins/agent-modes-dsh-plugin/{README.md,presets/cordis.patch.yml}`、
+  `dsh-plugins/plugins/dsh-continuity-dsh-plugin/plugins/handoff/index.js`、
+  `dsh-plugins/scripts/verify-agent-modes.mjs`、`docs/WORKLOG.md`。
+
 ## 2026-10-16(二·续)修 agent-modes 自足性:交付/实现写文档被误判越界
 
 - **现象(用户报)**:实现与交付两个模式的流程"跑不通"—— 交付阶段需要写文档时,规则像是不允许。
