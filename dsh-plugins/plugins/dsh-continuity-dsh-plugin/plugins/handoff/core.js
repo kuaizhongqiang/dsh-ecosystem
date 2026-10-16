@@ -366,6 +366,7 @@ export async function runHandoff(deps, options = {}) {
     text: [
       `已开新会话并开始执行。`,
       `- 新会话：\`${sessionId}\``,
+      `- 接手模式：${presetLabel}${requestedPreset !== '' ? '（本次显式指定）' : '（继承源会话）'}`,
       `- 交接文档：${briefPath}`,
       `- goal 克隆：${goalCloned ? '是（轮次归零、active）' : '无'}`,
       `- 下一步：在左侧会话列表点开这条新会话即可看到它在跑${goalNote}`,

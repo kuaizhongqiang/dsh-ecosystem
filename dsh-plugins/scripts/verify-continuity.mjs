@@ -218,12 +218,15 @@ async function main() {
     ok(result.kind === 'success', '6b-1 成功');
     ok(env.calls.created.length === 1, '6b-2 创建 1 个会话');
     ok(env.calls.created[0].preset === 'design', '6b-3 显式 preset 覆盖源 preset(standard)');
+    ok(result.text.includes('接手模式：design'), '6b-7 成功输出报告接手模式(真机排查靠它)');
+    ok(result.text.includes('本次显式指定'), '6b-8 标注该模式来自显式指定');
     env.cleanup();
   }
   {
     const env = makeEnv({});
     const result = await runHandoff(env.deps, { agent: makeAgent(), preset: '   ' });
     ok(result.kind === 'success' && env.calls.created[0].preset === 'standard', '6b-4 空白 preset 回落到源 preset');
+    ok(result.text.includes('继承源会话'), '6b-9 未指定时标注继承源会话');
     env.cleanup();
   }
   {
