@@ -1,5 +1,60 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-10-16(二)agent-modes 追加:desktop profile + PS 5.1 编码坑 + 卸载路径修复
+
+- **桌面版安装**:`web` 与 `desktop` 是**两个独立 profile**(`%DSH_HOME%\profiles\{web,desktop}`),
+  preset 声明必须**分别安装**。`install.ps1` 增加 `-Profile web|desktop`(默认 web)。
+  已在 `profiles/desktop` 装好:原始内容逐字节保留为前缀、js-yaml 33 个顶层条目、结构门通过、
+  7 个 preset 行就位、重跑幂等。**需重启桌面版**后模式选择器才会出现这 7 个模式。
+- **坑 1(脚本自身,可复现)**:无 BOM 的 UTF-8 `install.ps1` 在 Windows PowerShell 5.1(系统自带
+  `powershell.exe`)下按 ANSI(GBK) 解码,中文注释会吞掉紧随其后的 `` ` `` / `{` / `}` 等字节,
+  实测报 3 处 `Missing closing`,脚本整体无法解析。→ 保留 **UTF-8 BOM**。
+  仓内其余 4 个 install.ps1 恰好没触发,属幸存者偏差。
+- **坑 2(数据损坏级,已被门拦下)**:`Get-Content -Raw` 读 YAML 时,中文行尾字节与换行符配对,
+  **把整行连同换行一起吞掉** —— 载荷被拼成一行(`- insert:` 被吞进注释),而且读进来的
+  profile patch 已是 mojibake,**写回就会破坏其中的中文注释**。→ 脚本内读文件一律走
+  `Read-TextUtf8`(显式 UTF-8),不用 `Get-Content -Raw`。
+  验证:那次失败**未落盘**(备份与当前文件哈希相同),`Assert-PatchValid` 按设计生效。
+- **坑 3(house 助手缺陷)**:模板 `Remove-PatchSection` 只认「注释 / `- insert:` / ` - ` 列表项」,
+  遇到 preset 载荷里 `name:` / `config:` 这类更深缩进的映射键就**停止剥离**,把 YAML 主体留在
+  文件里,`-Uninstall` 报 `bad indentation of a mapping entry`。→ 改为「跳过空行 / 缩进行 /
+  注释行 / 顶层 `- insert:`;遇到非注释的非缩进行,或另一个节头 banner,则本节结束」。
+  **同一缺陷存在于 `_templates/install.ps1.tmpl` 与其余 9 个包的 install.ps1**:它们的条目以
+  `name:` 结尾,卸载会留下一行孤儿 `name:`(无效 YAML)。本包已修,**其余包待评估**。
+- **往返验证**:uninstall → 与安装前备份逐字符比对(应完全还原);install → 7 行 + 结构门。
+  两向都通过。
+- **文件清单**:`dsh-plugins/plugins/agent-modes-dsh-plugin/{install.ps1,README.md,presets/cordis.patch.yml}`、
+  `dsh-plugins/skills/install-agent-modes/SKILL.md`。
+
+## 2026-10-16(二)agent-modes:7 个开发阶段模式 + 修 validate-patch 块标量误报
+
+- **背景(一次设计讨论的落地产物)**:把开发流程按阶段拆成 7 个 Agent Preset,用**工具面**而不是提示词
+  来约束行为。两个痛点:①每个阶段的插件/技能需求不同,单一通用会话把所有工具都背着 → token 浪费;
+  ②Agent 自动化意愿过高(只要它做需求分析,它做完就顺手写代码)。
+- **模式集合**(`dsh-plugins/plugins/agent-modes-dsh-plugin/`):需求 `clarify` / 文档·写 `doc-write` /
+  文档·审 `doc-review` / 设计·美化 `design` / 实现 `impl` / 测试反馈 `verify` / 交付·仓库 `ship`。
+  三个模式无写能力(需求 / 文档·审 / 测试反馈);测试反馈「能跑不能改」;实现是唯一带写+执行+派活的模式。
+- **关键机制**:7 个模式一律不挂 `tool-goal` / `command-goal` / `tool-ralph` —— `tool-goal` 的语义是
+  「跨自动续跑轮次保持工作」,正是要禁止的行为;阶段推进只能由人换模式。每个模式挂自己那份隔离的
+  `dsh-skill-filesystem`(`includeDefaultRoots: false`),只看到本阶段技能。
+- **修复 `dsh-plugins/scripts/validate-patch.mjs`(结构 lint 不认识块标量)**:任何带 prompt/persona 正文的
+  patch 都会被逐行误报 —— 本包首次校验时报 41 处 FAIL,而 YAML 本身解析完全正常。已修为跳过块标量正文与
+  其中空行;并保留「块标量**之后**的连续空行仍是第二个 YAML 文档」这条拦截。
+  回归 8 例全过:1 正例(块标量含中文散文与空行)+ 5 负例(裸 `config:` 后接注释 / 顶层空行串 / TAB /
+  块标量外散文 / 块标量后空行串)+ 2 例真实文件无回归。
+- **互斥约束**:同一批 preset 也可打成 bundle 用 `plugin_manager install_bundle` 安装,但**两条路径不能
+  同时存在**(preset id 会重复)。本仓采用 patch 合并路径(与其余 9 个包一致,支持 `-Uninstall` 与幂等),
+  `install.ps1` 会检查 profile 的 `package.json` 并拒绝冲突安装。
+- **本机现状**:7 个模式已以 bundle 形式在本机 profile 生效(`fiberPhase: active`,无诊断);
+  转 patch 路径需先 `plugin_manager remove_bundle @local/dsh-agent-modes`,否则 `install.ps1` 会拒绝。
+- **未闭合**:①每个模式的工具面只能在**新会话**里人工验收(当前会话无法自证);
+  ②profile 层既有插件(统一 `mcp-unity` 48 工具、`stock` 22 工具)尚未下移到 preset,需先验证本地
+  `./plugins/*` 相对路径能否在 preset 作用域解析;③Agent Teams 工具由 profile 层 bundle 提供,
+  若要「只有实现模式带 team」需把该层搬进 preset(未验证)。
+- **文件清单**:`dsh-plugins/plugins/agent-modes-dsh-plugin/{install.ps1,README.md,presets/cordis.patch.yml}`、
+  `dsh-plugins/skills/install-agent-modes/SKILL.md`、`dsh-plugins/scripts/verify-agent-modes.mjs`、
+  `dsh-plugins/scripts/validate-patch.mjs`(修)、`dsh-plugins/README.md`(清单)。
+
 ## 2026-09-28(五)已发 v0.11.8(launcher 桌面版「已装未确认」修复)
 
 - 三方版本 `0.11.7 → 0.11.8`;tag `v0.11.8` → CI **7 个 job 全绿**(约 4 分钟):

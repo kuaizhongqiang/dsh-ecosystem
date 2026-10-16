@@ -16,9 +16,14 @@
 - **迁移**:旧 7 包曾标 `DEPRECATED.md` 保留一个版本周期,**已于 2026-09-28 从仓库清场**(git 历史保留);
   仓库根 uninstall-old.ps1 清理旧载荷、patch 节 **与旧技能**(技能清理**默认执行**,`-KeepSkills` 可保留)
   —— 仓库删包 ≠ 本机干净:留着旧技能,会话里仍可据此把已下线的服务装回来(issue #31)
-- **技能**:11→7 后新增 install-ue-mcp / install-memory / install-image / install-continuity,当前 11 个;旧 7 技能删除
+- **技能**:11→7 后新增 install-ue-mcp / install-memory / install-image / install-continuity /
+  install-agent-modes,当前 12 个;旧 7 技能删除
 - 验证:`node scripts/verify-pm2.mjs`(安装/幂等/卸载/迁移)、`verify-pm3.mjs`(launcher 桥接 + 输出契约)、
-  `verify-pm4.mjs`(技能集合与清单一致性)、`verify-image.mjs`(图片生成插件)、`verify-continuity.mjs`(63)
+  `verify-pm4.mjs`(技能集合与清单一致性)、`verify-image.mjs`(图片生成插件)、`verify-continuity.mjs`(63)、
+  `verify-agent-modes.mjs`(阶段模式 preset 断言:重复 id / 禁用行 / 顺序唯一)
+- **声明型插件**:`agent-modes` 是集合里第一个**不提供工具**的包 —— 它的载荷是 preset 声明
+  (`presets/cordis.patch.yml`),安装动作是把这份 YAML 片段合并进 profile 的 `cordis.patch.yml`
+  而不是复制插件目录;详见该包 README 与 PLUGIN-SPEC §4 的适配说明
 
 ## 第 8 包:dsh-continuity(2026-10-04,PM4 之后)
 
@@ -32,6 +37,15 @@
 - **不谈合并的内置能力**:`session.fork`(整段前缀复制,不释放 token)、自动 compaction +
   `/compact`(会话内腾空间)已在 dsh 内;本包只补「干净会话 + 蒸馏交接」这条缺失路径。
 - 默认清单不含本包(会话内用 `install-continuity` 技能安装,与 `ue-mcp` 同理)。
+
+### 与 agent-modes 的关系(第 9 包)
+
+- **handoff 管「载体更替」,agent-modes 管「阶段边界」**:前者让任务跨会话/上下文不中断,
+  后者让会话按阶段裁工具面、做完就停。两者正交,一起用才是完整链路:
+  需求 → (handoff) → 文档·写 → (handoff) → 设计 → (handoff) → 实现 → (handoff) → 测试反馈 → (handoff) → 交付。
+- **待办(未实现)**:`handoff` 目前新建会话时不指定 preset,接手会话继承 profile 默认模式。
+  若要让交接直接落到指定模式(例如「需求」交接给「设计」),需要给 `sessionController.create`
+  链传 preset——该链已经负责 preset 挂载,属于接线而非新机制。
 
 ## 目录结构
 
@@ -48,6 +62,7 @@ dsh-plugins/
 │   ├── unity-mcp-dsh-plugin/
 │   ├── ue-mcp-dsh-plugin/       需本地 UE 工程，不入默认清单
 │   ├── agent-memory-dsh-plugin/ 记忆层接入器
+│   ├── agent-modes-dsh-plugin/  7 个开发阶段模式（preset 声明，无工具载荷）
 │   └── github-dsh-plugin/
 │   （6 个 deprecated 旧包 audio-read / audio-speak / video-read / document-read /
 │     deepseek-balance / deepseek-recharge 已于 2026-09-28 清场，git 历史保留）
@@ -64,8 +79,9 @@ dsh-plugins/
 │   ├── install-credentials/SKILL.md
 │   ├── install-stock/SKILL.md
 │   ├── install-memory/SKILL.md
+│   ├── install-github/SKILL.md
 │   ├── install-continuity/SKILL.md
-│   └── install-github/SKILL.md
+│   └── install-agent-modes/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
 ```
@@ -103,6 +119,7 @@ dsh-plugins/
 | [github](plugins/github-dsh-plugin/README.md) | GitHub 仓库管理：`github_repo`/`github_files`/`github_file_write`/`github_issue`/`github_pr`/`github_commit`/`github_search` 8 工具 + `github_sync` 本地工作区同步（clone/pull/commit/push，全局/项目双 scope，token 一次性注入不落盘） | `GITHUB_TOKEN`（可选：匿名只读公开仓库） | `install-github` |
 | [agent-memory](plugins/agent-memory-dsh-plugin/README.md) | 长期记忆接入（**native 原生插件为默认**，`--mode mcp` 可回退 MCP）：11 工具（`recall_memory`/`store_memory`/`search_memories` + `code_*` 8 个代码图谱工具）+ **进程内自动入库**（`turn/end` 直提 L0，无需守护/子进程）；引擎为第三方上游（TencentDB Agent Memory） | 团队身份三元组 + `USER_KEY`（本机自托管引擎） | `install-memory` |
 | [dsh-continuity](plugins/dsh-continuity-dsh-plugin/README.md) | **任务连续性域**（第 8 包）：`/handoff` 命令 + `handoff_start` 工具——确定性交接文档 → 同 workspace 新开会话 → 克隆 goal（轮次归零）→ 播种首条消息并自动开跑；plan mode（计划未批准）时拒绝 | 无（只用 dsh 自身 session/goal/plan 投影） | `install-continuity` |
+| [agent-modes](plugins/agent-modes-dsh-plugin/README.md) | 7 个开发阶段模式的 **preset 声明包**（不提供任何工具）：需求 / 文档·写 / 文档·审 / 设计·美化 / 实现 / 测试反馈 / 交付·仓库。按阶段裁工具面 —— 三个模式无写能力、测试反馈「能跑不能改」；一律不挂 `tool-goal`/`tool-ralph`，做完就停，阶段推进只能由人换模式 | 无 | `install-agent-modes` |
 
 > 单工具旧包（`audio-read` / `audio-speak` / `video-read` / `document-read` /
 > `deepseek-balance` / `deepseek-recharge`）为 DEPRECATED，**已于 2026-09-28 从仓库移除**（git 历史保留），

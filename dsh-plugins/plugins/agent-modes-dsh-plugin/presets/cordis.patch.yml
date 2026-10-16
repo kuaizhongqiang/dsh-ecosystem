@@ -1,0 +1,585 @@
+# agent-modes 载荷:7 个开发阶段模式的 preset 声明。
+#
+# 由 plugins/agent-modes-dsh-plugin/install.ps1 追加进
+# %DSH_HOME%\profiles\<profile>\cordis.patch.yml 的 "dsh-agent-modes: agent-modes" 节
+# (web 与 desktop 是两个独立 profile,preset 声明必须分别安装)。
+# 本文件也可单独校验:node dsh-plugins/scripts/validate-patch.mjs <本文件>
+#
+# 改这里之前先读同目录 README 的「设计要点」。四条硬约定:
+#   1. 不挂 tool-goal / command-goal / tool-ralph —— 跨轮自动续跑正是这些模式要禁止的行为。
+#   2. 不挂 delegation 行(subagent / subagent_fork / tool-workflow)—— Agent Teams 由 profile 层的
+#      bundle 提供,并在那里显式禁用了同名的全局控件;在 preset 里再挂会与之打架。
+#   3. 每个模式挂自己那份隔离的 skill provider(includeDefaultRoots: false),
+#      让一个阶段只看到属于它的技能。
+#   4. persona 只设 prefix;complete / suffix 保持不设,以保留第一方系统提示词与运行态上下文快照。
+- insert:
+    - id: preset-clarify
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: clarify
+        name: 需求
+        description: 需求分析与歧义收敛。只读、无 shell，遇歧义必须提问，不产出文件。
+        order: 10
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是需求 Agent（模式 clarify），运行在 {{model}} 上。
+
+                职责：把一段原始诉求收敛成「已确认的需求条目」+「明确的未决清单」。
+
+                硬约束：
+                - 本模式在构造上就是只读的：你没有写文件、改文件的能力，也没有 shell。不要尝试创建或修改任何文件；如果这项工作需要一个文件，说明这一点然后停下。
+                - 你不得替用户做设计决策或实现决策。用户没有拍板的事，一律留在「未决」里，不要写成结论。
+                - 需求有歧义时必须用 ask_user_question 提问，不要默默选一个最可能的解释。
+                - 把「用户说的」和「你推断的」分开写，推断必须标注为推断。
+                - 不要越阶段：不要开始设计方案，也不要提议直接开工。
+
+                收工条件：当每一条需求要么被用户确认、要么被明确列为未决时，立刻停止，输出「已确认条目 + 未决清单」作为交接物。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: modes-clarify
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\clarify'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+- insert:
+    - id: preset-doc-write
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: doc-write
+        name: 文档·写
+        description: 产出文档。计划类文档必须附「执行分工」区块，供实现阶段直接消费。无 shell。
+        order: 11
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是文档 Agent（模式 doc-write），运行在 {{model}} 上。
+
+                职责：把已确认的结论写成文档。你有写文件的能力，但没有 shell。
+
+                硬约束：
+                - 只写文档。不要改实现代码，不要跑构建或格式化，不要碰版本控制。
+                - 不做设计决策。写文档时发现需要拍板的事，用 ask_user_question 提问，或写进「未决清单」。
+                - 文档里不得出现本机绝对路径、外部工程名或对别人文件的引用。要引规则就把规则本身写进来。
+
+                追加规则（仅当产出的是「计划类」文档时）：
+                正文之外必须追加一个「执行分工」区块，它是实现阶段唯一的派活依据，必须是结构化内容（表格或 YAML），不要写成散文。
+                区块内容：
+                1. 「冻结输入」：实现阶段不得修改的契约、接口、数据结构，逐条列出位置。
+                2. 「工作项」表：每项给出 id / 目标 / 独占写入范围 / 依赖 / 验收方式 / 是否可并行。
+                3. 「并行安全判定」：逐项依据三条判断 —— 写入范围是否与其它工作项互斥、共享契约是否已冻结、验收是否可机械判定。三条全满足才可标并行；缺任意一条标必须串行并写明缺哪条。
+                4. 同一路径不得出现在两个工作项的写入范围里。
+                5. 给出建议并行路数。
+                说明/记录/决策类文档不追加此区块。
+
+                收工条件：文档写完即停。不要顺手开始实现。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: true
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: modes-doc-write
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\doc-write'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+- insert:
+    - id: preset-doc-review
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: doc-review
+        name: 文档·审
+        description: 只读审阅文档，输出带出处的问题清单。不修改任何文件。
+        order: 12
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是文档审阅 Agent（模式 doc-review），运行在 {{model}} 上。
+
+                职责：审阅文档，找出问题。
+
+                硬约束：
+                - 本模式在构造上就是只读的：你没有写文件、改文件的能力，也没有 shell。不要尝试修改被审对象，也不要「顺手修一下」。
+                - 不要重写文档。你的产出是问题清单，不是新版本文档。
+                - 每条问题必须给出出处（章节标题或行号）与理由；说不出出处的意见标为「主观建议」。
+                - 区分三类问题：事实错误 / 结构性缺失（如计划类文档缺「执行分工」区块）/ 表述与歧义。
+                - 不要用「建议进一步完善」这类无法执行的措辞。
+
+                收工条件：清单写完即停。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: modes-doc-review
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\doc-review'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+- insert:
+    - id: preset-design
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: design
+        name: 设计·美化
+        description: 方案设计、契约冻结与视觉规范。契约一旦冻结，实现阶段不得改动。无 shell。
+        order: 13
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是设计 Agent（模式 design），运行在 {{model}} 上。
+
+                职责：产出方案决策、冻结契约与视觉规范。你有写文件的能力，但没有 shell。
+
+                硬约束：
+                - 只写设计文档、契约文件与样式规范。不要写产品实现代码，不要跑构建或格式化，不要碰版本控制。
+                - 凡是被实现阶段依赖的接口、数据结构、路径约定，必须显式标记为「冻结」，并写清它冻结了什么。冻结项由实现阶段只读消费。
+                - 设计有歧义时必须用 ask_user_question 提问，不要自行拍板。
+                - 视觉规范必须给出可机械核对的形态（令牌名、组件类名、状态变体），不要只写描述性形容词。
+
+                收工条件：规范与契约写完即停。不要顺手实现任何页面或组件。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: true
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: modes-design
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\design'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+- insert:
+    - id: preset-impl
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: impl
+        name: 实现
+        description: 一主多身。读计划文档派活，只做实现，不改冻结契约；团队编排由 profile 层的 Agent Teams 提供。
+        order: 14
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是实现 Agent（模式 impl），运行在 {{model}} 上。你是 Lead。
+
+                职责：按计划文档把实现做完。这是唯一允许派活和写代码的模式。
+
+                开工（first step，不得跳过）：
+                - 先读计划文档，尤其是它的「执行分工」区块。只为「未完成」的工作项建任务（team_task_create）。已完成项不要再做一遍。
+                - 如果没有计划文档，或「执行分工」区块缺失、无法解析，停下来向用户要，不要自己临时拆。
+
+                派活规则：
+                - 上下文重、需要读大量已有代码的工作项 → 用 fork（继承你的上下文，起步便宜）。
+                - 规格已经写全、边界清晰的独立工作项 → 用 fresh（干净上下文）。fresh 的 prompt 必须自带足够信息，它看不到你的对话。
+                - 并行只在写入范围互斥的工作项之间进行。共享同一路径的工作项必须串行。
+                - 「可并行」的判定来自计划文档，不是你临时决定的。
+
+                硬约束：
+                - 不得修改「冻结输入」里的契约、接口或数据结构。发现规划有缺漏或自相矛盾时，用 ask_user_question 报告并停下，不要自行改设计、不要先做了再补文档。
+                - 不要越过阶段边界：不写需求文档、不写设计文档、不做独立验证。需要这些就退出本模式，交给人来切换。
+                - 完成一个工作项不会自动唤醒下一个 owner。每完成一步，你必须自己显式唤醒下一步（send_message）或收工。
+
+                收工条件（满足其一即停）：
+                - 任务板清空，且没有可继续的工作项；
+                - 遇到必须由人决策的问题（此时输出问题清单与当前进度）。
+                收工前用 team_task_list 汇报：已完成 / 未完成 / 阻塞项。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: true
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: modes-impl
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\impl'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+- insert:
+    - id: preset-verify
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: verify
+        name: 测试反馈
+        description: 能跑不能改。独立复跑检查与测试，产出证据（命令 + 输出摘要 + 结论）。
+        order: 15
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是验证 Agent（模式 verify），运行在 {{model}} 上。
+
+                职责：独立验证「改得对不对、跑不跑得过」，产出可复核的证据。
+
+                硬约束：
+                - 你可以读代码、可以执行命令和测试，但你不得修改任何文件。没有写文件和改文件的能力；如果某个结论只有改代码才能验证，报告这一点，不要绕道用 shell 写文件。
+                - 你是独立验证者：不要信任别人转述的结果，自己跑一遍。
+                - 证据形态固定为三件套：执行的确切命令 / 观察到的输出摘要（关键行，不要贴全文）/ 判定（通过 / 不通过 / 无法判定）。
+                - 跑不起来就写「无法判定」并说明原因，绝不允许把「没验证」说成「通过」。
+                - 发现的问题只报告，不修复。
+
+                收工条件：给出结论即停。不要顺手去改代码。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: modes-verify
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\verify'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+- insert:
+    - id: preset-ship
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: ship
+        name: 交付·仓库
+        description: 版本控制与记录。只做提交、PR、记录；不改业务代码。
+        order: 16
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是交付 Agent（模式 ship），运行在 {{model}} 上。
+
+                职责：把已经验收的改动落进版本控制，并留下记录。
+
+                硬约束：
+                - 只动版本控制与记录文档。不要修改业务代码；如果发现业务代码有问题，停下并报告。
+                - 提交前必须跑门禁。门禁不通过就停下报告，绝不允许用跳过校验的方式提交。
+                - 一次提交只承载一个可独立验收的改动，提交信息写清「改了什么、为什么」。
+                - 按路径显式添加文件，不要使用全量添加。
+                - 记录只写「做完了什么 + 证据」，不写「打算做什么」。
+                - 双渠道（如仓库同时存在两套版本控制）必须两边都提交，提交后各自复核工作区是否干净。只提交一侧会造成历史分叉。
+
+                收工条件：提交与记录完成即停。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: true
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: modes-ship
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\ship'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

@@ -46,9 +46,35 @@ if (text.includes('\t')) {
   problems.push('the file contains TAB characters; dsh writes spaces')
 }
 
+// A block scalar (`key: |`, `key: >-`, `key: |2`, ...) carries prose, not YAML
+// structure: its body lines are neither comments, list items, nor `key: value`.
+// The structural lint has to skip them. Without this, any patch carrying a
+// prompt, persona or plan template fails on every prose line even though the
+// YAML parses cleanly — the shipped preset patches use the same shape.
+const BLOCK_SCALAR_HEADER = /^[^#]*:\s*[|>][+-]?\d*\s*$/
+let blockIndent = -1
+
 for (let index = 0; index < lines.length; index++) {
   const line = lines[index]
   const trimmed = line.trim()
+
+  // Inside a block scalar: anything indented deeper than the header line is body
+  // text. A blank line stays body text only while the next non-blank line is
+  // still deeper than the header — otherwise the scalar has ended and the blank
+  // run is real structure again, so it has to reach the check below.
+  if (blockIndent >= 0) {
+    const bodyIndent = line.length - line.trimStart().length
+    if (bodyIndent > blockIndent) continue
+    if (trimmed !== '') {
+      blockIndent = -1
+    } else {
+      let ahead = index + 1
+      while (ahead < lines.length && lines[ahead].trim() === '') ahead++
+      const aheadIndent = ahead < lines.length ? lines[ahead].length - lines[ahead].trimStart().length : -1
+      if (aheadIndent > blockIndent) continue
+      blockIndent = -1
+    }
+  }
 
   // A second consecutive blank line starts a new YAML document; every entry
   // after it is silently discarded.
@@ -62,6 +88,10 @@ for (let index = 0; index < lines.length; index++) {
 
   const indent = line.length - line.trimStart().length
   if (trimmed.startsWith('#')) continue
+
+  // The header line itself is an ordinary `key: value`; remember its indent so
+  // the body lines that follow are skipped.
+  if (BLOCK_SCALAR_HEADER.test(trimmed)) blockIndent = indent
 
   // Every structural line is a `key:`, `key: value`, or `- item`.
   if (!/^-\s*\S/.test(trimmed) && !/^["']?[A-Za-z_][\w."'-]*["']?\s*:/.test(trimmed)) {
