@@ -1,5 +1,60 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-10-16(二·续三)合并文档模式 + 审阅改走 teammate + Unity 通道收边
+
+**四条根因,一并修掉。**
+
+### 1. 把一个「循环」建模成了带回退的直线(模式合并)
+
+- **现象(用户报)**:文档写 ↔ 文档审 来回一次就要 new session,「有点蠢」。
+- **根因**:审阅**不改变工具面**(`doc-write` 与 `doc-review` 都是文档读写、都无 shell),只改变看问题的
+  角度;而在这套架构里**换模式 = 换会话 + 蒸馏**。于是每审一轮烧一个会话,还每次丢上下文。
+- **规则(新增,已写进 README)**:
+  1. **工具面真的变了**(只读→可写、无 shell→有 shell、可写→只读)→ 用 `handoff` 换会话;
+  2. **工具面没变、只是要个独立视角**(审阅/复核/第二意见)→ **同一会话内开 fresh teammate**,
+     独立性来自"新上下文 + 新指令",不是来自换模式。
+- **落地**:`doc-write` + `doc-review` 合并为 **`doc`(文档)**;人格内分三阶段(成文 → 独立审阅 →
+  修订),审阅用 `spawn_teammate({ context: 'fresh' })`,拿到问题清单**回同一会话**修订,同文档最多两轮。
+  模式数 **7 → 6**(clarify 10 / doc 11 / design 12 / impl 13 / verify 14 / ship 15)。
+  **需求仍保持独立** —— 那是唯一保得住"澄清阶段物理上不能改任何东西"的硬边界,且只读→可写
+  本来就是真正的能力变化,该走交接。
+
+### 2. 交接不知道该传给谁(阶段交接)
+
+- 7 个模式此前各自只讲"我这一阶段干什么",**没有任何一个说"下一阶段是谁"**;而 `handoff` 省略
+  `preset` 会继承**当前**模式 —— 于是「在需求模式里交接去写文档」得到的是又一个需求模式会话。
+- **落地**:每个模式的「阶段交接:」写明下一阶段 id 与调用示例,并要求**同时显式传 `preset` 与 `brief`**。
+- **门**:`verify-agent-modes.mjs` 的不变量扩为 —— 必须有「阶段交接:」+ 引用的 preset id 必须真实存在 +
+  非终点模式必须给出下一阶段 + **必须要求传 `brief`**。
+
+### 3. 薄交接生成空任务书(真机事故)
+
+- 源会话没有 goal / 计划 / todo,调用方也没给 `brief` → 交接文档「目标/计划/待办」全无,「最近进展」
+  只有聊天噪音;**接手会话只能自己去满世界探测环境**(实测它用 Unity 的 `execute_code` 扫 PATH 找 node)。
+- **落地**(子代理完成):`handoff` 新增 `isThinHandoff` 判定与 `THIN_HANDOFF_WARNING`,薄交接时
+  **文档正文与返回值都打警告**;`verify-continuity` 95 → **109 项全过**(新增 6c 节 14 项)。
+
+### 4. Unity MCP 把「无 shell」边界打穿了(通道收边)
+
+- **发现**:`design` 模式明明被我摘掉了 `tool-pwsh`,却能用 `mcp__unity__execute_code`
+  **在 Unity Editor 里执行任意 C#** —— 比 pwsh 更强。因为 `mcp-unity` 是 **profile 级**插件,
+  对全部模式可见;而当前权限档是 `danger-full-access` + `approval: never`,**没有任何闸门**。
+- **技术核实**:① `mcp-client` **没有工具白名单**(全挂或全不挂);② `ctx.tools.restrict({deny})` 不适用 ——
+  它按"当前已注册的全局工具"校验名字,而 MCP 工具是动态的,deny 未知名会**抛错并让 preset 激活失败**;
+  ③ `mcp-client` 的 `serverName` 预留是**按注册 scope** 的,两个 preset 各挂一份不冲突。
+- **落地(用户决定"只给有 shell 的模式")**:profile 级 `mcp-unity` / `mcp-ue` 置 `disabled: true`
+  (`unity-mcp-supervisor` 保持启用,服务不被拆);`mcp-unity` 改由 **`impl` / `verify`** 各自挂载。
+  **规则:只有已经拥有 shell 的模式,才允许拿到外部编辑器的代码执行通道。**
+
+**验证**:`verify-pm2/3/4` + `verify-image` + `verify-agent-modes` + `verify-continuity`(109) 全 PASS;
+伞仓 `verify-release.mjs` 通过;两个 profile 均 **6 个 preset**、`impl`/`verify` 各含 `mcp-unity`;
+`install.ps1` 保留 UTF-8 BOM 且 `ParseFile` 0 错(本轮又被 edit 工具剥了一次,已回填)。
+
+**未闭合**:① 两处需要**重启 dsh** 才生效(profile patch 是 `patchReload: startup`):新的 6 个模式、
+以及 profile 级 mcp 行的禁用;② `impl` / `verify` 各自挂 `mcp-unity` 的**真机效果**只能在重启后开这两个
+模式的会话验证(scope 级预留已从源码确认,但未端到端验证);③ `doc` 模式的 `spawn_teammate` 可用性
+有间接证据(handoff 建的 design 会话投影里有 `agentTeam` 状态),同样需真机确认。
+
 ## 2026-10-16(二·续二)修 agent-modes 阶段交接:交接时不知道该传给哪个模式
 
 - **现象(用户报)**:在「需求」模式里讨论完,让 agent 去 handoff 写文档 —— 期望得到一个「文档·写」模式的

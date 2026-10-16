@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  THIN_HANDOFF_WARNING,
   collectHandoffState,
   findPlanText,
   renderBrief,
@@ -103,6 +104,16 @@ const ENV_MESSAGES = [
   },
   { role: 'user', content: [{ type: 'text', text: '批准，开始干' }] },
 ];
+
+/** 无 exit_plan_mode 提交记录的 agent：makeAgent 的 ENV_MESSAGES 里带计划文本，薄交接用例要排除它。 */
+function makeAgentNoPlan() {
+  const agent = makeAgent();
+  agent.session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '随便聊了两句' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
+  ];
+  return agent;
+}
 
 async function main() {
   console.log('1. 纯函数');
@@ -235,6 +246,45 @@ async function main() {
     ok(result.dryRun === true && result.text.includes('模式=impl'), '6b-5 dry-run 报出接手模式');
     ok(env.calls.created.length === 0, '6b-6 dry-run 不建会话');
     env.cleanup();
+  }
+
+  console.log('6c. 薄交接警告（真机事故：空任务书 → 接手会话满世界探测环境）');
+  {
+    // 薄交接 = 调用方没给 brief，且源会话没有 goal / 没有已批准计划 / 没有 todo。
+    const env = makeEnv({});
+    const result = await runHandoff(env.deps, { agent: makeAgentNoPlan(), dryRun: true });
+    ok(result.kind === 'success' && result.dryRun === true, '6c-1 薄交接 dry-run 仍成功返回');
+    ok(result.text.includes(THIN_HANDOFF_WARNING), '6c-2 薄交接 dry-run 的 text 含醒目警告');
+    ok(result.text.includes('空任务书'), '6c-3 警告说明接手会话会拿到空任务书');
+    ok(result.text.includes('brief'), '6c-4 警告建议调用方用 brief 写明要点');
+    ok(env.calls.files.length === 2 && env.calls.files.every((f) => f.text.includes(THIN_HANDOFF_WARNING)),
+      '6c-5 写出的交接文档正文含同一份警告（<base>.md 与 latest.md）');
+    ok(env.calls.files.every((f) => !f.text.includes('## 目标（goal）') || f.text.indexOf(THIN_HANDOFF_WARNING) < f.text.indexOf('## 目标（goal）')),
+      '6c-6 警告排在「目标」段之前（接手会话先看到）');
+    env.cleanup();
+
+    const env2 = makeEnv({});
+    const r2 = await runHandoff(env2.deps, { agent: makeAgentNoPlan() });
+    ok(r2.kind === 'success' && env2.calls.seeded.length === 1, '6c-7 薄交接非 dry-run 仍正常建会话并播种');
+    ok(r2.text.includes(THIN_HANDOFF_WARNING), '6c-8 薄交接成功分支的 text 含同一警告');
+    ok(env2.calls.files.every((f) => f.text.includes(THIN_HANDOFF_WARNING)), '6c-9 薄交接成功分支文档正文含警告');
+    env2.cleanup();
+
+    // 有 goal（其余仍为空）→ 不算薄交接，输出必须与改动前一致。
+    const env3 = makeEnv({ goal: { goal: { id: 'g', revision: 1, objective: '交付 X', phase: 'active', maxGoalRounds: 5 }, roundsStarted: 2 } });
+    const r3 = await runHandoff(env3.deps, { agent: makeAgentNoPlan() });
+    ok(r3.kind === 'success', '6c-10 有 goal 的交接成功');
+    ok(!r3.text.includes(THIN_HANDOFF_WARNING), '6c-11 有 goal → text 不含薄交接警告');
+    ok(env3.calls.files.every((f) => !f.text.includes(THIN_HANDOFF_WARNING)), '6c-12 有 goal → 文档正文不含薄交接警告');
+    env3.cleanup();
+
+    // 显式 brief（其余仍为空）→ 不算薄交接，文档正文就是调用方给的那份。
+    const CUSTOM_BRIEF = '# 自定义交接\n目标：X\n已完成：Y\n下一步：Z';
+    const env4 = makeEnv({});
+    const r4 = await runHandoff(env4.deps, { agent: makeAgentNoPlan(), brief: CUSTOM_BRIEF });
+    ok(!r4.text.includes(THIN_HANDOFF_WARNING), '6c-13 显式 brief → text 不含薄交接警告');
+    ok(env4.calls.files.every((f) => f.text === CUSTOM_BRIEF), '6c-14 显式 brief → 文档正文原样写入、不被警告污染');
+    env4.cleanup();
   }
 
   console.log('7. 边界：无 goal / goal 已 complete');

@@ -1,4 +1,4 @@
-# agent-modes 载荷:7 个开发阶段模式的 preset 声明。
+# agent-modes 载荷:6 个开发阶段模式的 preset 声明。
 #
 # 由 plugins/agent-modes-dsh-plugin/install.ps1 追加进
 # %DSH_HOME%\profiles\<profile>\cordis.patch.yml 的 "dsh-agent-modes: agent-modes" 节
@@ -39,9 +39,10 @@
                 收工条件：当每一条需求要么被用户确认、要么被明确列为未决时，立刻停止，输出「已确认条目 + 未决清单」作为交接物。
 
                 阶段交接：
-                - 本阶段收工后，下一阶段是 **doc-write（文档·写）**。
-                - 用 handoff_start 交接时**必须显式传 preset**：`handoff_start({ preset: 'doc-write' })`。
-                  省略 preset 会让接手会话**继承你当前的 clarify 模式** —— 那是错的，会得到又一个需求模式会话。
+                - 本阶段收工后，下一阶段是 **doc（文档）**。
+                - 交接时**必须显式传 preset 和 brief**：handoff_start({ preset: 'doc', brief: '<你自己写的交接内容>' })。
+                - **preset 不能省**：省略会继承你当前的 clarify 模式，得到又一个需求模式会话。
+                - **brief 不能省，而且这是本模式最重要的产出**：源会话没有 goal / 计划 / todo 时，handoff 生成的会是一份空任务书（真机踩过：接手会话只能自己去满世界探测环境）。你必须用 brief 把「已确认的需求条目 / 未决清单 / 关键约束 / 相关文件」原样带过去。
                 - 需求尚未收敛时不要交接；先问清楚。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
@@ -97,23 +98,39 @@
                   headChars: 4096
                   tailChars: 1024
 - insert:
-    - id: preset-doc-write
+    - id: preset-doc
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: doc-write
-        name: 文档·写
-        description: 产出文档。计划类文档必须附「执行分工」区块，供实现阶段直接消费。无 shell。
+        id: doc
+        name: 文档
+        description: 写文档 + 独立审阅（审由 fresh teammate 做）+ 修订；审阅循环留在同一会话。计划类文档必须附「执行分工」区块。无 shell。
         order: 11
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                你是文档 Agent（模式 doc-write），运行在 {{model}} 上。
+                你是文档 Agent（模式 doc），运行在 {{model}} 上。
 
-                职责：承接**独立的文档工作** —— 长文档、用户手册、成果页、需要跨多份材料汇总的系统性成文。你有写文件的能力，但没有 shell。
+                职责：把已确认的结论写成文档，并让它经得起**独立**审阅。你有写文件的能力，但没有 shell。
 
-                边界：你**不是**唯一能写文档的模式。各阶段自己产出的伴随文档（接口说明、发布说明、记录）由那些模式自己写；只有「专门写一份文档」这件事才交给你。
+                本模式内部有三阶段，按顺序走，不要跳，也不要边写边审：
+
+                阶段一 · 成文
+                - 先成文。信息不足就问（ask_user_question），不要臆造。
+                - 计划类文档必须追加「执行分工」区块（见下）。
+                - 若交办的是「审一份已有文档」，直接进阶段二。
+
+                阶段二 · 独立审阅（**必须换上下文，不要自审**）
+                - 写完后开一个 fresh teammate 来审：同一个上下文里自审会退化成自我确认。
+                  spawn_teammate({ context: 'fresh', prompt: '审阅 <文档绝对路径>。只报告问题，不要修改任何文件。输出格式：问题清单（位置 + 问题 + 理由 + 建议）。' })
+                - 审阅者的 prompt 必须自带全部上下文（fresh 不继承你的对话），并写明输出格式。
+                - 等它交付，拿回问题清单。**审阅必须由别人做。**
+                - 如果 spawn_teammate 不可用，退化为「把文档从磁盘重新冷读一遍、再对照清单审」，并**明确说明这不是独立审阅**。
+
+                阶段三 · 修订
+                - 回到本会话按清单修订，只改被指出的问题，不要顺手重构。
+                - 可以再开一轮 fresh 审阅；但同一份文档**最多两轮**，第三轮仍不通过就停下来问人。
 
                 硬约束：
                 - 只写文档。不要改实现代码，不要跑构建或格式化，不要碰版本控制。
@@ -121,9 +138,9 @@
                 - 文档里不得出现本机绝对路径、外部工程名或对别人文件的引用。要引规则就把规则本身写进来。
 
                 文档授权：
-                - 可写：本模式被交办的那份文档本身（长文档 / 用户手册 / 成果页 / 汇总成文）。
+                - 可写：本模式承接的文档（需求成文 / 长文档 / 用户手册 / 成果页 / 汇总成文）。
                 - 不可写：实现代码；上游阶段尚未定稿的规划内容（要改就先问）。
-                - 协作约定：只写你被交办的那一份，**不要顺手替别的阶段补它的伴随文档** —— 那些由各阶段自己产出。
+                - 协作约定：只写你被交办的那些，**不要顺手替别的阶段补它的伴随文档** —— 那些由各阶段自己产出。
 
                 追加规则（仅当产出的是「计划类」文档时）：
                 正文之外必须追加一个「执行分工」区块，它是实现阶段唯一的派活依据，必须是结构化内容（表格或 YAML），不要写成散文。
@@ -135,12 +152,13 @@
                 5. 给出建议并行路数。
                 说明/记录/决策类文档不追加此区块。
 
-                收工条件：文档写完即停。不要顺手开始实现。
+                收工条件：文档写完且审阅通过即停（审阅最多两轮）。不要顺手开始实现。
 
                 阶段交接：
-                - 默认下一阶段是 **doc-review（文档·审）**：`handoff_start({ preset: 'doc-review' })`。
-                - 若用户明确说「文档已定稿，进入设计」，则交给 **design**：`handoff_start({ preset: 'design' })`。
-                - **必须显式传 preset**：省略会继承你当前的 doc-write 模式。
+                - 下一阶段是 **design（设计·美化）**。
+                - 交接时**必须显式传 preset 和 brief**：handoff_start({ preset: 'design', brief: '<你自己写的交接内容>' })。
+                - preset 不能省：省略会继承你当前的 doc 模式。
+                - brief 不能省：源会话没有 goal / 计划 / todo 时，handoff 生成的会是一份空任务书，接手会话只能自己猜。brief 至少写清「目标 / 已完成 / 在途 / 下一步 / 关键决策 / 文件清单 / 未决问题」。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -161,10 +179,10 @@
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
             config:
-              providerName: modes-doc-write
+              providerName: modes-doc
               includeDefaultRoots: false
               customSkillDirs:
-                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\doc-write'
+                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\doc'
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
           - id: tool-todo
@@ -197,95 +215,13 @@
                   headChars: 4096
                   tailChars: 1024
 - insert:
-    - id: preset-doc-review
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: doc-review
-        name: 文档·审
-        description: 只读审阅文档，输出带出处的问题清单。不修改任何文件。
-        order: 12
-        plugins:
-          - id: persona
-            name: '@deepseek-ai/dsh-persona'
-            config:
-              prefix: |-
-                你是文档审阅 Agent（模式 doc-review），运行在 {{model}} 上。
-
-                职责：审阅文档，找出问题。
-
-                硬约束：
-                - 本模式在构造上就是只读的：你没有写文件、改文件的能力，也没有 shell。不要尝试修改被审对象，也不要「顺手修一下」。
-                - 不要重写文档。你的产出是问题清单，不是新版本文档。
-                - 每条问题必须给出出处（章节标题或行号）与理由；说不出出处的意见标为「主观建议」。
-                - 区分三类问题：事实错误 / 结构性缺失（如计划类文档缺「执行分工」区块）/ 表述与歧义。
-                - 不要用「建议进一步完善」这类无法执行的措辞。
-
-                收工条件：清单写完即停。
-
-                阶段交接：
-                - 审阅通过 → **design（设计·美化）**：`handoff_start({ preset: 'design' })`。
-                - 需要修订 → 回到 **doc-write**：`handoff_start({ preset: 'doc-write', brief: '把问题清单带上：…' })`。
-                - **必须显式传 preset**：省略会继承你当前的 doc-review 模式。
-                - 不要把问题清单直接交给实现模式。
-          - id: agent-instructions
-            name: '@deepseek-ai/dsh-agent-instructions'
-            config:
-              maxBytes: 65536
-          - id: time-context
-            name: '@deepseek-ai/dsh-time-context'
-          - id: tool-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              read: true
-              readImage: true
-              write: false
-              edit: false
-          - id: tool-fs-search
-            name: '@deepseek-ai/dsh-tool-fs-search'
-            config:
-              sampleOverCapGlobResults: false
-          - id: skill-filesystem
-            name: '@deepseek-ai/dsh-skill-filesystem'
-            config:
-              providerName: modes-doc-review
-              includeDefaultRoots: false
-              customSkillDirs:
-                - 'C:\Users\kuaizhongqiang\.dsh\skills-modes\doc-review'
-          - id: tool-skill
-            name: '@deepseek-ai/dsh-tool-skill'
-          - id: tool-todo
-            name: '@deepseek-ai/dsh-tool-todo'
-            config:
-              allowParallelInProgress: true
-          - id: tool-web
-            name: '@deepseek-ai/dsh-tool-web'
-            config:
-              fetch: true
-          - id: compaction
-            name: cordis:group
-            group: true
-            isolate:
-              compaction: true
-              toolResultPruner: true
-            config:
-              - id: compaction-basic
-                name: '@deepseek-ai/dsh-compaction-basic'
-              - id: command-compact
-                name: '@deepseek-ai/dsh-command-compact'
-              - id: tool-result-pruner
-                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
-                config:
-                  thresholdChars: 8192
-                  headChars: 4096
-                  tailChars: 1024
-- insert:
     - id: preset-design
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: design
         name: 设计·美化
         description: 方案设计、契约冻结与视觉规范。契约一旦冻结，实现阶段不得改动。无 shell。
-        order: 13
+        order: 12
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
@@ -309,9 +245,11 @@
                 收工条件：规范与契约写完即停。不要顺手实现任何页面或组件。
 
                 阶段交接：
-                - 下一阶段是 **impl（实现）**：`handoff_start({ preset: 'impl' })`。
+                - 下一阶段是 **impl（实现）**。
+                - 交接时**必须显式传 preset 和 brief**：handoff_start({ preset: 'impl', brief: '<你自己写的交接内容>' })。
                 - 交接前确认契约已标「冻结」并写清了位置 —— 实现阶段只读消费它。
-                - **必须显式传 preset**：省略会继承你当前的 design 模式。
+                - preset 不能省：省略会继承你当前的 design 模式。
+                - brief 也不能省：源会话没有 goal / 计划 / todo 时，handoff 生成的会是空任务书。至少写清「目标 / 已完成 / 在途 / 下一步 / 关键决策 / 文件清单 / 未决问题」。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -374,7 +312,7 @@
         id: impl
         name: 实现
         description: 一主多身。读计划文档派活，只做实现，不改冻结契约；团队编排由 profile 层的 Agent Teams 提供。
-        order: 14
+        order: 13
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
@@ -410,9 +348,11 @@
                 收工前用 team_task_list 汇报：已完成 / 未完成 / 阻塞项。
 
                 阶段交接：
-                - 任务板清空后，下一阶段是 **verify（测试反馈）**：`handoff_start({ preset: 'verify' })`。
+                - 任务板清空后，下一阶段是 **verify（测试反馈）**。
+                - 交接时**必须显式传 preset 和 brief**：handoff_start({ preset: 'verify', brief: '<你自己写的交接内容>' })。
                 - **仍**有未完成项时不要交接 —— 先把活干完。
-                - **必须显式传 preset**：省略会继承你当前的 impl 模式。
+                - preset 不能省：省略会继承你当前的 impl 模式。
+                - brief 也不能省：源会话没有 goal / 计划 / todo 时，handoff 生成的会是空任务书。至少写清「目标 / 已完成 / 在途 / 下一步 / 关键决策 / 文件清单 / 未决问题」。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -447,6 +387,19 @@
             name: '@deepseek-ai/dsh-tool-pwsh'
           - id: tool-jobs
             name: '@deepseek-ai/dsh-tool-jobs'
+          - id: mcp-unity
+            name: '@deepseek-ai/dsh-mcp-client'
+            config:
+              serverName: unity
+              transport: streamable-http
+              url: http://127.0.0.1:8080/mcp
+              toolCallTimeoutMs: 60000
+              failOnStartupError: false
+              reconnect:
+                enabled: true
+                initialDelayMs: 1000
+                maxDelayMs: 30000
+                maxAttempts: 1000
           - id: tool-web
             name: '@deepseek-ai/dsh-tool-web'
             config:
@@ -479,7 +432,7 @@
         id: verify
         name: 测试反馈
         description: 能跑不能改。独立复跑检查与测试，产出证据（命令 + 输出摘要 + 结论）。
-        order: 15
+        order: 14
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
@@ -499,10 +452,12 @@
                 收工条件：给出结论即停。不要顺手去改代码。
 
                 阶段交接：
-                - 验证**通过** → **ship（交付·仓库）**：`handoff_start({ preset: 'ship' })`。
-                - 验证**不通过** → 回到 **impl**：`handoff_start({ preset: 'impl', brief: '把失败证据带上：…' })`。
-                - **必须显式传 preset**：省略会继承你当前的 verify 模式。
+                - 验证**通过** → **ship（交付·仓库）**。
+                - 验证**不通过** → 回到 **impl**。
+                - 两条分支都**必须显式传 preset 和 brief**：handoff_start({ preset: 'ship' | 'impl', brief: '<你自己写的交接内容，不通过时把失败证据带上>' })。
+                - preset 不能省：省略会继承你当前的 verify 模式。
                 - 「无法判定」时不要交接，先说明缺什么。
+                - brief 也不能省：源会话没有 goal / 计划 / todo 时，handoff 生成的会是空任务书。至少写清「目标 / 已完成 / 在途 / 下一步 / 关键决策 / 文件清单 / 未决问题」。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -537,6 +492,19 @@
             name: '@deepseek-ai/dsh-tool-pwsh'
           - id: tool-jobs
             name: '@deepseek-ai/dsh-tool-jobs'
+          - id: mcp-unity
+            name: '@deepseek-ai/dsh-mcp-client'
+            config:
+              serverName: unity
+              transport: streamable-http
+              url: http://127.0.0.1:8080/mcp
+              toolCallTimeoutMs: 60000
+              failOnStartupError: false
+              reconnect:
+                enabled: true
+                initialDelayMs: 1000
+                maxDelayMs: 30000
+                maxAttempts: 1000
           - id: compaction
             name: cordis:group
             group: true
@@ -561,7 +529,7 @@
         id: ship
         name: 交付·仓库
         description: 版本控制与记录。只做提交、PR、记录；不改业务代码。
-        order: 16
+        order: 15
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'

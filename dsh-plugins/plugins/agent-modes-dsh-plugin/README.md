@@ -1,6 +1,6 @@
-# agent-modes — 7 个开发阶段模式的 preset 包
+# agent-modes — 6 个开发阶段模式的 preset 包
 
-面向原生 dsh 的**声明型**插件包:它不提供任何工具,而是往目标 profile(默认自动解析)注入 7 个
+面向原生 dsh 的**声明型**插件包:它不提供任何工具,而是往目标 profile(默认自动解析)注入 6 个
 **Agent Preset(模式)** 声明,让同一个 dsh 能按「开发阶段」切换工具面与人格。
 
 ## 它解决什么
@@ -15,30 +15,43 @@
 本包用**机制**回答,而不是用提示词:
 
 - preset 决定一个会话**挂哪些工具行**。没挂写能力的模式,物理上写不了文件。
-- 7 个模式里**一律不挂** `tool-goal` / `command-goal` / `tool-ralph` / `tool-schedule` /
+- 6 个模式里**一律不挂** `tool-goal` / `command-goal` / `tool-ralph` / `tool-schedule` /
   `tool-subagent` / `tool-subagent-fork` / `tool-workflow`。`tool-goal` 的语义是「跨自动续跑轮次
   保持工作」,正是要禁止的行为;`tool-ralph` 是自驱死磕工具。没有它们,**做完就停**。
 - 阶段推进只能由**人换模式**。换模式是人的物理动作,agent 触发不了 —— 这是最强的一道闸门。
 
-## 7 个模式
+## 6 个模式
 
-| 模式 | id | 写文件 | shell | web | 提问 | present | 行数 |
-|---|---|:-:|:-:|:-:|:-:|:-:|--:|
-| 需求 | `clarify` | ✗ | ✗ | ✓ | ✓ | ✗ | 11 |
-| 文档·写 | `doc-write` | ✓ | ✗ | ✓ | ✓ | ✓ | 12 |
-| 文档·审 | `doc-review` | ✗ | ✗ | ✓ | ✗ | ✗ | 10 |
-| 设计·美化 | `design` | ✓ | ✗ | ✓ | ✓ | ✓ | 12 |
-| 实现 | `impl` | ✓ | ✓ | ✓ | ✓ | ✓ | 14 |
-| 测试反馈 | `verify` | ✗ | ✓ | ✗ | ✗ | ✗ | 11 |
-| 交付·仓库 | `ship` | ✓ | ✓ | ✓ | ✓ | ✓ | 14 |
+| 模式 | id | 写文件 | shell | web | 提问 | present | mcp | 行数 |
+|---|---|:-:|:-:|:-:|:-:|:-:|:-:|--:|
+| 需求 | `clarify` | ✗ | ✗ | ✓ | ✓ | ✗ | ✗ | 11 |
+| 文档 | `doc` | ✓ | ✗ | ✓ | ✓ | ✓ | ✗ | 12 |
+| 设计·美化 | `design` | ✓ | ✗ | ✓ | ✓ | ✓ | ✗ | 12 |
+| 实现 | `impl` | ✓ | ✓ | ✓ | ✓ | ✓ | **unity** | 15 |
+| 测试反馈 | `verify` | ✗ | ✓ | ✗ | ✗ | ✗ | **unity** | 12 |
+| 交付·仓库 | `ship` | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | 14 |
 
 设计意图:
 
-- **需求 / 文档·审 / 测试反馈** 三个模式没有写能力 —— 澄清、审查、验证这三类活本来就不该有写权限。
+- **需求 / 测试反馈** 两个模式没有写能力 —— 澄清、验证这两类活本来就不该有写权限。
 - **测试反馈**能跑不能改:挂了 `tool-pwsh`,但 `tool-fs` 的 `write`/`edit` 关死。
-- **需求 / 文档·写 / 文档·审 / 设计** 一律不挂 shell。理由:`tool-pwsh` 是万能钥匙,挂了它,
+- **需求 / 文档 / 设计** 一律不挂 shell。理由:`tool-pwsh` 是万能钥匙,挂了它,
   `tool-fs` 的只读形同虚设(照样能 `Set-Content` 写文件)。
 - **实现**是唯一能派活的模式（team / subagent）；**实现与交付**是仅有的两个同时具备「写 + 执行」的模式。
+- **Unity MCP 只给 `impl` / `verify`（有 shell 的那两个）**。理由：`mcp__unity__execute_code` 能在
+  Unity Editor 里执行任意 C# —— **比 pwsh 更强的代码执行通道**。把它留在 profile 层，等于给
+  「无 shell」的 `clarify` / `doc` / `design` 留了后门（2026-10-16 实测：design 模式真的用它扫过 PATH）。
+  所以 profile 级 `mcp-unity` / `mcp-ue` 行已 `disabled: true`，改由这两个模式各自挂载
+  （`mcp-client` 的 `serverName` 预留是**按注册 scope** 的，两个 preset 各挂一份不冲突）。
+  **规则：只有已经拥有 shell 的模式，才允许拿到外部编辑器的代码执行通道。**
+- **换模式 = 换能力；只换视角 → 不换会话（2026-10-16 补）**：审阅**不改变工具面**，只改变看问题的角度，
+  所以**不该换模式**（在这套架构里换模式 = 换会话 + 蒸馏，每审一轮烧一个会话）。
+  文档的「写 ↔ 审」是一个**循环**，因此合并进 `doc` 一个模式；审阅改为
+  `spawn_teammate({ context: 'fresh' })` 在**新上下文**里做，拿到问题清单后**回同一会话**修订
+  —— 独立性靠"新上下文 + 新指令"拿到，而不是靠换模式。
+  规则：
+  1. **工具面真的变了**（只读→可写、无 shell→有 shell、可写→只读）→ 用 `handoff` 换会话；
+  2. **工具面没变、只是要个独立视角**（审阅 / 复核 / 第二意见）→ 同一会话里开 fresh teammate。
 - **自足性原则（重要，2026-10-16 补）**：凡有写权限的模式，都必须能独立完成本阶段的固有产物，
   且必须挂 `tool-ask-user`。
 
@@ -57,9 +70,11 @@
 - **阶段交接（2026-10-16 补）**：`handoff` 省略 `preset` 时会**继承当前模式**，所以每个模式的人格都带一节
   「阶段交接：」，写明下一步该传给哪个 id。流水线是：
 
-  `需求 clarify → 文档·写 doc-write → 文档·审 doc-review → 设计 design → 实现 impl → 测试反馈 verify → 交付 ship`
+  `需求 clarify → 文档 doc → 设计 design → 实现 impl → 测试反馈 verify → 交付 ship`
 
-  例外分支：文档·审 不通过 → 回 `doc-write`；测试反馈 不通过 → 回 `impl`；`ship` 是终点。
+  例外分支：测试反馈 不通过 → 回 `impl`；`ship` 是终点。
+  文档的「写 ↔ 审」循环在 `doc` 模式**内部**闭合（审由 fresh teammate 做），不再是一次交接。
+  跨阶段的每一步交接都**必须显式传 preset 与 brief**。
 
   > 真实踩到过：在「需求」模式里让 agent handoff 去写文档，agent 调用 `handoff_start` 时没传 `preset`，
   > 于是接手会话继承 `clarify` —— 又得到一个需求模式会话。**要进下一阶段就必须显式传 preset。**
@@ -102,7 +117,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall [-ProfileName 
 
 `-Only agent-modes` 可写可不写(单服务包)。
 
-装完**重启目标 profile 对应的 dsh**(`dsh web`,或桌面版),再新建会话,在模式选择器里应能看到 7 个模式。
+装完**重启目标 profile 对应的 dsh**(`dsh web`,或桌面版),再新建会话,在模式选择器里应能看到 6 个模式。
 
 ## ⚠️ 与 bundle 安装路径互斥
 
@@ -127,7 +142,7 @@ customSkillDirs:
 `includeDefaultRoots: false` 是有意的:它让该模式**看不到**项目技能、`<DSH_HOME>\skills` 下的
 用户技能、以及 dsh 自带技能 —— 只看到自己那个目录。这是「每阶段只看自己那批」的机制。
 
-**代价要说清楚**:这 7 个模式默认**看不到** `install-*` 等既有技能。想让某个模式恢复共享技能,
+**代价要说清楚**:这 6 个模式默认**看不到** `install-*` 等既有技能。想让某个模式恢复共享技能,
 把该模式的 `includeDefaultRoots` 改成 `true` 即可(一行)。
 
 ## 设计要点(改这个包前先读)

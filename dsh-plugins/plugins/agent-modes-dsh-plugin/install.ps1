@@ -37,7 +37,7 @@ function Read-TextUtf8([string]$path) { return [System.IO.File]::ReadAllText($pa
 
 $Pkg = 'dsh-agent-modes'
 
-# 单服务包:一个安装单元 = 全部 7 个模式。保留 -Only 以符合规范,但不提供逐模式子集
+# 单服务包:一个安装单元 = 全部 6 个模式。保留 -Only 以符合规范,但不提供逐模式子集
 # ——任一模式单独安装都会让 install.ps1 的判重锚点(preset-clarify)与卸载边界失准。
 $AllServices = @('agent-modes')
 
@@ -189,7 +189,8 @@ if ($current -match [regex]::Escape($MarkerId)) {
 
 # 归一化换行:载荷在 git 上以 LF 存储,Windows 检出可能是 CRLF;profile patch 一律用 LF。
 $fragment = ((Read-TextUtf8 $FragmentPath) -replace "`r`n", "`n").TrimEnd()
-$entryText = "`n$SectionHeader`n# payload: ./presets/cordis.patch.yml (7 个 preset 声明)" + "`n" + $fragment + "`n"
+$presetCount = ([regex]::Matches($fragment, '(?m)^    - id: preset-')).Count
+$entryText = "`n$SectionHeader`n# payload: ./presets/cordis.patch.yml ($presetCount 个 preset 声明)" + "`n" + $fragment + "`n"
 # 剥掉裸 [] 占位行后按序列追加
 $lines = ($current -split "`r?`n") | Where-Object { $_ -notmatch '^\s*\[\]\s*$' }
 $base = ($lines -join "`n").TrimEnd()
@@ -197,6 +198,6 @@ $combined = if ($base) { $base + "`n" + $entryText } else { $entryText.TrimStart
 
 Assert-PatchValid $combined 'install'
 [System.IO.File]::WriteAllText($patchFile, $combined, (New-Object System.Text.UTF8Encoding($false)))
-Write-Host "OK  已写入 7 个 preset 声明 -> $patchFile" -ForegroundColor Green
-Write-Host "    模式: 需求 / 文档·写 / 文档·审 / 设计·美化 / 实现 / 测试反馈 / 交付·仓库" -ForegroundColor Gray
-Write-Host "Next: 重启 dsh(${profileName}),然后新建会话在模式选择器里确认 7 个模式。" -ForegroundColor Cyan
+Write-Host "OK  已写入 $presetCount 个 preset 声明 -> $patchFile" -ForegroundColor Green
+Write-Host "    模式: 需求 / 文档 / 设计·美化 / 实现 / 测试反馈 / 交付·仓库" -ForegroundColor Gray
+Write-Host "Next: 重启 dsh(${profileName}),然后新建会话在模式选择器里确认 $presetCount 个模式。" -ForegroundColor Cyan

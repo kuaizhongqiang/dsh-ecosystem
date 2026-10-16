@@ -42,10 +42,14 @@
 
 - **handoff 管「载体更替」,agent-modes 管「阶段边界」**:前者让任务跨会话/上下文不中断,
   后者让会话按阶段裁工具面、做完就停。两者正交,一起用才是完整链路:
-  需求 → (handoff) → 文档·写 → (handoff) → 设计 → (handoff) → 实现 → (handoff) → 测试反馈 → (handoff) → 交付。
-- **待办(未实现)**:`handoff` 目前新建会话时不指定 preset,接手会话继承 profile 默认模式。
-  若要让交接直接落到指定模式(例如「需求」交接给「设计」),需要给 `sessionController.create`
-  链传 preset——该链已经负责 preset 挂载,属于接线而非新机制。
+  需求 → (handoff) → 文档 → (handoff) → 设计 → (handoff) → 实现 → (handoff) → 测试反馈 → (handoff) → 交付。
+- **已实现**:`handoff_start` / `/handoff` 支持 `preset` / `--preset`,可把交接直接落到指定模式;
+  各阶段模式的「阶段交接:」一节写明下一步该传哪个 id,并**要求同时自写 `brief`**(否则会生成空任务书,
+  handoff 会就此打警告)。文档的「写 ↔ 审」是**循环**,已在 `doc` 模式内部闭合 —— 审由
+  `spawn_teammate({ context: 'fresh' })` 做,**不再走交接**(换模式 = 换会话,每审一轮烧一个会话)。
+- **Unity 通道**:profile 级 `mcp-unity` / `mcp-ue` 已 `disabled: true`,改由 `impl` / `verify`
+  这两个**有 shell 的模式**各自挂载 —— 无 shell 的模式不得持有编辑器代码执行通道
+  (`mcp__unity__execute_code` 能在 Unity Editor 里跑任意 C#,比 pwsh 更强)。
 
 ## 目录结构
 
@@ -62,7 +66,7 @@ dsh-plugins/
 │   ├── unity-mcp-dsh-plugin/
 │   ├── ue-mcp-dsh-plugin/       需本地 UE 工程，不入默认清单
 │   ├── agent-memory-dsh-plugin/ 记忆层接入器
-│   ├── agent-modes-dsh-plugin/  7 个开发阶段模式（preset 声明，无工具载荷）
+│   ├── agent-modes-dsh-plugin/  6 个开发阶段模式（preset 声明，无工具载荷）
 │   └── github-dsh-plugin/
 │   （6 个 deprecated 旧包 audio-read / audio-speak / video-read / document-read /
 │     deepseek-balance / deepseek-recharge 已于 2026-09-28 清场，git 历史保留）
@@ -119,7 +123,7 @@ dsh-plugins/
 | [github](plugins/github-dsh-plugin/README.md) | GitHub 仓库管理：`github_repo`/`github_files`/`github_file_write`/`github_issue`/`github_pr`/`github_commit`/`github_search` 8 工具 + `github_sync` 本地工作区同步（clone/pull/commit/push，全局/项目双 scope，token 一次性注入不落盘） | `GITHUB_TOKEN`（可选：匿名只读公开仓库） | `install-github` |
 | [agent-memory](plugins/agent-memory-dsh-plugin/README.md) | 长期记忆接入（**native 原生插件为默认**，`--mode mcp` 可回退 MCP）：11 工具（`recall_memory`/`store_memory`/`search_memories` + `code_*` 8 个代码图谱工具）+ **进程内自动入库**（`turn/end` 直提 L0，无需守护/子进程）；引擎为第三方上游（TencentDB Agent Memory） | 团队身份三元组 + `USER_KEY`（本机自托管引擎） | `install-memory` |
 | [dsh-continuity](plugins/dsh-continuity-dsh-plugin/README.md) | **任务连续性域**（第 8 包）：`/handoff` 命令 + `handoff_start` 工具——确定性交接文档 → 同 workspace 新开会话 → 克隆 goal（轮次归零）→ 播种首条消息并自动开跑；plan mode（计划未批准）时拒绝 | 无（只用 dsh 自身 session/goal/plan 投影） | `install-continuity` |
-| [agent-modes](plugins/agent-modes-dsh-plugin/README.md) | 7 个开发阶段模式的 **preset 声明包**（不提供任何工具）：需求 / 文档·写 / 文档·审 / 设计·美化 / 实现 / 测试反馈 / 交付·仓库。按阶段裁工具面 —— 三个模式无写能力、测试反馈「能跑不能改」；一律不挂 `tool-goal`/`tool-ralph`，做完就停，阶段推进只能由人换模式 | 无 | `install-agent-modes` |
+| [agent-modes](plugins/agent-modes-dsh-plugin/README.md) | 6 个开发阶段模式的 **preset 声明包**（不提供任何工具）：需求 / 文档 / 设计·美化 / 实现 / 测试反馈 / 交付·仓库。按阶段裁工具面 —— 两个模式无写能力、测试反馈「能跑不能改」；一律不挂 `tool-goal`/`tool-ralph`，做完就停，阶段推进只能由人换模式。**Unity MCP 只挂给 `impl` / `verify`**（无 shell 的模式不得持有编辑器代码执行通道） | 无 | `install-agent-modes` |
 
 > 单工具旧包（`audio-read` / `audio-speak` / `video-read` / `document-read` /
 > `deepseek-balance` / `deepseek-recharge`）为 DEPRECATED，**已于 2026-09-28 从仓库移除**（git 历史保留），

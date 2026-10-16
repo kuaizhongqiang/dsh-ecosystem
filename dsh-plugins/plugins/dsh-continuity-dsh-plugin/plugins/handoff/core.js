@@ -153,6 +153,38 @@ function safe(fn) {
 
 const TODO_MARK = { completed: '[x]', in_progress: '[~]', pending: '[ ]' }
 
+/**
+ * 「薄交接」警告文本（正文与返回值共用同一份，保证接手会话读到的与调用方看到的一致）。
+ *
+ * 真机事故：源会话没有 goal、没有已批准计划、没有 todo，调用方也没传 brief，
+ * 于是交接文档里「目标/计划/待办」全是"无"，接手会话拿到一份空任务书后
+ * 只能自行满世界探测环境（实测它去用 Unity 的 execute_code 扫 PATH 找 node）。
+ * 这种交接必须被显式警告，而不是静默生成。
+ */
+export const THIN_HANDOFF_WARNING = [
+  '> ⚠️ 薄交接警告：本次交接没有实质任务内容。',
+  '>',
+  '> - 源会话没有 goal、没有已批准的计划文本、也没有 todo 快照，且调用方未提供 `brief`。',
+  '> - 接手会话会拿到一份「目标 / 计划 / 待办」全为空的空任务书，只能自行探测环境'
+    + '（真机曾出现接手会话跑去扫 PATH 找 node 的情况）。',
+  '> - 建议调用方重跑 handoff 并显式传 `brief`，写明：目标 / 已完成 / 在途 / 下一步 / 关键决策 / 文件清单 / 未决问题。',
+].join('\n')
+
+/**
+ * 薄交接判定：**同时**满足下列全部条件才算 ——
+ * 调用方没写 brief；源会话没有 goal；没有已批准的计划文本；没有 todo 条目。
+ * @param state - collectHandoffState 的结果
+ * @param options - runHandoff 的 options（只看 brief）
+ */
+export function isThinHandoff(state, options = {}) {
+  const hasOwnBrief = typeof options.brief === 'string' && options.brief.trim() !== ''
+  if (hasOwnBrief) return false
+  if (state?.goal?.goal) return false
+  if (typeof state?.planText === 'string' && state.planText.trim() !== '') return false
+  if (Array.isArray(state?.todos) && state.todos.length > 0) return false
+  return true
+}
+
 /** 渲染交接文档（Markdown，确定性、无模型调用）。 */
 export function renderBrief(state, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date(options.now ?? Date.now())
@@ -165,6 +197,12 @@ export function renderBrief(state, options = {}) {
   lines.push(`- 源会话消息数：${state.messageCount ?? 0}`)
   if (options.note) lines.push(`- 交接备注：${options.note}`)
   lines.push('')
+
+  // 薄交接：警告必须落在文档正文里（接手会话读文档时看得到），不能只写在返回值里。
+  if (options.thinHandoff) {
+    lines.push(THIN_HANDOFF_WARNING)
+    lines.push('')
+  }
 
   lines.push('## 目标（goal）')
   if (state.goal?.goal) {
@@ -264,9 +302,11 @@ export async function runHandoff(deps, options = {}) {
   }
 
   const now = deps.now?.() instanceof Date ? deps.now() : new Date(deps.now?.() ?? Date.now())
+  // 薄交接（无 goal / 无计划 / 无 todo / 无调用方 brief）：警告同时进正文与返回值。
+  const thinHandoff = isThinHandoff(state, options)
   const briefBody = typeof options.brief === 'string' && options.brief.trim()
     ? options.brief.trim()
-    : renderBrief(state, { now, note: options.note, nextStep: options.nextStep })
+    : renderBrief(state, { now, note: options.note, nextStep: options.nextStep, thinHandoff })
 
   const root = deps.home()
   const dir = joinPath(root, 'handoff', slugifyCwd(state.cwd))
@@ -298,6 +338,7 @@ export async function runHandoff(deps, options = {}) {
         `（latest.md 同步更新）`,
         `会创建的会话：workspace=${state.cwd ?? '未知'}；模式=${presetLabel}；goal 克隆=${state.goal?.goal ? '是' : '否'}`,
         '未创建任何会话。去掉 dryRun 才真正执行。',
+        ...(thinHandoff ? ['', THIN_HANDOFF_WARNING] : []),
       ].join('\n'),
     }
   }
@@ -370,6 +411,7 @@ export async function runHandoff(deps, options = {}) {
       `- 交接文档：${briefPath}`,
       `- goal 克隆：${goalCloned ? '是（轮次归零、active）' : '无'}`,
       `- 下一步：在左侧会话列表点开这条新会话即可看到它在跑${goalNote}`,
+      ...(thinHandoff ? ['', THIN_HANDOFF_WARNING] : []),
     ].join('\n'),
   }
 }

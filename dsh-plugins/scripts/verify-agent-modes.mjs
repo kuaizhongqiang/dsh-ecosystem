@@ -189,6 +189,11 @@ for (const preset of presets) {
   if (!TERMINAL_MODES.has(preset.preset) && refs.length === 0) {
     problems.push(`${preset.preset}: 非终点模式必须在「阶段交接：」里给出下一阶段(preset: '<id>')`)
   }
+  // 交接必须自带 brief:源会话没有 goal / 计划 / todo 时,handoff 生成的会是一份空任务书
+  // (2026-10-16 真机出现过 —— 接手会话只能自己去满世界探测环境)。
+  if (!TERMINAL_MODES.has(preset.preset) && !preset.persona.includes('brief')) {
+    problems.push(`${preset.preset}: 「阶段交接：」里没有要求显式传 brief(薄交接会生成空任务书)`)
+  }
 }
 
 if (problems.length > 0) {

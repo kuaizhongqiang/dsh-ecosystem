@@ -27,7 +27,7 @@
 
 | 工具 | 说明 |
 |---|---|
-| `handoff_start` | 与 `/handoff` 同一实现。`brief` 参数允许**模型自己写**一份更好的交接文档（替换确定性生成的那份）；`dryRun=true` 只写文档、不建会话；`nextStep` / `note` 补充文档内容；`preset` 指定接手会话的模式（见下）。 |
+| `handoff_start` | 与 `/handoff` 同一实现。`brief` 参数允许**模型自己写**一份更好的交接文档（替换确定性生成的那份）；`dryRun=true` 只写文档、不建会话；`nextStep` / `note` 补充文档内容；`preset` 指定接手会话的模式（见下）。源会话无 goal / 计划 / todo 且未传 `brief` 时会打**薄交接警告**（文档正文与返回值都有）—— 那种情况应当补 `brief`。 |
 
 命令面是给人用的（不进模型历史，也不产生 token）；工具面是给模型用的——它可以在
 自己判断上下文吃紧时主动交接，或把交接文档写成模型视角的高质量版本。
@@ -42,6 +42,7 @@
 | 接手会话用哪个模式 | **默认继承源会话**；`--preset <id>` / `preset` 可显式指定 | 让「阶段模式」串起来：需求 → 设计 → 实现 → 验证，每一步交给下一个模式（见 `dsh-plugins/README.md` §与 agent-modes 的关系） |
 | 上下文与 KV 缓存 | **可丢** | 交接文档承担"记性"，不靠 prompt cache |
 | todo | **不继承**（写进文档） | `todos` 投影遇 `turn/start` 重置，预置必被抹掉；由接手会话 `todo_write` 重建 |
+| 交接内容全空（无 goal / 计划 / todo 且无 `brief`） | **仍执行，但正文与返回值都打薄交接警告** | 空任务书会让接手会话满世界探测环境（2026-10-16 真机：接手会话跑去扫 PATH 找 node） |
 
 ## 安装
 
@@ -62,7 +63,7 @@ JavaScript module generation」），只有 config 改动可热应用。配套�
 ## 验证
 
 ```bash
-node scripts/verify-continuity.mjs     # 纯逻辑（桩 deps）+ 包结构 + 卸载节剥离，83 项
+node scripts/verify-continuity.mjs     # 纯逻辑（桩 deps）+ 包结构 + 卸载节剥离，109 项
 ```
 
 覆盖：plan 模式拒绝、dry-run 不建会话、goal 克隆参数（objective/maxGoalRounds/不 pause）、
