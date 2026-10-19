@@ -3870,11 +3870,24 @@ function registerSectorTools(ctx, dataRoot) {
       const names = {}
       for (const symbol of SECTOR_POOL) names[symbol] = cache[symbol]?.name ?? symbol
 
+      // 评估日必须落在「基准有值 且 ≥80% 成分有收盘」的范围内：
+      //   · 盘中/盘后早段 fetchBenchBars 会带回未定稿的当日基准 bar，而成分 K 线最新只到 T-1，
+      //     若直接取最后一天，量能/额占比/水位会按"只有基准"算成全 0（实测 09:50 调用全 0）；
+      //   · 单只标的被盘中 ad-hoc 刷新也会把并集日轴顶到最新，同样按噪声聚合。
+      // 因此默认回退到最近的可评估定稿日（等价于日层 dataDate = 最近定稿交易日）。
       let i = series.days.length - 1
+      const coverage = (idx) => SECTOR_POOL.filter((s) => series.close[s]?.[series.days[idx]] !== undefined).length / SECTOR_POOL.length
+      const usable = (idx) => series.bench[series.days[idx]] !== undefined && coverage(idx) >= 0.8
       if (args.date !== undefined && args.date !== '') {
         const found = series.days.indexOf(args.date)
         if (found < 0) throw new Error(`sector_panel: 缓存中没有 ${args.date} 这个交易日`)
+        if (!usable(found)) {
+          throw new Error(`sector_panel: ${args.date} 还不是可评估日（基准缺失或成分覆盖 <80%）——当日未定稿，或 K 线缓存未刷新到该日`)
+        }
         i = found
+      } else {
+        while (i > 0 && !usable(i)) i -= 1
+        if (!usable(i)) throw new Error('sector_panel: 没有可评估的定稿日（基准有值且成分覆盖 ≥80%），先调用 stock_daily_collect')
       }
       if (i < 21) throw new Error('sector_panel: 缓存交易日不足，先调用 stock_daily_collect')
       const date = series.days[i]
