@@ -3290,8 +3290,8 @@ function renderMiddayReview(value) {
 }
 
 // =========================================================================
-// 四块信号模型（见 playbook.md）：sector_panel / order_calibration
-// 电力设备/航天卫星 = 可交易；券商/石油 = 只做信号、不建头寸。
+// 板块信号模型（见 playbook.md）：sector_panel / order_calibration
+// 五块：电力设备 / 航天卫星 / 煤飞色舞 = 可交易；券商/石油 = 只做信号、不建头寸。
 // 资金观（用户口径）：A 股以存量资金为主，板块间是零和轮动，因此
 //   (1) 额占比"变化"比绝对量更有意义（占比上升 = 从别的板块抽血）；
 //   (2) 全池总量水位决定是纯存量博弈还是可能有增量；
@@ -3323,6 +3323,16 @@ const BROKER = [
 ]
 /** 石油 —— 信号块（牛市收尾，仅牛市监听）。 */
 const OIL = ['sh600028', 'sh601857', 'sh600688', 'sh600871']
+/** 煤飞色舞 · 煤炭 —— 2026-10-14 按用户口径新增（见 pools.json「煤飞色舞」池）。 */
+const COAL = [
+  'sh601088', 'sh601225', 'sh601898', 'sh600188', 'sh601001',
+  'sh600256', 'sh600403', 'sh600121', 'sh600792', 'sh600408',
+]
+/** 煤飞色舞 · 有色金属 —— 去黄金/去铜：铝、稀土、钨钼、铅锌锡。 */
+const NONFERROUS = [
+  'sz000807', 'sz000933', 'sz002532', 'sh601600',
+  'sh600111', 'sh600549', 'sh601958', 'sz000426',
+]
 
 // 已移出股池（主题不符）：中航沈飞/中航西飞/航发动力（航空整机，非"航天卫星"）、
 // 国网英大（主业金融）；锂电新能源 5 只（宁德/亿纬/国轩/阳光/汇川）因主题不符
@@ -3339,12 +3349,18 @@ const SECTOR_BLOCKS = [
     ],
   },
   { key: 'space', name: '航天卫星', tradable: true, layers: [{ name: '航天卫星', members: SPACE }] },
+  {
+    key: 'coal',
+    name: '煤飞色舞',
+    tradable: true,
+    layers: [{ name: '煤炭', members: COAL }, { name: '有色金属', members: NONFERROUS }],
+  },
   { key: 'broker', name: '券商', tradable: false, layers: [{ name: '券商', members: BROKER }] },
   { key: 'oil', name: '石油', tradable: false, layers: [{ name: '石油', members: OIL }] },
 ]
 
-/** 池内全部标的（面板与标定共用）。 */
-const SECTOR_POOL = [...POWER_DEF, ...POWER_EQ, ...SPACE, ...BROKER, ...OIL]
+/** 池内全部标的（面板与标定共用）：五块 74 只。 */
+const SECTOR_POOL = [...POWER_DEF, ...POWER_EQ, ...SPACE, ...COAL, ...NONFERROUS, ...BROKER, ...OIL]
 /** 市场基准。 */
 const SECTOR_BENCH = 'sh000300'
 /** 券商异动阈值（疑似启动；确认还需连续 2 日 + 大盘站上 MA20）。 */
@@ -3702,7 +3718,7 @@ function padCell(text, width) {
 
 function renderSectorPanel(model) {
   const lines = []
-  lines.push(`【四块信号面板】基准日 ${model.date}`)
+  lines.push(`【板块信号面板】基准日 ${model.date}`)
   lines.push(`${padCell('块/子层', 16)}${padCell('1日%', 8)}${padCell('5日%', 8)}${padCell('20日%', 9)}${padCell('RS20', 9)}${padCell('额占比', 8)}${padCell('量能×', 8)}${padCell('上涨%', 7)}${padCell('β', 7)}象限`)
   for (const block of model.blocks) {
     const b = block.unit
@@ -3736,7 +3752,7 @@ function renderSectorPanel(model) {
 function registerSectorTools(ctx, dataRoot) {
   ctx.tools.register(defineTool({
     name: 'sector_panel',
-    description: '四块信号模型面板（电力设备/航天卫星=可交易，券商/石油=只做信号、不建头寸）：输出每块的 1/5/20 日收益、'
+    description: '板块信号面板（五块：电力设备/航天卫星/煤飞色舞=可交易，券商/石油=只做信号、不建头寸）：输出每块的 1/5/20 日收益、'
       + '相对沪深300 超额（RS20）、成交额占比及其量能倍数、上涨家数、β 与四象限判定；输出板块龙头与量能是否背离'
       + '（放量而龙头不涨=资金分散/出货，缩量而龙头独强=存量抱团）、全池资金水位（存量还是增量）、大盘状态机'
       + '（牛/震荡/熊）、券商牛市启动信号、石油牛市收尾信号，以及每块/子层对应的挂单深度规则。每次盘后挂单前用它'
