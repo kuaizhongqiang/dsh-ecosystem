@@ -7,7 +7,7 @@
 | 生态位 | L5 记忆层：把第三方记忆引擎接入 DSH 与其它 Agent 平台 |
 | 并入 HEAD | `4080826`（含 1 笔当时未提交的 autostore 修复，已随并入落库） |
 | 当前版本 | 0.3.0（`agent-memory/package.json`） |
-| 引擎 | **第三方上游**：[TencentCloud/TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory)（MIT）。本团队部署验证 ref：分支 `upgrade-v2.0.1`（**本地部署分支，不回推上游**），故不按 submodule 锁基线 |
+| 引擎 | **第三方上游**：[TencentCloud/TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory)（MIT）。本团队部署验证 ref：分支 `upgrade-v2.0.3` @ tag **`v2.0.3`**（`084bed4`，2026-10-27 升级；**本地部署分支，不回推上游**），故不按 submodule 锁基线 |
 
 ## 角色：三层职责
 
@@ -101,7 +101,16 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 - **`cordis.patch.yml` 的 `name` 不能写 `?v=N`**：本部署 loader 把查询串当字面路径，
   实测报 `ERR_MODULE_NOT_FOUND` 并让整棵插件树加载失败（2026-09-13 实测）。改插件后建议重启
   （实测有时会被热加载，不可依赖）。
-- 引擎用本地部署分支，升级须人工验证并记录 ref（不随伞仓 tag 自动推进）。
+- 引擎用本地部署分支，升级须人工验证并记录 ref（不随伞仓 tag 自动推进）。最近一次：
+  **v2.0.3-beta.1 → v2.0.3（2026-10-27）**，过程与备份/回滚点见 [WORKLOG](../WORKLOG.md)。
+- **本机 pnpm 补丁（v2.0.3 起必要）**：`MemoryKnowledge` 的 PDF 抽取靠 `officeparser` 在 Node 下
+  `require.resolve('pdfjs-dist/...')` 找 worker，而 pnpm 严格布局不把传递依赖 `pdfjs-dist` 提到顶层 →
+  启动 warn `PDF_WORKER_MISSING`（PDF 导入必失败）。修复写在本机 **untracked** 的
+  `MemoryKnowledge/pnpm-workspace.yaml`：`publicHoistPattern: [pdfjs-dist]`，再 `CI=true pnpm install`
+  （hoist 布局变更会重建 modules，非 TTY 下必须带 `CI=true`）。上游用 npm（新增 `package-lock.json`）无此问题。
+- **构建类安装别在 `NODE_ENV=production` 下跑 npm**：会静默 omit devDependencies（`MemoryPanel/web`
+  的 `tsc` 就报 `react-dom/client` 缺类型）；用 `NODE_ENV=development npm install --include=dev`，
+  且**别用 `cmd | tail` 取退出码**（管道会把失败吞成 0）。
 - Windows 下引擎侧需 WSL2/docker；native 插件与 autostore 计划任务可用。
 
 ## 相关文档

@@ -1,5 +1,77 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-10-27(二)引擎升到 TencentDB-Agent-Memory v2.0.3(beta.1 → 正式版)
+
+**用户诉求**:「TencentDB-Agent-Memory 有 github 新版本,你给本机的更新一下」。上游 2026-10-26 发了
+`v2.0.3` 正式版,本机跑的是 `v2.0.3-beta.1`(2026-10-13),同一分支快进 137 文件。
+
+### 版本与前置
+
+- 上游最新 = `v2.0.3`(`084bed4`,2026-10-26),`git ls-remote --tags` 复核无更新版本;本地部署分支
+  `upgrade-v2.0.3` 原本停在 `badbd21`(= `v2.0.3-beta.1`),`merge-base --is-ancestor` 确认可快进。
+- 工作区 tracked 干净、无本地功能补丁;17 个 untracked 全是本机定制(`start-gateway-full.sh`、
+  `tdai-gateway.full.yaml`、`MemoryKnowledge/{pnpm-workspace.yaml,data/}` 等),逐条比对确认**不在**
+  v2.0.3 跟踪树里 → 快进不会覆盖。
+- 只读兼容审计(teammate):`MemoryCore/src/gateway/*` 与 metadata DDL 两版逐字相同 → 本机
+  `tdai-gateway.full.yaml` 顶层键全部有效、无新增必填、**无 schema 迁移**;`/v3` 路由只 +2 条零删除。
+  据此判定「可直接升」。
+
+### 执行(停机窗口 09:54 → 10:02)
+
+1. **备份先就位**:`~/backup-memory-v203-20261027-1000/` —— 回滚 tag
+   `pre-upgrade-v2.0.3-final-20261027-1000`、数据冷备 `memory-tdai.tar.gz`(205M→89M)、
+   `repo-all-refs.bundle`(38M)、5 个本机定制文件、systemd 单元快照、升级前健康快照。
+2. 停 4 个引擎服务 + autostore → 冷备 → `git merge --ff-only v2.0.3` → 装依赖 → 重建产物 → 逐级起服务。
+3. **依赖**:Knowledge `pnpm install`(+`officeparser 8.2.0`、`fflate`,富文档导出的静态 import 链,
+   漏装 Knowledge 直接起不来);Panel/web `npm install`(+`docx-preview`/`fflate`/`xlsx`)。
+   Core / Proxy / Panel(tsc) 的 package.json 未变,未动。
+4. **产物**:`MemoryPanel` `tsc` → `dist/`;`MemoryPanel/web` `vite build` → `web/dist/`
+   (`UI_DIST_DIR` 默认 `./web/dist`,只重建一个会出现后端新/前端旧)。
+
+### 踩到的三个坑(都已修)
+
+1. **`NODE_ENV=production` 让 npm 跳过 devDependencies**:本会话环境继承 `NODE_ENV=production`,
+   `npm install` 静默 omit `dev` → `web` 构建 `tsc` 报 `TS7016: react-dom/client 缺类型`,而
+   `npm run build | tail` 的管道把退出码吞成 0(差点误判成功)。修:构建类安装一律
+   `NODE_ENV=development npm install --include=dev`,并且**用 `set -o pipefail` 取真实退出码**。
+2. **pnpm 严格布局让 PDF worker 解析不到**:v2.0.3 的富文档走 `officeparser`,它在 Node 下用
+   `require.resolve('pdfjs-dist/legacy/build/pdf.worker.min.mjs')` 找 worker;`pdfjs-dist` 只是
+   officeparser 的传递依赖,pnpm 不提升到顶层 → 启动即 warn `PDF_WORKER_MISSING`(PDF 抽取必失败)。
+   修:在**本机 untracked** 的 `MemoryKnowledge/pnpm-workspace.yaml` 追加 `publicHoistPattern: [pdfjs-dist]`
+   再 `CI=true pnpm install`(hoist 布局变更需重建 modules,非 TTY 下不加 `CI=true` 会
+   `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`);**不改 package.json**,且顺带绕开
+   「pnpm 不读 package.json 顶层 `overrides`」那条(实测 OTel 仍解析到钉住的 core 2.8.0 / sdk 0.219.0)。
+3. **gateway 不吃 SIGTERM**:`systemctl stop memory-gateway-full` 会卡满 90s TimeoutStopSec 再被 SIGKILL
+   才退出(既有行为,非本次引入)。停机前先 `stop`,数据为冷备 + `sqlite3 vectors.db "PRAGMA quick_check"`
+   已验 `ok`,WAL 留到下次启动回放。
+
+### 验收(全过)
+
+- 5 个单元 active:`memory-gateway-full` / `memory-knowledge` / `memory-panel` / `memory-proxy` /
+  `octop-memory-autostore`;端口 8422 / 8421 / 8096 / 8123 全在听。
+- `/health`:8422 `status:ok, stores.ftsAvailable:true`、storage 仍是 `local:/home/kuai/memory-tdai`;
+  8421 `ok`(启动约 20s,含 wiki 索引 restore 2 个 / 122 页);8096 `ok` 且多出 v2.0.3 的 `config` 字段
+  (`{"version":1,"hash":"…"}`)。
+- 面板:`:8123/` 200,产物 hash 已换新(`main-BTt32AY0.js`),bundle 内含 `user-session-default` /
+  `sessionDefault` 与 `docx-preview` 独立 chunk → 会话默认绑定 + 富文档预览都编译进去了。
+- L0 写入:`POST /v3/session/add` 落盘 `sessions/online/team-upgrade-smoke/…json`(用隔离 team 做冒烟,
+  不污染本团队 L1),证明 v2.0.3 新增/变更链路可用。
+- dsh 侧真打引擎:`recall_memory` 返 L1 事实 + persona/场景索引、`code_graph_list` 返 3 个 ready 索引
+  (Knowledge 重启时 auto-sync 时间戳已刷新),native 插件通道无 `mcp__` 前缀、无需重启 dsh。
+- 非回归:`memory-proxy` 的 `connectivity.check auth/creditReport FAIL` 与 `[file-logger] EACCES /data/log/`
+  都是升级前就有的(8420 无监听属既有配置:proxy 指 8420、实际 gateway 在 8422),与本次无关。
+
+### 遗留与回滚
+
+- 冒烟数据留在 `memory-tdai/sessions/online/team-upgrade-smoke/`(隔离 team,无害,可删)。
+- 停机窗口 09:54–10:01 之间的 dsh 轮次 L0 **未入库**——native 采集是 fire-and-forget,引擎不可达即丢;
+  需要回填用 `agent-memory/scripts/dsh-memory-autostore.mjs --backfill`。
+- 回滚:`git reset --hard pre-upgrade-v2.0.3-final-20261027-1000` → 还原备份里 3 个本机配置
+  (`start-gateway-full.sh`/`tdai-gateway.full.yaml`/`MemoryProxy/config.yaml`)+
+  `MemoryKnowledge/pnpm-lock.yaml` → 重装依赖 → 起服务。数据回滚用 `memory-tdai.tar.gz`。
+- **不推上游**:本地分支 `upgrade-v2.0.3` 只在本机,升级 ref 记在这里与
+  [agent-memory.md](modules/agent-memory.md),不随伞仓 tag 自动推进。
+
 ## 2026-10-16(二·续三)合并文档模式 + 审阅改走 teammate + Unity 通道收边
 
 **四条根因,一并修掉。**

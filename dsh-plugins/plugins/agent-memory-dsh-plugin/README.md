@@ -39,7 +39,8 @@
 
 ```bash
 git clone https://github.com/TencentCloud/TencentDB-Agent-Memory
-# 本团队部署验证过的 ref：分支 upgrade-v2.0.1（本地部署分支，含 pnpm 11 lockfile 重建，不回推上游）
+# 本团队部署验证过的 ref：分支 upgrade-v2.0.3 @ tag v2.0.3（本地部署分支，含 pnpm 11 lockfile 重建，不回推上游）
+# 注意 v2.0.3 起 MemoryKnowledge 的 PDF 抽取靠 pnpm 提升 pdfjs-dist（本机补丁见 docs/modules/agent-memory.md）
 ```
 
 服务与端口：`MemoryCore` :8422（v3 元数据/gateway）、`MemoryKnowledge` :8421（knowledge + code-graph）、
