@@ -23,6 +23,8 @@ import {
   createMemoryClient,
   createMetaClient,
   createTaskBindingStore,
+  cwdOfExec,
+  sessionIdOfExec,
   composeBrief,
   digestPersona,
   explainCodeGraphFailure,
@@ -297,6 +299,9 @@ async function mockTests() {
   try { resolveTaskId({ taskId: 'agt-abc' }, '/x') } catch (e) { tid = e }
   ok(tid && /身份 id/.test(tid.message), '5-2 拒绝身份前缀当 task_id')
   ok(textOf([{ type: 'text', text: 'a' }, { type: 'tool_use' }]) === 'a', '5-3 textOf 只取文本块')
+  ok(sessionIdOfExec({ agent: { id: 'session-abc' } }) === 'session-abc', '5-4 会话 id 取 exec.agent.id（ToolRunContext 无 exec.session.id）')
+  ok(sessionIdOfExec({ session: { id: 'session-fallback' } }) === 'session-fallback', '5-5 回落 exec.session.id')
+  ok(cwdOfExec({ session: { header: { cwd: '/a/b' } } }) === '/a/b', '5-6 cwd 取 session.header.cwd')
 
   console.log('5b. 会话级 task 绑定（P2）')
   const bdir = mkdtempSync(join(tmpdir(), 'am-bind-'))

@@ -52,6 +52,16 @@ export async function resolveSecretValue({
   return { value: undefined, source: 'none' }
 }
 
+/** 工具执行上下文里的会话 id：DSH 的 Agent.id 就是 SessionId（session-backed agent）。 */
+export function sessionIdOfExec(exec) {
+  return exec?.agent?.id ?? exec?.session?.id ?? exec?.sessionId
+}
+
+/** 工具执行上下文里的会话 cwd（session.header.cwd，运行时也可从 agent.session 取）。 */
+export function cwdOfExec(exec) {
+  return exec?.session?.header?.cwd ?? exec?.agent?.session?.header?.cwd
+}
+
 export function dshHome() {
   return process.env.DSH_HOME || join(homedir(), '.dsh')
 }
@@ -102,7 +112,7 @@ export function createTaskBindingStore(options = {}) {
       return data.sessions[sessionId]
     },
     set(sessionId, binding) {
-      if (!sessionId) throw new Error('task_bind 需要当前会话 id（拿不到 exec.session.id）')
+      if (!sessionId) throw new Error('task_bind 需要当前会话 id（拿不到 exec.agent.id / exec.session.id）')
       const taskId = String(binding?.task_id || '').trim()
       if (!taskId) throw new Error('task_bind 需要非空 task_id')
       data = {

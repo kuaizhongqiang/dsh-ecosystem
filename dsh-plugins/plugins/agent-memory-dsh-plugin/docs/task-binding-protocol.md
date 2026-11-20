@@ -106,7 +106,7 @@ worker 只接受 `task_create` 返回值或 `task_list` 里的 id，**任何自�
 
 ## 6. 验收
 
-1. `node plugins/agent-memory-native/selftest.mjs` → **67 ok / 0 FAIL**（含 5b 绑定、5c meta、5d brief 预算断言）。
+1. `node plugins/agent-memory-native/selftest.mjs` → **70 ok / 0 FAIL**（含 5b 绑定、5c meta、5d brief 预算断言）。
 2. 真实引擎：建任务 → 绑定 → `echoOf` 回显 `task_id` 一致 → 聊一轮 → 查 `l1_records` / `l0_conversations` 该行 `task_id` = 绑定值。
 3. 解绑/关闭后，新写入回到 `config.taskId` 桶。
 4. 绑定文件只含 `task_id/title/bound_at`，**不含任何 key**。

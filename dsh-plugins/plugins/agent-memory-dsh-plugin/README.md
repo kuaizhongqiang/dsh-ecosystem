@@ -166,7 +166,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 
 ## 验收
 
-1. **离线自检**（纯逻辑层，不需要 dsh）：`cd plugins/agent-memory-native && node selftest.mjs` → **67 ok**
+1. **离线自检**（纯逻辑层，不需要 dsh）：`cd plugins/agent-memory-native && node selftest.mjs` → **70 ok**
    （含 code-graph 诊断、会话绑定、meta 通道、brief 预算断言）。
 2. **真实引擎自检**：`node selftest.mjs --live`（只读）/ `--live --live-write`（含一次 L0 写入自检）；
    配置从环境变量或 profile 的 `cordis.patch.yml` 自动解析（native 与旧 mcp 条目都认）。

@@ -28,6 +28,8 @@ import {
   createCodeGraphClient,
   createMemoryClient,
   createMetaClient,
+  cwdOfExec,
+  sessionIdOfExec,
   createTaskBindingStore,
   defaultStatePath,
   defaultTaskBindingPath,
@@ -204,8 +206,8 @@ export function apply(ctx, config) {
       }),
     )
 
-  const cwdOf = (exec) => exec?.session?.header?.cwd
-  const sessionIdOf = (exec) => exec?.session?.id
+  const cwdOf = (exec) => cwdOfExec(exec)
+  const sessionIdOf = (exec) => sessionIdOfExec(exec)
   /** 统一的隔离上下文：读写都要带 sessionId，绑定才生效。 */
   const ctxOf = (exec) => ({ cwd: cwdOf(exec), sessionId: sessionIdOf(exec) })
   const echoOf = (ctx) => contextEcho(config, ctx.cwd, undefined, ctx.sessionId, bindingStore)
