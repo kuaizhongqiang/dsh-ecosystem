@@ -13,9 +13,9 @@
 |---|---|---|
 | 载体 | 一个原生 cordis 插件 `tool-agent-memory`（`plugins/agent-memory-native/`） | 两条 `@deepseek-ai/dsh-mcp-client` 通道 |
 | 工具 | 17 个，工具名**无前缀**：`memory_brief` + `recall/store/search` + `task_*` ×5 + `code_*` ×8 | 9 个 memory 工具（`mcp__agent-memory__*`，含 `memory_brief` / `task_*`）+ 5 个 codegraph 工具（`mcp__agent-memory-codegraph__code_*`） |
-| 依赖 | **零外部依赖**（只用 fetch 打引擎 HTTP） | `npx tencent-agent-memory-mcp-bridge@0.5.0`（TBP；0.5.0 未发布前用本地 `dist/index.js`）+ 本地 codegraph server 子进程 |
+| 依赖 | **零外部依赖**（只用 fetch 打引擎 HTTP） | 本地源码构建的 `dist/index.js`（TBP，推荐）；或 `npx tencent-agent-memory-mcp-bridge@0.4.0`（旧 3 工具，0.5.0 未发布前） |
 | 自动入库 | **进程内**：`ctx.on('session/event')` 在 `turn/end` 直提 L0 | 外部守护（Linux systemd / Windows 计划任务）扫 `sessions/` 提交 |
-| 适合 | DSH 本机（默认） | 其它平台（Claude Code / CodeBuddy / OpenClaw）与无插件能力的 headless 场景 |
+| 适合 | DSH 本机（默认） | 其它平台（Claude Code / CodeBuddy）与无插件能力的 headless 场景（OpenClaw 已停止支持） |
 
 去重游标两种模式**共用** `%DSH_HOME%/.dsh-memory-autostore-state.json`（按 `session_id + turn`），
 因此来回切换不会重复提交。
@@ -206,5 +206,5 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 ```
 
 只剥离插件侧内容（native 载荷 + MCP 载荷 + cordis 标记块 + autostore 守护/计划任务）；
-**不动** `~/.openclaw/memory-tdai/` 记忆数据，也不动第三方引擎。手工添加的旧条目（无
+**不动** 引擎 `data.baseDir` 下的记忆数据，也不动第三方引擎。手工添加的旧条目（无
 `# >>> agent-memory-dsh-plugin:` 标记）本包不会擅自动，会提示你手工处理。

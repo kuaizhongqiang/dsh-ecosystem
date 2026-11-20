@@ -1,10 +1,14 @@
 # TencentAgentMemoryBridge
 
-围绕 [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) **团队版 v2.0.0**（`feat/server_team` 分支）构建的记忆桥梁——把 4 层长期记忆能力（L0 对话 → L1 原子事实 → L2 场景 → L3 画像）接入不同的 AI Agent 平台。
+围绕 [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) **团队版 v2.0.4**（`feat/server_team` 分支）构建的记忆桥梁——把 4 层长期记忆能力（L0 对话 → L1 原子事实 → L2 场景 → L3 画像）接入不同的 AI Agent 平台。
 
 **不造轮子**：记忆引擎能力全部由 TencentDB Agent Memory 提供，本仓库只做协议桥接。团队版引入 **MemoryProxy**（透明 LLM 代理）与 **v3 isolation**（`team / agent / user` 三元组），旧 `/capture` `/recall` 与 sender 隔离已被取代。
 
 > 权威设计见 [docs/team-edition-role-model.md](docs/team-edition-role-model.md)（三角色模型 + v3 接入）。
+>
+> ⚠️ **2026-11-20 起停止支持 OpenClaw**：本仓不再维护/跟进 OpenClaw 接入（上游官方插件路线与 TBP 分叉），
+> `docs/openclaw-plugin-v3.md` 仅作历史存档。长期记忆请走 **mcp-bridge 0.5.0**（Claude Code / CodeBuddy）
+> 或 **DSH native**（17 工具）。
 
 ## 架构
 
@@ -28,7 +32,7 @@
 | ---- | ---- | ---- | ---- |
 | **MemoryProxy** | ✅ 团队版核心 | Claude Code / WorkBuddy | 透明 LLM 代理：URL `/{agent}/{spaceId}/v1/*` + header 预选；每轮对话自动回流 L0，L2/L3 自动注入 system prompt，无需显式工具调用 |
 | **mcp-bridge** | ✅ v3 + TBP（0.5.0） | MCP-only 客户端（Claude Code / CodeBuddy / **DeepSeek Harness**） | 直连 MemoryCore `/v3/*`；9 个 memory 工具（含 `memory_brief` / `task_*`）；配置隔离三元组 `TEAM_ID/AGENT_ID/USER_ID` + 可选 `TASK_ID`；工具结果回显 `_context`（含 `task_source`） |
-| **openclaw-plugin** | ✅ 官方插件 | OpenClaw | 上游官方实现，静态配置 `teamId / agentId / userId` |
+| **openclaw-plugin** | ❌ **已停止支持（2026-11-20）** | OpenClaw | 不再维护；文档仅存档，不保证可用 |
 | **bridge-server** | ❌ **已退役** | — | 旧 sender 鉴权/转发被团队版自带鉴权取代 |
 
 ### 核心原则
@@ -76,9 +80,11 @@ MCP 服务器，把记忆工具调用**直连** MemoryCore Gateway（团队版 `
 
 > ⚠️ 真实 key 只放本机 `.env` 或 MCP settings env，**不要提交到仓库**。
 
-### 3. OpenClaw（官方插件）
+### 3. OpenClaw（❌ 已停止支持）
 
-用上游官方 openclaw-plugin，静态配置 `teamId / agentId / userId`。见 [docs/openclaw-plugin-v3.md](docs/openclaw-plugin-v3.md)。
+**2026-11-20 起不再支持 OpenClaw**：上游官方插件与本仓 TBP 路线分叉，维护成本高于收益。
+本节及 [docs/openclaw-plugin-v3.md](docs/openclaw-plugin-v3.md) 仅作历史存档，不再保证可用。
+需要长期记忆请改用 **mcp-bridge 0.5.0** 或 **DSH native**。
 
 ### 4. DeepSeek Harness（DSH 原生 MCP）
 

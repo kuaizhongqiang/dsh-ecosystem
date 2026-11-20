@@ -8,6 +8,42 @@
 > 形态演进:直接工程(RESTRUCTURE)→ **monorepo**(本形态);dsh-remote 组件已移除(2026-09-04,
 > 内容归档于已归档的 kuaizhongqiang/dsh-remote)。
 
+## 2026-11-20 记忆系统更新（TBP v1）
+
+引擎升 **TencentDB Agent Memory v2.0.4**，DSH 接入器 **agent-memory-native v0.1.2**，MCP 桥 **0.5.0**。
+核心变化：`task_id` 从自由字符串升级为**服务端发号 + 会话级绑定**（Task Binding Protocol，TBP），
+召回改为**预算化简报**（`memory_brief`，默认 8000 字符 ≈ 2.7K token），不再默认注入 36KB 画像。
+
+| 接入 | 工具 | 状态 |
+|---|---|---|
+| DSH native（`tool-agent-memory`） | 17（9 memory + 8 codegraph） | ✅ 一等支持；serve 能力（`taskAdmin: true`） |
+| MCP 桥（Claude Code / CodeBuddy） | 9 memory（含 `memory_brief` / `task_*`） | ✅ 支持；0.5.0 未发布 npm，用源码 `dist/index.js` |
+| OpenClaw | — | ❌ **已停止支持**（见下） |
+
+要点：
+
+- `task_id` 优先级：**会话绑定 > `TASK_ID` > cwd 目录名**；绑定落盘（`*.dsh-memory-task-bindings.json` /
+  `~/.tencent-agent-memory/task-bindings.json`），重启恢复；worker 只能 `task_bind`，不能自造 id。
+- serve 建任务由**部署方白名单**控制：native 用 `taskAdmin`，MCP 用 `TASK_ADMIN_AGENT_IDS`（默认空 = 全部拒绝）。
+- 只隔离 L0/L1；L2/L3 仍是 `(team, agent)` 级（任务结束、方法论留下）。
+- 旧调用与旧桶**行为不变**；31 个历史 `task_id` 只读保留，不迁移。
+- 协议全文：[`docs/task-binding-protocol.md`](dsh-plugins/plugins/agent-memory-dsh-plugin/docs/task-binding-protocol.md)；
+  升级记录：[`docs/WORKLOG.md`](docs/WORKLOG.md)（2026-11-20）。
+
+## 支持边界（2026-11-20 起）
+
+| 平台 | 状态 | 接入方式 |
+|---|---|---|
+| DSH web（native） | ✅ 一等支持 | `dsh-plugins/plugins/agent-memory-dsh-plugin`（17 工具） |
+| Claude Code | ✅ 支持 | `agent-memory/packages/mcp-bridge` 0.5.0（源码构建的 `dist/index.js`） |
+| CodeBuddy | ✅ 支持 | 同上 |
+| OpenClaw | ❌ **已明确放弃** | 不再维护、不再跟进、不保证可用；上游 `openclaw-plugin` 仅存档 |
+
+**为什么放弃 OpenClaw**：其接入走上游官方插件（钩子注入 + 3 个只读工具），与本仓的
+TBP（工具协议 + 会话绑定）是两条路线；维护两套语义的成本高于收益，且无法复用
+`memory_brief` / `task_*`。需要长期记忆请改走 **MCP 桥**或 **DSH native**。
+[`agent-memory/docs/openclaw-plugin-v3.md`](agent-memory/docs/openclaw-plugin-v3.md) 仅作历史存档。
+
 ## 仓库结构
 
 ```
@@ -20,7 +56,7 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 ├── dsh-cli/                    # L1.5 入口层(终端 CLI + 本机工具服务:给别的 agent 调 dsh;见 docs/dsh-cli-*.md)
 ├── dsh-plugins/                # L3 插件合集(默认清单 9 包 + install-* 技能)
 ├── dsh-vscode/                 # L4 VSCode 扩展
-├── agent-memory/               # L5 记忆层(我们的协议桥源码;记忆引擎为第三方上游)
+├── agent-memory/               # L5 记忆层(协议桥源码 + TBP v1;记忆引擎为第三方上游;OpenClaw 已停支持)
 └── deepseek-harness/           # ← 唯一 git 子模块(官方只读,按需 --init;桌面版 apps/desktop 在此)
 ```
 
@@ -31,7 +67,7 @@ dsh-ecosystem/                  # 单一权威 git(全部代码 + 历史)
 | [dsh-launcher](dsh-launcher/) | L0 载体(伞仓核心) | kuaizhongqiang/dsh-launcher | `979cec6` | 0.11.5 |
 | [dsh-cli](docs/dsh-cli-design.md) | **L1.5 入口层**(终端 CLI + 本机工具服务:让别的 agent 能调 dsh 执行任务) | 伞仓内目录 `dsh-cli/` | `0.11.0` | 0.11.5 |
 | [dsh-plugins](dsh-plugins/) | L3 插件(默认清单 9 包 + 技能) | kuaizhongqiang/dsh-plugins | `7a1b8a9` | 随伞仓 |
-| [agent-memory](agent-memory/) | L5 记忆层(协议桥: MCP 桥/HTTP 桥/autostore) | kuaizhongqiang/TencentAgentMemoryBridge | `4080826` | 0.3.0 |
+| [agent-memory](agent-memory/) | L5 记忆层(协议桥 + TBP v1: MCP 桥/HTTP 桥/autostore) | kuaizhongqiang/TencentAgentMemoryBridge | `4080826` | 0.3.0 / mcp-bridge 0.5.0 |
 | [dsh-vscode](dsh-vscode/) | L4 扩展(Open VSX + 优雅升级) | kuaizhongqiang/dsh-vscode | 随伞仓 | 0.11.5 |
 | [desktop](docs/modules/dsh-desktop.md) | L4 桌面客户端(**已归上游**;伞仓只镜像 win-x64 安装包) | deepseek-ai/deepseek-harness `apps/desktop` | 随子模块 | 0.1.7-rc.2 |
 | deepseek-harness | L2 本体(官方只读) | deepseek-ai/deepseek-harness | 子模块 `477b4f42` | — |

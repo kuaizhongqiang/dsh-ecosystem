@@ -71,6 +71,15 @@ userId/sessionId/taskId)。`meta_tasks` = **0 条** → task 只是 L0/L1 上的
   `agent-memory/packages/mcp-bridge/dist/index.js`（或 `pnpm pack` 后装 tgz）；`install.sh` 模板
   仍默认 `@0.4.0` 并加注释，避免装到不存在的版本。
 
+### 六、支持边界调整：停止支持 OpenClaw（2026-11-20，用户决定）
+
+- 明确放弃 OpenClaw：其接入走上游官方插件（钩子注入 + 3 个只读工具），与本仓 TBP（工具协议 +
+  会话绑定）是两条路线；维护两套语义成本高于收益，且无法复用 `memory_brief` / `task_*`。
+- 文档口径：根 README 增「支持边界」表 + 更新说明；`agent-memory/README.md`、插件 README、
+  `agent-memory/docs/openclaw-plugin-v3.md` 全部标注「已停止支持 / 仅存档」。
+- 支持矩阵收敛为：DSH native（17 工具，一等）、MCP 桥（Claude Code / CodeBuddy，9 memory 工具）、
+  OpenClaw（❌ 不支持）。
+
 ### 四、验证与遗留
 
 - `selftest.mjs` 离线 **67 ok / 0 FAIL**(新增 5b 绑定、5c meta、5d brief 预算);

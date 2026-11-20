@@ -1,5 +1,14 @@
 # OpenClaw 官方插件接入指南
 
+> ⛔ **已停止支持（2026-11-20）**
+>
+> 本仓不再维护、不再跟进 OpenClaw 接入：上游官方插件（钩子注入）与本仓 TBP（工具协议 + 会话绑定）
+> 是两条路线，维护两套语义的成本高于收益，且无法复用 `memory_brief` / `task_*`。
+> 本文仅作历史存档，**不再保证可用**。需要长期记忆请改用
+> **mcp-bridge 0.5.0**（Claude Code / CodeBuddy）或 **DSH native**（17 工具）。
+
+
+
 > **版本**: v0.3.0 · OpenClaw 接入团队版（MemoryCore `/v3/*`）
 > **状态**: 自研 openclaw-plugin 已退役，改用官方 `memory-tencentdb-client`
 
