@@ -1,3 +1,6 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 export interface McpConfig {
   /** MemoryCore Gateway 地址，如 https://memory.kuai-private.top */
   endpoint: string
@@ -19,6 +22,12 @@ export interface McpConfig {
   sessionKey: string
   /** 单次请求超时（毫秒） */
   timeoutMs: number
+  /** 会话级 task 绑定文件（TBP） */
+  taskBindingPath: string
+  /** serve 白名单：只有名单内的 AGENT_ID 可以 task_create / task_close（服务端部署控制） */
+  taskAdminAgentIds: string[]
+  /** memory_brief 字符预算 */
+  briefBudgetChars: number
 }
 
 function generateSessionKey(agentId: string): string {
@@ -101,5 +110,12 @@ export function loadConfig(): McpConfig {
     taskId,
     sessionKey: process.env.SESSION_KEY || generateSessionKey(agentId!),
     timeoutMs,
+    taskBindingPath:
+      process.env.TASK_BINDING_PATH || join(homedir(), '.tencent-agent-memory', 'task-bindings.json'),
+    taskAdminAgentIds: (process.env.TASK_ADMIN_AGENT_IDS || '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean),
+    briefBudgetChars: Number(process.env.BRIEF_BUDGET_CHARS ?? 8000) || 8000,
   }
 }

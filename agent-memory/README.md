@@ -27,14 +27,14 @@
 | 组件 | 状态 | 接入方 | 说明 |
 | ---- | ---- | ---- | ---- |
 | **MemoryProxy** | ✅ 团队版核心 | Claude Code / WorkBuddy | 透明 LLM 代理：URL `/{agent}/{spaceId}/v1/*` + header 预选；每轮对话自动回流 L0，L2/L3 自动注入 system prompt，无需显式工具调用 |
-| **mcp-bridge** | ✅ v3 重写（0.4.0） | MCP-only 客户端（Claude Code / CodeBuddy / **DeepSeek Harness**） | 直连 MemoryCore `/v3/*`，配置隔离三元组 `TEAM_ID/AGENT_ID/USER_ID` + 可选 `TASK_ID`；工具结果回显 `_context` 隔离域 |
+| **mcp-bridge** | ✅ v3 + TBP（0.5.0） | MCP-only 客户端（Claude Code / CodeBuddy / **DeepSeek Harness**） | 直连 MemoryCore `/v3/*`；9 个 memory 工具（含 `memory_brief` / `task_*`）；配置隔离三元组 `TEAM_ID/AGENT_ID/USER_ID` + 可选 `TASK_ID`；工具结果回显 `_context`（含 `task_source`） |
 | **openclaw-plugin** | ✅ 官方插件 | OpenClaw | 上游官方实现，静态配置 `teamId / agentId / userId` |
 | **bridge-server** | ❌ **已退役** | — | 旧 sender 鉴权/转发被团队版自带鉴权取代 |
 
 ### 核心原则
 
 - **v3 隔离三元组**：一切数据面读写都带 `team_id + agent_id + user_id`（可选 `task_id` 做项目级区分），取代旧 sender 白名单
-- **task_id 与身份严格分离**：`agent_id`（`agt-*`）是平台身份、跨项目不变；`task_id` 是项目级标签（目录名或显式 `TASK_ID`），**拒绝 `agt-`/`team-`/`usr-`/`sk-` 前缀**（mcp-bridge ≥ 0.4.0 启动即校验），杜绝身份 id 被当 task_id 用
+- **task_id 与身份严格分离**：`agent_id`（`agt-*`）是平台身份、跨项目不变；`task_id` 是项目级标签（目录名、显式 `TASK_ID` 或 `task_bind`），**拒绝 `agt-`/`team-`/`usr-`/`sk-` 前缀**（mcp-bridge ≥ 0.4.0 启动即校验）；0.5.0 起支持服务端发号 + 会话级绑定（TBP）
 - **单团队作用域**：`/v3/atomic/search`、`/v3/core/read`、`/v3/scenario/ls` 都在当前 team 内检索
 - **召回与写入分离**：L1 按需经工具查询；L0 由 MemoryProxy 透明回流或 mcp-bridge 显式/Stop hook 写入
 

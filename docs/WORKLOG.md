@@ -55,6 +55,22 @@ userId/sessionId/taskId)。`meta_tasks` = **0 条** → task 只是 L0/L1 上的
   `sk-mem-…` 字面值（仅用于断言「身份前缀不能当 task_id」），已改为 `sk-mem-fixture`。
 - 结论：本次提交不含任何真实 key；模板/示例统一用 `<...>` / `${ENV}`。
 
+### 五、MCP 桥 0.5.0：TBP 对齐（Claude Code / CodeBuddy / OpenClaw）
+
+- 工具 3 → **9**：`memory_brief`、`recall_memory`（persona 默认关、scenes 只返索引、type/时间窗）、
+  `store_memory`、`search_memories`、`task_create/bind/get/list/close`。
+- 会话级绑定：键 = `SESSION_KEY`，落盘 `~/.tencent-agent-memory/task-bindings.json`
+  （只存 task_id/title/bound_at，无 key）。
+- **serve 白名单**：`TASK_ADMIN_AGENT_IDS`（逗号分隔 AGENT_ID），默认空 = MCP 侧全部拒绝；
+  serve 能力仍保留给 DSH native（`taskAdmin: true`）。`USER_KEY` 只用于 `/v3/meta/*`。
+- 测试：`pnpm test` **29 passed**（新增 tbp.test.ts 8 项：meta header、绑定优先级、
+  未结任务筛选、brief 预算、摘要去 Scene Navigation）。
+- 真实引擎冒烟（AGENT_ID=codebuddy、白名单空）：tools/list 9、task_list 看到 `task-2duc7jbo9f`、
+  task_bind 后 `task_source=binding`、brief 1941/8000、`task_create` 被白名单拒绝。
+- 发布状态：**0.5.0 未上 npm**（本机 npm 未登录）。发布前 MCP 客户端把 `args` 指向本地
+  `agent-memory/packages/mcp-bridge/dist/index.js`（或 `pnpm pack` 后装 tgz）；`install.sh` 模板
+  仍默认 `@0.4.0` 并加注释，避免装到不存在的版本。
+
 ### 四、验证与遗留
 
 - `selftest.mjs` 离线 **67 ok / 0 FAIL**(新增 5b 绑定、5c meta、5d brief 预算);

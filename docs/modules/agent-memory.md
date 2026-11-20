@@ -38,7 +38,7 @@ DSH / Claude Code / CodeBuddy / OpenClaw
 | 模式 | cordis id | 工具 | 自动入库 | 依赖 |
 |---|---|---|---|---|
 | **native（默认）** | `tool-agent-memory`（`plugins/agent-memory-native/`） | 17 工具，**无前缀**：`memory_brief` + `recall/store/search` + `task_*` ×5 + `code_*` ×8 | **进程内**：`ctx.on('session/event')` 的 `turn/end` 直提 L0 | 零（只用 fetch 打引擎 HTTP） |
-| mcp（兼容） | `mcp-agent-memory` / `mcp-agent-memory-codegraph` | 同名 11 工具，带 `mcp__*__` 前缀 | 外部守护扫 `sessions/` | `npx tencent-agent-memory-mcp-bridge@0.4.0` + 本地子进程 |
+| mcp（兼容） | `mcp-agent-memory` / `mcp-agent-memory-codegraph` | 9 个 memory 工具（含 `memory_brief` / `task_*`）+ codegraph 独立 server，带 `mcp__*__` 前缀 | 外部守护扫 `sessions/` | `npx tencent-agent-memory-mcp-bridge@0.5.0` + 本地子进程 |
 
 两种模式**共用去重游标** `%DSH_HOME%/.dsh-memory-autostore-state.json`（`session_id + turn`），可互换不重复提交。
 
@@ -101,7 +101,7 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 
 ## 已知限制
 
-- native 模式零依赖；mcp 模式默认用 npm 上的 `tencent-agent-memory-mcp-bridge@0.4.0`（需公网），
+- native 模式零依赖；mcp 模式默认用 npm 上的 `tencent-agent-memory-mcp-bridge@0.5.0`（需公网；未发布时用本地 `dist/index.js`），
   要离线自持需在 `agent-memory/` 内构建后把 `args` 指向本地 `dist/index.js`。
 - native 的进程内入库是 fire-and-forget：引擎不可达时该轮不重试（要回填用守护的 `--backfill`）。
 - **`cordis.patch.yml` 的 `name` 不能写 `?v=N`**：本部署 loader 把查询串当字面路径，

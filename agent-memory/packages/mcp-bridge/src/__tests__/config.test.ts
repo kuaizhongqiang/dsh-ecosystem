@@ -28,6 +28,21 @@ describe('loadConfig', () => {
     expect(config.userId).toBe('usr-test')
   })
 
+  it('parses TASK_ADMIN_AGENT_IDS whitelist (serve gate)', () => {
+    process.env.TASK_ADMIN_AGENT_IDS = 'agt-a, agt-b'
+    const config = loadConfig()
+    expect(config.taskAdminAgentIds).toEqual(['agt-a', 'agt-b'])
+  })
+
+  it('defaults to no task admins + 8000-char brief budget', () => {
+    delete process.env.TASK_ADMIN_AGENT_IDS
+    delete process.env.BRIEF_BUDGET_CHARS
+    const config = loadConfig()
+    expect(config.taskAdminAgentIds).toEqual([])
+    expect(config.briefBudgetChars).toBe(8000)
+    expect(config.taskBindingPath).toMatch(/task-bindings\.json$/)
+  })
+
   it('generates session key from agent id + date when SESSION_KEY unset', () => {
     delete process.env.SESSION_KEY
     const config = loadConfig()

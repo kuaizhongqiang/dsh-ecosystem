@@ -80,6 +80,25 @@ worker 只接受 `task_create` 返回值或 `task_list` 里的 id，**任何自�
 历史 31 个 task_id 的桶**只读保留**，不迁移；新任务全部走 P1–P6。
 未绑定的会话行为与改造前完全一致（`config.taskId` / cwd），所以旧桶的读写不受影响。
 
+## 3.5 MCP 客户端（Claude Code / CodeBuddy / OpenClaw）
+
+`tencent-agent-memory-mcp-bridge` **0.5.0** 起实现同一套 TBP：
+
+| 能力 | 实现 |
+|---|---|
+| `memory_brief` / `task_create` / `task_bind` / `task_get` / `task_list` / `task_close` | 9 个 memory 工具（另 codegraph 仍是独立 server） |
+| 会话级绑定 | 绑定键 = `SESSION_KEY`，落盘 `TASK_BINDING_PATH`（默认 `~/.tencent-agent-memory/task-bindings.json`） |
+| serve 白名单 | `TASK_ADMIN_AGENT_IDS`（逗号分隔 `AGENT_ID`），**默认空 = 所有 MCP 客户端都不能建/关任务** |
+| meta 鉴权 | `USER_KEY` → `x-tdai-user-key`；缺失时 task_* 明确报错，记忆读写不受影响 |
+
+**部署形态**：serve 能力保留给 DSH native（`taskAdmin: true`）；MCP 侧默认只给 worker 能力
+（`task_bind` / `task_get` / `task_list` + 全部读工具）。若某台机器确实要当 serve，在它的
+MCP env 里加 `TASK_ADMIN_AGENT_IDS=<该 agent id>`，并确认它用的是**独立 user key**。
+
+> 发布状态：0.5.0 代码已在本仓（`agent-memory/packages/mcp-bridge`），但**尚未发布到 npm**
+> （发布机未登录 npm）。在发布前，MCP 客户端请把 `args` 指向本地构建产物：
+> `node <伞仓>/agent-memory/packages/mcp-bridge/dist/index.js`，或 `pnpm pack` 后本地安装 tgz。
+
 ## 4. 工具
 
 | 工具 | 权限 | 说明 |

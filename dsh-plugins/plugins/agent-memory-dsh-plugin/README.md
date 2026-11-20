@@ -12,8 +12,8 @@
 | | **native（默认）** | **mcp（兼容）** |
 |---|---|---|
 | 载体 | 一个原生 cordis 插件 `tool-agent-memory`（`plugins/agent-memory-native/`） | 两条 `@deepseek-ai/dsh-mcp-client` 通道 |
-| 工具 | 11 个，工具名**无前缀**：`recall_memory` / `store_memory` / `search_memories` + `code_*` ×8 | 同 11 个，但叫 `mcp__agent-memory__*` / `mcp__agent-memory-codegraph__code_*` |
-| 依赖 | **零外部依赖**（只用 fetch 打引擎 HTTP） | `npx tencent-agent-memory-mcp-bridge@0.4.0`（需公网/npm）+ 本地 codegraph server 子进程 |
+| 工具 | 17 个，工具名**无前缀**：`memory_brief` + `recall/store/search` + `task_*` ×5 + `code_*` ×8 | 9 个 memory 工具（`mcp__agent-memory__*`，含 `memory_brief` / `task_*`）+ 5 个 codegraph 工具（`mcp__agent-memory-codegraph__code_*`） |
+| 依赖 | **零外部依赖**（只用 fetch 打引擎 HTTP） | `npx tencent-agent-memory-mcp-bridge@0.5.0`（TBP；0.5.0 未发布前用本地 `dist/index.js`）+ 本地 codegraph server 子进程 |
 | 自动入库 | **进程内**：`ctx.on('session/event')` 在 `turn/end` 直提 L0 | 外部守护（Linux systemd / Windows 计划任务）扫 `sessions/` 提交 |
 | 适合 | DSH 本机（默认） | 其它平台（Claude Code / CodeBuddy / OpenClaw）与无插件能力的 headless 场景 |
 
@@ -185,7 +185,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 
 ## 已知限制
 
-- native 模式零依赖；mcp 模式默认从 npm 取 `tencent-agent-memory-mcp-bridge@0.4.0`（要离线自持可在
+- native 模式零依赖；mcp 模式默认从 npm 取 `tencent-agent-memory-mcp-bridge@0.5.0`（要离线自持可在
   `<伞仓>/agent-memory` 内构建后把 `args` 指向本地 `dist/index.js`）。
 - 引擎用**本地部署分支**，不按 submodule 锁基线；升级须人工验证并记录 ref。
 - 进程内入库是 fire-and-forget：引擎不可达时该轮不重试（守护模式才有重试/回填；需要回填用

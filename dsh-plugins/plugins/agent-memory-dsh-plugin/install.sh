@@ -234,6 +234,9 @@ EOF
         serverName: agent-memory
         transport: stdio
         command: npx
+        # 0.5.0（TBP：memory_brief + task_*）发布前，离线自持请改为 node + 本地 dist：
+        #   command: node
+        #   args: ['<伞仓>/agent-memory/packages/mcp-bridge/dist/index.js']
         args: ['-y', 'tencent-agent-memory-mcp-bridge@0.4.0']
         env:
           MEMORY_ENDPOINT: http://127.0.0.1:8422
@@ -242,8 +245,12 @@ EOF
           TEAM_ID: '<TEAM_ID>'
           AGENT_ID: '<AGENT_ID>'
           USER_ID: '<USER_ID>'
-          USER_KEY: '<sk-mem-...>'
+          USER_KEY: '<team user key>'        # task_* 需要；只做记忆读写可留空
           TASK_ID: '<project label task_id>'
+          # serve 白名单：只有列表内的 AGENT_ID 能 task_create/task_close（默认空=全部拒绝）
+          # TASK_ADMIN_AGENT_IDS: '<serve agent id>'
+          # TASK_BINDING_PATH: '<绝对路径>/task-bindings.json'
+          # BRIEF_BUDGET_CHARS: 8000
         toolCallTimeoutMs: 30000
 EOF
 )"

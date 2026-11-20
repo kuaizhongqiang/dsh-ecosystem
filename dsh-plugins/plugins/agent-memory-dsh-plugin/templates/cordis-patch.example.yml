@@ -15,6 +15,7 @@
         serverName: agent-memory
         transport: stdio
         command: npx
+        # 0.5.0（TBP：memory_brief + task_*）发布前，离线自持请改为 node + 本地 dist。
         args: ['-y', 'tencent-agent-memory-mcp-bridge@0.4.0']
         env:
           MEMORY_ENDPOINT: http://127.0.0.1:8422
@@ -23,8 +24,12 @@
           TEAM_ID: '<TEAM_ID>'
           AGENT_ID: '<AGENT_ID>'
           USER_ID: '<USER_ID>'
-          USER_KEY: '<sk-mem-...>'
+          USER_KEY: '<team user key>'        # task_* 需要
           TASK_ID: '<project label task_id>'
+          # serve 白名单（默认空=全部拒绝）：
+          # TASK_ADMIN_AGENT_IDS: '<serve agent id>'
+          # TASK_BINDING_PATH: '<绝对路径>/task-bindings.json'
+          # BRIEF_BUDGET_CHARS: 8000
         toolCallTimeoutMs: 30000
 # 离线替代：先在 <伞仓>/agent-memory 里构建（pnpm install && pnpm --filter
 # tencent-agent-memory-mcp-bridge build），然后把 command 改为 node、
