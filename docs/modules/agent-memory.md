@@ -123,7 +123,7 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 
 ## 已知限制
 
-- native 模式零依赖；mcp 模式默认用 npm 上的 `tencent-agent-memory-mcp-bridge@0.5.0`（需公网；未发布时用本地 `dist/index.js`），
+- native 模式零依赖；mcp 模式的 npm 只发布到 `0.4.0`（**不含 TBP**）；要 TBP 用伞仓源码构建的 `dist/index.js`（0.5.0 / 0.6.0 均未发布 npm，见 issue #64），
   要离线自持需在 `agent-memory/` 内构建后把 `args` 指向本地 `dist/index.js`。
 - native 的进程内入库是 fire-and-forget：引擎不可达时该轮不重试（要回填用守护的 `--backfill`）。
 - **`cordis.patch.yml` 的 `name` 不能写 `?v=N`**：本部署 loader 把查询串当字面路径，

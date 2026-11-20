@@ -41,8 +41,9 @@ mcp-bridge v3 是 MCP（Model Context Protocol）服务器，把 AI Agent 的记
 {
   "mcpServers": {
     "agent-memory": {
-      "command": "npx",
-      "args": ["-y", "tencent-agent-memory-mcp-bridge@0.5.0"],
+      // TBP 版（memory_brief/task_*）目前只在源码里：用本地构建的 dist
+      "command": "node",
+      "args": ["<伞仓>/agent-memory/packages/mcp-bridge/dist/index.js"],
       "env": {
         "MEMORY_ENDPOINT": "https://memory.kuai-private.top",
         "API_KEY": "<gate-api-key>",
@@ -58,6 +59,16 @@ mcp-bridge v3 是 MCP（Model Context Protocol）服务器，把 AI Agent 的记
 ```
 
 > ⚠️ 不要填真实 key 到仓库文件；通过本机 `.env`（已被 `.gitignore` 排除）或 MCP settings 的 env 字段注入。
+
+### 版本现状（2026-11-20，重要）
+
+- npm registry 上 `tencent-agent-memory-mcp-bridge` 只发布到 **0.4.0**，**不含 TBP**
+  （`memory_brief` / `task_*`），也没有 query 钳制 / 多端点回落 / `search_conversations`。
+- 独立仓 `kuaizhongqiang/TencentAgentMemoryBridge` 源码已到 **0.6.0**（含上述三项），但**未发布 npm**。
+- 伞仓 vendored 的 `agent-memory/packages/mcp-bridge` 是 **0.5.0（TBP）**，基于 0.4.0 底座，
+  **缺** 0.6.0 的三项能力；正在按 issue #64 合并为 **0.7.0**。
+- 在 0.7.0 构建/发布前：要 TBP 请用**本地构建的 `dist/index.js`**；不要照抄 `@0.5.0`
+  （未发布），也不要把 `@0.4.0` 当成含 TBP 的版本。
 
 ### task_id（项目级隔离，与身份严格分离）
 

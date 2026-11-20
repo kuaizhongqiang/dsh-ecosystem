@@ -234,7 +234,8 @@ EOF
         serverName: agent-memory
         transport: stdio
         command: npx
-        # 0.5.0（TBP：memory_brief + task_*）发布前，离线自持请改为 node + 本地 dist：
+        # npm 只发布到 0.4.0（无 TBP；也无 query 钳制/多端点回落/会话检索）。
+        # 要 TBP（memory_brief + task_*）请改为 node + 本地构建的 dist：
         #   command: node
         #   args: ['<伞仓>/agent-memory/packages/mcp-bridge/dist/index.js']
         args: ['-y', 'tencent-agent-memory-mcp-bridge@0.4.0']

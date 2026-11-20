@@ -15,7 +15,7 @@
         serverName: agent-memory
         transport: stdio
         command: npx
-        # 0.5.0（TBP：memory_brief + task_*）发布前，离线自持请改为 node + 本地 dist。
+        # npm 只发布到 0.4.0（无 TBP）。要 TBP 请改为 node + 本地构建的 dist。
         args: ['-y', 'tencent-agent-memory-mcp-bridge@0.4.0']
         env:
           MEMORY_ENDPOINT: http://127.0.0.1:8422
