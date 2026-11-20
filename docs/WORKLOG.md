@@ -1,5 +1,70 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-11-20(四)引擎升 v2.0.4 + 记忆任务绑定协议(TBP v1)落地
+
+**用户诉求**:「TencentDB-Agent-Memory 有 github 更新,拉取并更新;现在记忆功能用得非常原始,需要有所区别,
+看看其他 agent 的记忆组织方式,给几个方案」→ 选定 **A(简报式记忆)+B(按项目/角色分化)** 方向后,
+追加要求:给 serve agent(`dsh-server`,`agt-k4p9q8w7zm`)task 管理权限 + 一条「新开 task_id 后只在该桶注入」
+的协议;现有记忆不动;提交伞仓时检查凭证隐私。
+
+### 一、引擎 v2.0.3 → v2.0.4(2026-11-20 09:54–09:57,无数据迁移)
+
+- 上游 `v2.0.4`(`db13b44`,2026-11-18,127 文件 +9,659/−2,182);本地分支 `upgrade-v2.0.4`。
+  关键变更:自定义记忆提示词支持 **template(替换)模式**、L2 场景整理分批可续跑(≤256KB)、
+  session trace 改按调用记录、上游空闲超时 5min→30min、记忆处理日志补阶段。
+- 备份 `~/projects/tdai-upgrade-20261120/`(数据 263M→113M tar + 配置 + 6 个 unit + git patch)。
+- 依赖:仅 `MemoryProxy` 新增 `undici`(`pnpm install`);`MemoryPanel/web` 重建(v2.0.4 前端变更);
+  本地 **embedding 抗 429 补丁保留**(上游未碰该文件)。
+- 在线迁移:启动时 `ALTER TABLE memory_prompts ADD COLUMN mode`(2.0.4 新增,幂等),已核验。
+- 验收:8422/8421/8096/8123 全 200;`selftest --live` 7/7;`capture 已提交` 日志正常。
+
+### 二、数据结构测绘(改造前)
+
+L0 11,000 / L1 8,518(work_fact 3,849、work_method 2,389、work_task 1,040、work_artifact 827、
+episodic 284、persona 73、instruction 41)/ L2 56 场景块 / L3 4 份画像(11–36KB)。
+隔离键是四元组,但 **L0/L1 四维全用,L2/L3 只到 `(team, agent)`**(`profile-scope.ts` 明确忽略
+userId/sessionId/taskId)。`meta_tasks` = **0 条** → task 只是 L0/L1 上的字符串;31 个历史 task_id。
+6 个 `chat_memory` 资产(每 agent 一块)**全是 private**,团队 tab 实际为空。
+插件只发 `Authorization` + `x-tdai-service-id`,**不带 `x-tdai-user-key`** → `/v3/meta/*` 必 401
+(`userKey` 配置被解析但从未发出,是死配置)。`recall_memory` 默认带 36KB 画像 + 14 条场景 summary,
+单次召回 ~25KB ≈ 7K token。
+
+### 三、TBP v1(插件 v0.1.2)
+
+- 新增 6 工具(`memory_brief` + `task_create/bind/get/list/close`),共 17 工具。
+- `task_id` 解析优先级改为 **会话绑定 > `config.taskId` > cwd 目录名**;绑定文件
+  `%DSH_HOME%/.dsh-memory-task-bindings.json`(原子写,仅 task_id/title/bound_at,**不含 key**)。
+- `task_create` 走 `/v3/meta/task/create`(需 user-key,`creator=caller`),服务端发号 `task-xxxx`;
+  `task_bind` 校验存在/同 team/`running`;`task_close` 置 completed 并解绑当前会话。
+- `taskAdmin` 配置门控 create/close(本机 serve agent 开 true;worker 保持 false)。
+- `memory_brief`:绑定任务 + 未结 work_task(status/deadline,按 deadline 排序)+ 画像摘要(~1.4KB)
+  + 场景索引(丢 summary)+ 最近事实,默认 6000 字符预算,按「事实→场景→任务→画像」裁剪。
+- 引擎侧小补丁:`AtomicDetail` 增加可选 `priority` / `metadata_json`(brief 过滤未结任务需要),
+  纯附加字段。
+- 权限事实:team owner 是 `usr-vpjcccz2th`(admin),插件用的 `usr-w7easao7jg` 只是 member;
+  member **足够** createTask/createAsset(只要 creator=caller),团队管理需 admin。
+
+### 四、凭证隐私核查（用户要求）
+
+- 按「已知 key 字面值」精确扫描工作区与 `origin/main..HEAD` 的未推送提交：**团队 user key 0 命中**。
+- 发现 `templates/engine/tdai-gateway.full.yaml` 的 `server.apiKey` 是**明文网关 key**，且随
+  `2165f6c` **已推送 origin/main**（公开）。已改为 `${TDAI_GATEWAY_API_KEY}` 占位，并在插件 README
+  增加轮换指引；历史仍可检索到旧值，**建议轮换该网关 key**（改引擎 `server.apiKey` → 更新
+  `AGENT_MEMORY_API_KEY` → 重启 gateway 与 dsh）。
+- `agent-memory/packages/mcp-bridge/src/__tests__/config.test.ts` 里一个测试夹具用了高熵
+  `sk-mem-…` 字面值（仅用于断言「身份前缀不能当 task_id」），已改为 `sk-mem-fixture`。
+- 结论：本次提交不含任何真实 key；模板/示例统一用 `<...>` / `${ENV}`。
+
+### 四、验证与遗留
+
+- `selftest.mjs` 离线 **67 ok / 0 FAIL**(新增 5b 绑定、5c meta、5d brief 预算);
+  真实引擎建任务成功:示例 `task-2duc7jbo9f`(实测带 user-key 201→code 0,不带 401)。
+- 生效需**重启 dsh web**(未启用 HMR);引擎 gateway 已重启,插件文件已同步 profile。
+- 遗留:①L2/L3 不参与任务隔离(任务级场景需改引擎,代价大);②`taskAdmin` 是 profile 级,
+  DSH 子代理继承(硬隔离 worker 要独立 profile);③MCP 桥(`mcp-bridge`)未同步 TBP,
+  仍只有旧 3 工具;④旧 31 个 task_id 桶只读保留,不迁移。
+
+
 ## 2026-10-27(二)引擎升到 TencentDB-Agent-Memory v2.0.3(beta.1 → 正式版)
 
 **用户诉求**:「TencentDB-Agent-Memory 有 github 新版本,你给本机的更新一下」。上游 2026-10-26 发了

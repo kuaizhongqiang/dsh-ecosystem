@@ -20,18 +20,38 @@
 去重游标两种模式**共用** `%DSH_HOME%/.dsh-memory-autostore-state.json`（按 `session_id + turn`），
 因此来回切换不会重复提交。
 
-## 工具（native 模式，11 个）
+## 工具（native 模式，17 个）
 
 | 工具 | 作用 |
 |---|---|
-| `recall_memory` | 召回当前 task 的 L1 事实（+可选 L3 persona / L2 场景索引） |
+| `memory_brief` | **会话简报**：绑定任务 + 未结 `work_task` + L3 画像摘要 + L2 场景索引 + 最近事实，压进 ~2K token 预算 |
+| `recall_memory` | 召回当前 task 的 L1 事实；`include_persona` 默认 **false**，`include_scenes` 只返索引；支持 `type` / 时间窗 |
 | `store_memory` | 显式把一轮对话写进 L0 |
-| `search_memories` | L1 原子记忆语义检索（可按 type 过滤） |
+| `search_memories` | L1 原子记忆语义检索（可按 type / 时间窗过滤） |
+| `task_create` | **serve agent 专用**：建任务实体（服务端发号 `task-xxxx`）并自动绑定当前会话 |
+| `task_bind` | 把**当前会话**绑定到一个 running 任务（校验存在/team/状态） |
+| `task_get` / `task_list` | 读任务实体与关联 agent（只读） |
+| `task_close` | **serve agent 专用**：置 completed 并解绑当前会话 |
 | `code_graph_list` | 列出当前 team 可见的 code-graph 索引 |
 | `code_search` / `code_callers` / `code_callees` / `code_impact` / `code_explore` / `code_node` / `code_files` | 代码图谱只读检索（符号/调用/影响面/文件） |
 
-身份（`team_id`/`agent_id`/`user_id`）与 `task_id` 由插件 config 固定，**工具调用方不能传身份**；
-返回值带 `_context` 回显当前隔离域。
+身份（`team_id`/`agent_id`/`user_id`）由插件 config 固定，**工具调用方不能传身份**；
+`task_id` 的解析优先级是 **会话绑定 > `config.taskId` > cwd 目录名**；返回值带 `_context`
+回显当前隔离域与 `task_source`。
+
+## 任务绑定协议（TBP v1，v0.1.2 起）
+
+`task_id` 从「随手拼的字符串」升级为**服务端发号 + 会话级绑定**：
+
+1. serve agent 调 `task_create` → 引擎生成不可变 `task_id`（`meta_tasks`），当前会话自动绑定；
+2. 派活时把 `task_id` 传给 worker；worker 调 `task_bind(task_id)`（校验存在 / 同 team / running）；
+3. 绑定后该会话的**所有读写（含进程内自动入库）**都用这个 task_id；
+4. 任务结束 `task_close`（仅 creator）→ 桶转只读；可复用方法应提前提炼到 agent 级 L2。
+
+**边界**：只隔离 L0/L1；L2 场景与 L3 画像是 `(team, agent)` 级资产，跨任务共享（任务结束、方法论留下）。
+
+完整规格（权限矩阵、失败模式、验收、回滚）见
+[docs/task-binding-protocol.md](docs/task-binding-protocol.md)。
 
 ## 前置：引擎（第三方）
 
@@ -39,8 +59,9 @@
 
 ```bash
 git clone https://github.com/TencentCloud/TencentDB-Agent-Memory
-# 本团队部署验证过的 ref：分支 upgrade-v2.0.3 @ tag v2.0.3（本地部署分支，含 pnpm 11 lockfile 重建，不回推上游）
-# 注意 v2.0.3 起 MemoryKnowledge 的 PDF 抽取靠 pnpm 提升 pdfjs-dist（本机补丁见 docs/modules/agent-memory.md）
+# 本团队部署验证过的 ref：分支 upgrade-v2.0.4 @ tag v2.0.4（本地部署分支，含 pnpm 11 lockfile 重建与抗 429 补丁，不回推上游）
+# 注意 v2.0.3 起 MemoryKnowledge 的 PDF 抽取靠 pnpm 提升 pdfjs-dist（本机补丁见 docs/modules/agent-memory.md）；
+# v2.0.4 起自定义记忆提示词支持 template（替换）模式，且 L2 场景整理分批可续跑
 ```
 
 服务与端口：`MemoryCore` :8422（v3 元数据/gateway）、`MemoryKnowledge` :8421（knowledge + code-graph）、
@@ -111,7 +132,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 | `userKeyRef` → `AGENT_MEMORY_USER_KEY` | 团队记忆 key（`sk-mem-…`） | 存进**受管凭证库**（见下） |
 | `apiKeyRef` → `AGENT_MEMORY_API_KEY` | 网关门禁 key（`Authorization: Bearer`） | 存进**受管凭证库**（见下） |
 | `knowledgeApiKeyRef` → `AGENT_MEMORY_KNOWLEDGE_KEY` | Knowledge 专属 key（**可选**，仅两者不同时） | 存进**受管凭证库**（见下） |
-| `taskId` | L1 事实的项目标签（**不是** agent_id） | 自定（如 `normal-manager`）；不配则取会话 cwd 目录名 |
+| `taskId` | 未绑定会话的默认 task 标签（**不是** agent_id） | 自定（如 `normal-manager`）；不配则取会话 cwd 目录名 |
+| `taskAdmin` | 是否允许 `task_create` / `task_close`（serve agent 开 `true`；worker 保持 `false`） | 布尔，默认 `false` |
+| `taskBindingPath` | 会话级绑定文件 | 默认 `%DSH_HOME%/.dsh-memory-task-bindings.json` |
+| `briefBudgetChars` | `memory_brief` 字符预算 | 默认 `6000`（≈2K token） |
 | `memoryEndpoint` / `knowledgeEndpoint` | MemoryCore / MemoryKnowledge 地址 | 本机端口或**远端可达地址**（见「远端部署」） |
 | 引擎 LLM key | 记忆提炼 | 600 权限文件，见上 |
 
@@ -125,21 +149,37 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 解析优先级：**凭证 seam（ref）> 同名环境变量 > 内联 `apiKey`/`userKey`**。内联值仅作切换期兜底；
 两者同时存在时以凭证库为准，因此在凭证库里轮换 key **不需要**改 patch。
 
+## ⚠️ 安全提示：引擎网关 key 曾以明文入库
+
+`templates/engine/tdai-gateway.full.yaml` 的 `server.apiKey` 在历史提交
+`2165f6c`（已推送 `origin/main`）里是**明文**，2026-11-20 已改为 `${TDAI_GATEWAY_API_KEY}`
+占位。**仅改内容不能消除历史暴露**：如果这个 key 曾用于任何可从公网到达的网关，请按下面顺序轮换——
+
+1. 改引擎配置 `MemoryCore/tdai-gateway.full.yaml` 的 `server.apiKey`（或改成 env 注入）；
+2. 更新受管凭证库 `.credentials.yaml` 的 `AGENT_MEMORY_API_KEY`（`apiKeyRef` 指向它）；
+3. 重启 `memory-gateway-full` 与 `dsh web`；
+4. 旧 key 立即失效，历史里的字符串不再有利用价值。
+
+本仓库的**团队 user key（`sk-mem-…`）从未入库**（只出现在 profile 的 `cordis.patch.yml`
+与受管凭证库，二者都不在仓库内）。新增文档/模板时请沿用 `<...>` 与 `${ENV}` 占位，
+不要把真值写进任何被 git 跟踪的文件。
+
 ## 验收
 
-1. **离线自检**（纯逻辑层，不需要 dsh）：`cd plugins/agent-memory-native && node selftest.mjs` → 47 ok
-   （含 code-graph Bearer 头与 401/404/不可达 诊断断言）。
+1. **离线自检**（纯逻辑层，不需要 dsh）：`cd plugins/agent-memory-native && node selftest.mjs` → **67 ok**
+   （含 code-graph 诊断、会话绑定、meta 通道、brief 预算断言）。
 2. **真实引擎自检**：`node selftest.mjs --live`（只读）/ `--live --live-write`（含一次 L0 写入自检）；
    配置从环境变量或 profile 的 `cordis.patch.yml` 自动解析（native 与旧 mcp 条目都认）。
 3. **重启后**：`journalctl --user -u dsh | grep agent-memory` 应出现
-   `[agent-memory] ready v0.1.1: tools=11 capture=on ...`。
-4. 会话里直接调 `recall_memory` / `code_graph_list`（native 模式无 `mcp__` 前缀）。
+   `[agent-memory] ready v0.1.2: tools=17 capture=on ...`。
+4. 会话里直接调 `memory_brief` / `recall_memory` / `code_graph_list`（native 模式无 `mcp__` 前缀）。
+   任务协议：`task_create` → `_context.task_id` 应为 `task-xxxx`；`task_list` 能看到它。
 5. 自动入库：聊完一轮后日志出现 `[agent-memory] capture 已提交 session=… turn=N`，
    且 `%DSH_HOME%/.dsh-memory-autostore-state.json` 游标推进。
 
 ## 数据与排除项
 
-- 记忆数据在 `~/.openclaw/memory-tdai/`（L0–L3、场景块、persona）→ **本机数据，永不入仓**。
+- 记忆数据在引擎 `data.baseDir`（本机 `/home/kuai/memory-tdai/`，L0–L3、场景块、persona）→ **本机数据，永不入仓**。
 - 游标 `%DSH_HOME%/.dsh-memory-autostore-state*.json` 为机器绑定状态，伞仓 profile 白名单已排除。
 - `node_modules/`、`dist/`、`.turbo/` 不入库。
 
@@ -153,6 +193,11 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 - code-graph 通道的可用性取决于 **MemoryKnowledge 对客户端可达**：MemoryCore 网关只提供
   `/v3/knowledge/*` 元数据，不代理 `/v3/code-graph/*`（见「远端部署」）。远端部署只暴露
   MemoryCore 时，8 个 `code_*` 工具会显式报错并给出应指向的地址，主记忆 3 个工具不受影响。
+- **L2/L3 不参与任务隔离**：画像作用域是 `(team, agent)`，同一 agent 的所有任务共享场景与画像。
+  若要任务级场景，必须改引擎（profile 路径加 task 维度），代价大且会让画像碎片化。
+- **绑定是会话级的**：子代理/新会话不会继承，需要各自 `task_bind`。`taskAdmin` 是 profile 级，
+  子代理会继承；硬隔离 worker 请用独立 profile（`taskAdmin: false`）。
+- **历史桶只读保留**：31 个历史 `task_id` 不迁移；新任务走 TBP 后旧桶与新桶互不影响。
 
 ## 卸载
 

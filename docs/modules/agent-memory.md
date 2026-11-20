@@ -7,7 +7,7 @@
 | 生态位 | L5 记忆层：把第三方记忆引擎接入 DSH 与其它 Agent 平台 |
 | 并入 HEAD | `4080826`（含 1 笔当时未提交的 autostore 修复，已随并入落库） |
 | 当前版本 | 0.3.0（`agent-memory/package.json`） |
-| 引擎 | **第三方上游**：[TencentCloud/TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory)（MIT）。本团队部署验证 ref：分支 `upgrade-v2.0.3` @ tag **`v2.0.3`**（`084bed4`，2026-10-27 升级；**本地部署分支，不回推上游**），故不按 submodule 锁基线 |
+| 引擎 | **第三方上游**：[TencentCloud/TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory)（MIT）。本团队部署验证 ref：分支 **`upgrade-v2.0.4` @ tag `v2.0.4`**（2026-11-18 发布，2026-11-20 升级；**本地部署分支，不回推上游**），故不按 submodule 锁基线 |
 
 ## 角色：三层职责
 
@@ -37,13 +37,18 @@ DSH / Claude Code / CodeBuddy / OpenClaw
 
 | 模式 | cordis id | 工具 | 自动入库 | 依赖 |
 |---|---|---|---|---|
-| **native（默认）** | `tool-agent-memory`（`plugins/agent-memory-native/`） | `recall_memory` / `store_memory` / `search_memories` + `code_*` 8 工具，**无前缀** | **进程内**：`ctx.on('session/event')` 的 `turn/end` 直提 L0 | 零（只用 fetch 打引擎 HTTP） |
+| **native（默认）** | `tool-agent-memory`（`plugins/agent-memory-native/`） | 17 工具，**无前缀**：`memory_brief` + `recall/store/search` + `task_*` ×5 + `code_*` ×8 | **进程内**：`ctx.on('session/event')` 的 `turn/end` 直提 L0 | 零（只用 fetch 打引擎 HTTP） |
 | mcp（兼容） | `mcp-agent-memory` / `mcp-agent-memory-codegraph` | 同名 11 工具，带 `mcp__*__` 前缀 | 外部守护扫 `sessions/` | `npx tencent-agent-memory-mcp-bridge@0.4.0` + 本地子进程 |
 
 两种模式**共用去重游标** `%DSH_HOME%/.dsh-memory-autostore-state.json`（`session_id + turn`），可互换不重复提交。
+
+> **任务绑定协议（TBP v1，v0.1.2+）**：`task_id` 由 `task_create` 服务端发号（`meta_tasks`），
+> `task_bind` 做**会话级**绑定；绑定后该会话所有读写（含自动入库）都落到这个桶。
+> 只隔离 L0/L1；L2/L3 仍是 `(team, agent)` 级。规格见
+> [task-binding-protocol.md](../../dsh-plugins/plugins/agent-memory-dsh-plugin/docs/task-binding-protocol.md)。
 L1（语义事实）与 code-graph（确定性代码检索）**不复用同一 namespace**；设计见
 [agent-memory-codegraph.md](agent-memory-codegraph.md)。原生插件的纯逻辑在 `plugins/agent-memory-native/lib.js`，
-可用 `node selftest.mjs`（mock 47 项 / `--live` 打真实引擎）独立验证。
+可用 `node selftest.mjs`（mock **67 项** / `--live` 打真实引擎）独立验证。
 
 ### 两条通道的端点与鉴权（issue #29）
 
@@ -77,7 +82,8 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 
 ## 数据与红线
 
-- 记忆数据在 `~/.openclaw/memory-tdai/`（L0–L3、场景块、persona）→ **本机数据，永不入仓**。
+- 记忆数据在引擎 `data.baseDir`（本机 `/home/kuai/memory-tdai/`；L0–L3、场景块、persona）→ **本机数据，永不入仓**。
+- `.dsh-memory-task-bindings.json`（会话级 task 绑定）为机器绑定状态，**不含任何 key**，同样不入仓。
 - 引擎 LLM key 放 `~/.config/memory-gateway/{llm,embedding}_key.txt`（600），由
   `templates/engine/start-gateway-full.sh` 读取，避免 systemd 明文。
 - 团队身份（`TEAM_ID` / `AGENT_ID` / `USER_ID` / `USER_KEY`）与桥 `API_KEY` 一律走
@@ -88,8 +94,8 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 
 1. 引擎服务：`systemctl --user status memory-core... `（本机为 memory-gateway-full / memory-knowledge / memory-panel / memory-proxy / tdai-gateway / memory-bridge）。
 2. **重启 dsh web**（本部署未启用 HMR，改代码/增删条目必须重启）后，
-   `journalctl --user -u dsh | grep agent-memory` 出现 `[agent-memory] ready v0.1.1: tools=11 capture=on`。
-3. native 模式工具名无前缀：`recall_memory` / `code_graph_list`；mcp 模式为 `mcp__agent-memory__*` / `mcp__agent-memory-codegraph__code_*`。
+   `journalctl --user -u dsh | grep agent-memory` 出现 `[agent-memory] ready v0.1.2: tools=17 capture=on`。
+3. native 模式工具名无前缀：`memory_brief` / `recall_memory` / `task_list` / `code_graph_list`；mcp 模式为 `mcp__agent-memory__*` / `mcp__agent-memory-codegraph__code_*`（mcp 尚未带 TBP 工具）。
 4. 自动入库：native 看 `[agent-memory] capture 已提交 session=… turn=N`；mcp 看
    `journalctl --user -u dsh-memory-autostore` 的增量计数。
 
@@ -102,7 +108,7 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
   实测报 `ERR_MODULE_NOT_FOUND` 并让整棵插件树加载失败（2026-09-13 实测）。改插件后建议重启
   （实测有时会被热加载，不可依赖）。
 - 引擎用本地部署分支，升级须人工验证并记录 ref（不随伞仓 tag 自动推进）。最近一次：
-  **v2.0.3-beta.1 → v2.0.3（2026-10-27）**，过程与备份/回滚点见 [WORKLOG](../WORKLOG.md)。
+  **v2.0.3 → v2.0.4（2026-11-20）**，过程与备份/回滚点见 [WORKLOG](../WORKLOG.md)。
 - **本机 pnpm 补丁（v2.0.3 起必要）**：`MemoryKnowledge` 的 PDF 抽取靠 `officeparser` 在 Node 下
   `require.resolve('pdfjs-dist/...')` 找 worker，而 pnpm 严格布局不把传递依赖 `pdfjs-dist` 提到顶层 →
   启动 warn `PDF_WORKER_MISSING`（PDF 导入必失败）。修复写在本机 **untracked** 的

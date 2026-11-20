@@ -60,6 +60,82 @@ export function defaultStatePath() {
   return process.env.DSH_AUTOSTORE_STATE || join(dshHome(), '.dsh-memory-autostore-state.json')
 }
 
+export function defaultTaskBindingPath() {
+  return process.env.DSH_MEMORY_TASK_BINDINGS || join(dshHome(), '.dsh-memory-task-bindings.json')
+}
+
+/**
+ * 会话级 task 绑定存储（P2）。
+ *
+ * 形状：`{ sessions: { "<session_id>": { task_id, title, bound_at } } }`
+ * 落盘原子写（tmp + rename）；读失败一律回落空表，绝不因绑定文件损坏而阻断记忆读写。
+ * 绑定只在**当前会话**生效：worker 在别的会话里不会继承这个 task_id。
+ */
+export function createTaskBindingStore(options = {}) {
+  const path = options.path || defaultTaskBindingPath()
+  const warn = options.warn ?? (() => {})
+  const empty = () => ({ sessions: {} })
+  const read = () => {
+    try {
+      const raw = JSON.parse(readFileSync(path, 'utf8'))
+      if (!raw || typeof raw !== 'object' || !raw.sessions || typeof raw.sessions !== 'object') return empty()
+      return { sessions: raw.sessions }
+    } catch {
+      return empty()
+    }
+  }
+  let data = read()
+  const persist = () => {
+    try {
+      mkdirSync(dirname(path), { recursive: true })
+      const tmp = `${path}.tmp`
+      writeFileSync(tmp, JSON.stringify(data, null, 2))
+      renameSync(tmp, path)
+    } catch (err) {
+      warn(`task 绑定写入失败：${err.message}`)
+    }
+  }
+  return {
+    path,
+    get(sessionId) {
+      if (!sessionId) return undefined
+      return data.sessions[sessionId]
+    },
+    set(sessionId, binding) {
+      if (!sessionId) throw new Error('task_bind 需要当前会话 id（拿不到 exec.session.id）')
+      const taskId = String(binding?.task_id || '').trim()
+      if (!taskId) throw new Error('task_bind 需要非空 task_id')
+      data = {
+        ...data,
+        sessions: {
+          ...data.sessions,
+          [sessionId]: {
+            task_id: taskId,
+            title: binding.title ? String(binding.title) : undefined,
+            bound_at: new Date().toISOString(),
+          },
+        },
+      }
+      persist()
+      return data.sessions[sessionId]
+    },
+    clear(sessionId) {
+      if (!sessionId || !data.sessions[sessionId]) return false
+      const next = { ...data.sessions }
+      delete next[sessionId]
+      data = { ...data, sessions: next }
+      persist()
+      return true
+    },
+    list() {
+      return Object.entries(data.sessions).map(([session_id, b]) => ({ session_id, ...b }))
+    },
+    reload() {
+      data = read()
+    },
+  }
+}
+
 const jsonText = (value) => JSON.stringify(value, null, 2)
 export { jsonText }
 
@@ -110,8 +186,22 @@ export async function httpPost(base, path, body, headers, timeoutMs = DEFAULT_TI
   }
 }
 
-/** task_id：显式配置优先，否则取会话 cwd 目录名；两者都拒绝身份前缀。 */
-export function resolveTaskId(config, cwd) {
+/**
+ * task_id 解析（P2/P3）：**会话绑定 > 显式配置 > cwd 目录名**。
+ *
+ * 会话绑定由 `task_bind` 写入（见 createTaskBindingStore）；显式配置是历史行为，
+ * 未绑定的会话保持不变，因此旧记忆桶不受影响。
+ */
+export function resolveTaskId(config, cwd, sessionId, bindingStore) {
+  const bound = bindingStore?.get?.(sessionId)
+  if (bound?.task_id) {
+    if (IDENTITY_PREFIXES.test(bound.task_id)) {
+      throw new Error(
+        `绑定的 task_id '${bound.task_id}' 是身份 id（agt-/team-/usr-/sk-mem-…）；task_id 必须是项目级标签。`,
+      )
+    }
+    return bound.task_id
+  }
   const explicit = String(config.taskId ?? '').trim()
   if (explicit) {
     if (IDENTITY_PREFIXES.test(explicit)) {
@@ -125,8 +215,14 @@ export function resolveTaskId(config, cwd) {
   return base && base.trim() ? base.trim() : 'default'
 }
 
+/** 本次 task_id 的来源：binding | config | cwd（仅用于回显，便于验收）。 */
+export function taskSourceOf(config, cwd, sessionId, bindingStore) {
+  if (bindingStore?.get?.(sessionId)?.task_id) return 'binding'
+  return String(config.taskId ?? '').trim() ? 'config' : 'cwd'
+}
+
 /** 回显当前隔离域（不含任何 key），让调用方明确本次落在哪个 (team, agent, user, task)。 */
-export function contextEcho(config, cwd, serviceId) {
+export function contextEcho(config, cwd, serviceId, sessionId, bindingStore) {
   const echo = {
     team_id: config.teamId,
     agent_id: config.agentId,
@@ -134,7 +230,8 @@ export function contextEcho(config, cwd, serviceId) {
     service_id: serviceId ?? config.serviceId ?? 'default',
   }
   try {
-    echo.task_id = resolveTaskId(config, cwd)
+    echo.task_id = resolveTaskId(config, cwd, sessionId, bindingStore)
+    echo.task_source = taskSourceOf(config, cwd, sessionId, bindingStore)
   } catch {
     echo.task_id = config.taskId
   }
@@ -143,10 +240,12 @@ export function contextEcho(config, cwd, serviceId) {
 
 // ───────────────────────── 主记忆：MemoryCore v3 ─────────────────────────
 
-export function createMemoryClient(config) {
+export function createMemoryClient(config, options = {}) {
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const serviceId = config.serviceId ?? 'default'
   const base = String(config.memoryEndpoint ?? '').trim()
+  /** 会话级 task 绑定（P2）：传进来后，所有读写自动使用绑定值。 */
+  const bindingStore = options.bindingStore
 
   const require_ = () => {
     const missing = []
@@ -162,43 +261,294 @@ export function createMemoryClient(config) {
 
   const headers = () => ({ Authorization: `Bearer ${config.apiKey}`, 'x-tdai-service-id': serviceId })
 
-  const isoBody = (cwd, extra = {}) => ({
-    team_id: config.teamId,
-    agent_id: config.agentId,
-    user_id: config.userId,
-    task_id: resolveTaskId(config, cwd),
-    ...extra,
-  })
+  /** 兼容旧签名：第 3 参可以是 cwd 字符串，也可以是 `{ cwd, sessionId }`。 */
+  const ctxOf = (ctx) => (typeof ctx === 'string' ? { cwd: ctx } : (ctx || {}))
+
+  const isoBody = (ctx = {}, extra = {}) => {
+    const c = ctxOf(ctx)
+    return {
+      team_id: config.teamId,
+      agent_id: config.agentId,
+      user_id: config.userId,
+      task_id: resolveTaskId(config, c.cwd, c.sessionId, bindingStore),
+      ...extra,
+    }
+  }
 
   const call = (path, body) => httpPost(base, path, body, headers(), timeoutMs)
+  const strip = (body, keys) => {
+    for (const key of keys) if (body[key] === undefined || body[key] === null) delete body[key]
+    return body
+  }
 
   return {
     configured: () => Boolean(base && config.apiKey && config.teamId && config.agentId && config.userId),
-    addConversation(messages, sessionId, cwd) {
-      require_()
-      if (!sessionId) throw new Error('store_memory 需要 session_key（或配置 sessionKey）')
-      return call('/v3/conversation/add', isoBody(cwd, { session_id: sessionId, messages }))
+    /** 当前生效的 task_id（含绑定来源），供工具回显与测试。 */
+    taskIdFor: (ctx) => {
+      const c = ctxOf(ctx)
+      return resolveTaskId(config, c.cwd, c.sessionId, bindingStore)
     },
-    searchAtomic(query, opts = {}, cwd) {
+    addConversation(messages, sessionId, ctx = {}) {
       require_()
-      const body = isoBody(cwd, {
+      const c = ctxOf(ctx)
+      if (!sessionId) throw new Error('store_memory 需要 session_key（或配置 sessionKey）')
+      return call('/v3/conversation/add', isoBody({ ...c, sessionId: c.sessionId ?? sessionId }, { session_id: sessionId, messages }))
+    },
+    searchAtomic(query, opts = {}, ctx = {}) {
+      require_()
+      const body = isoBody(ctx, {
         session_id: opts.sessionId ?? config.sessionKey ?? undefined,
         query,
         limit: opts.limit,
         type: opts.type,
+        time_start: opts.time_start,
+        time_end: opts.time_end,
       })
-      for (const key of ['session_id', 'limit', 'type']) if (body[key] === undefined) delete body[key]
-      return call('/v3/atomic/search', body)
+      return call('/v3/atomic/search', strip(body, ['session_id', 'limit', 'type', 'time_start', 'time_end']))
     },
-    readCore(cwd) {
+    /** 分页查询 L1（带 type / 时间窗 / limit），按 updated_time DESC。 */
+    atomicQuery(opts = {}, ctx = {}) {
       require_()
-      return call('/v3/core/read', isoBody(cwd))
+      const body = isoBody(ctx, {
+        type: opts.type,
+        time_start: opts.time_start,
+        time_end: opts.time_end,
+        limit: opts.limit,
+        offset: opts.offset,
+      })
+      return call('/v3/atomic/query', strip(body, ['type', 'time_start', 'time_end', 'limit', 'offset']))
     },
-    listScenarios(cwd) {
+    atomicCount(opts = {}, ctx = {}) {
       require_()
-      return call('/v3/scenario/ls', isoBody(cwd, { path_prefix: '' }))
+      const body = isoBody(ctx, { type: opts.type, time_start: opts.time_start, time_end: opts.time_end })
+      return call('/v3/atomic/count', strip(body, ['type', 'time_start', 'time_end']))
+    },
+    readCore(ctx) {
+      require_()
+      return call('/v3/core/read', isoBody(ctx))
+    },
+    listScenarios(ctx) {
+      require_()
+      return call('/v3/scenario/ls', isoBody(ctx, { path_prefix: '' }))
+    },
+    scenarioRead(path, ctx) {
+      require_()
+      return call('/v3/scenario/read', isoBody(ctx, { path }))
     },
   }
+}
+
+// ───────────────────── 任务注册表：/v3/meta/*（需 user-key） ─────────────────────
+
+/**
+ * 元数据通道（P1/P4）：`/v3/meta/task/*` 必须带 `x-tdai-user-key`（见引擎
+ * `metadata/router/auth.ts`）。数据面（L0–L3）不需要 user-key，因此这里**只**
+ * 给 meta 调用加该头，缩小暴露面。
+ *
+ * 权限语义（引擎侧）：
+ *   - create：team 存在 + caller 是 active member + creator_user_id == caller
+ *   - get/list：team 成员可读（v2.0.4 起按 caller/成员过滤）
+ *   - update/delete/archive：仅 task creator
+ * 所以 serve agent 的 userKey 必须是**真人用户 key**，不能是 memory 系统账号。
+ */
+export function createMetaClient(config) {
+  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const serviceId = config.serviceId ?? 'default'
+  const base = String(config.memoryEndpoint ?? '').trim()
+
+  const require_ = () => {
+    if (!base) throw new Error('agent-memory meta 未配置：memoryEndpoint')
+    if (!config.apiKey) throw new Error('agent-memory meta 未配置：apiKey')
+    if (!config.userKey) {
+      throw new Error('agent-memory meta 需要 userKey（AGENT_MEMORY_USER_KEY）：/v3/meta/* 只认 x-tdai-user-key，Bearer 不够')
+    }
+    if (!config.teamId || !config.userId) throw new Error('agent-memory meta 未配置：teamId/userId')
+  }
+
+  const headers = () => ({
+    Authorization: `Bearer ${config.apiKey}`,
+    'x-tdai-service-id': serviceId,
+    'x-tdai-user-key': String(config.userKey),
+  })
+  const call = (path, body) => {
+    require_()
+    return httpPost(base, path, body, headers(), timeoutMs)
+  }
+
+  return {
+    configured: () => Boolean(base && config.apiKey && config.userKey && config.teamId && config.userId),
+    createTask(input = {}) {
+      const body = {
+        team_id: config.teamId,
+        creator_user_id: config.userId,
+        title: input.title,
+        description: input.description,
+        source_type: input.source_type,
+        source_url: input.source_url,
+        status: input.status,
+        metadata_json: input.metadata_json,
+        linked_agents: input.linked_agents ?? [{ agent_id: config.agentId, role_in_task: 'owner' }],
+      }
+      for (const key of ['description', 'source_type', 'source_url', 'status', 'metadata_json']) {
+        if (body[key] === undefined || body[key] === null) delete body[key]
+      }
+      return call('/v3/meta/task/create', body)
+    },
+    getTask(taskId) {
+      return call('/v3/meta/task/get', { task_id: taskId })
+    },
+    listTasks(opts = {}) {
+      const body = {
+        team_id: config.teamId,
+        status: opts.status,
+        title: opts.title,
+        limit: opts.limit,
+        offset: opts.offset,
+      }
+      for (const key of ['status', 'title', 'limit', 'offset']) {
+        if (body[key] === undefined || body[key] === null) delete body[key]
+      }
+      return call('/v3/meta/task/list', body)
+    },
+    updateTask(taskId, patch = {}) {
+      const body = { task_id: taskId, ...patch }
+      for (const key of Object.keys(body)) if (body[key] === undefined) delete body[key]
+      return call('/v3/meta/task/update', body)
+    },
+    archiveTask(taskId) {
+      return call('/v3/meta/task/archive', { task_id: taskId })
+    },
+    linkAgent(taskId, agentId, roleInTask) {
+      return call('/v3/meta/task-agent/link', { task_id: taskId, agent_id: agentId, role_in_task: roleInTask })
+    },
+    async listAgents(taskId) {
+      return call('/v3/meta/task-agent/list', { task_id: taskId, limit: 100, offset: 0 })
+    },
+  }
+}
+
+// ─────────────────────── brief：预算化的会话简报 ───────────────────────
+
+/** 解析 L1 metadata_json（失败一律空对象）。 */
+export function parseMetadata(json) {
+  if (!json) return {}
+  if (typeof json === 'object') return json
+  try {
+    const v = JSON.parse(String(json))
+    return v && typeof v === 'object' ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+const DONE_STATUS = new Set(['done', 'completed', 'cancelled', 'canceled', 'closed'])
+const cap = (text, max) => {
+  const s = String(text ?? '')
+  return s.length > max ? `${s.slice(0, max)}…[截断 ${s.length - max} 字符]` : s
+}
+
+/**
+ * 从 L1 work_task 里筛「未结」并按 deadline 升序、priority 降序。
+ * 判定依据是 `metadata_json.status`（引擎抽取时已写入 `{"status":"todo","deadline":...}`）；
+ * 缺失 status 的旧记录按「未结」处理（宁可多报，不可漏报）。
+ */
+export function openWorkTasks(items = []) {
+  return items
+    .filter((it) => it && it.type === 'work_task')
+    .map((it) => ({ ...it, meta: parseMetadata(it.metadata_json) }))
+    .filter((it) => !DONE_STATUS.has(String(it.meta.status || '').toLowerCase()))
+    .sort((a, b) => {
+      const da = Date.parse(a.meta.deadline || '') || Number.POSITIVE_INFINITY
+      const db = Date.parse(b.meta.deadline || '') || Number.POSITIVE_INFINITY
+      if (da !== db) return da - db
+      return (Number(b.priority) || 0) - (Number(a.priority) || 0)
+    })
+}
+
+/** L2 场景只保留索引（path/updated_at），**丢掉 summary** —— summary 是召回 token 炸弹。 */
+export function trimScenes(entries = [], max = 30) {
+  return entries.slice(0, max).map((e) => ({
+    path: e.path,
+    updated_at: e.updated_at,
+    ...(e.summary ? { has_summary: true } : {}),
+  }))
+}
+
+/**
+ * L3 画像摘要：取 Operating Thesis 行 + 各级标题 + 每个标题下的第一条要点。
+ * 目的是把 36KB 画像压到 ~1.2KB，而不是整份注入。
+ */
+export function digestPersona(text, maxChars = 1200) {
+  const lines = String(text || '').split('\n')
+  const picked = []
+  let sinceHeading = 0
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) continue
+    if (/^>\s*\*\*Operating Thesis\*\*/.test(line)) {
+      picked.push(line)
+      continue
+    }
+    if (/^#{1,3}\s/.test(line)) {
+      picked.push(line)
+      sinceHeading = 0
+      continue
+    }
+    if (sinceHeading === 0 && /^[-*]\s/.test(line)) {
+      picked.push(line)
+      sinceHeading += 1
+    }
+    if (picked.join('\n').length >= maxChars) break
+  }
+  return cap(picked.join('\n'), maxChars)
+}
+
+/**
+ * composeBrief —— A 方案的核心：把「画像摘要 + 场景索引 + 未结任务 + 最近事实」
+ * 压进一个预算（默认 6000 字符 ≈ 2K token），按优先级逐段裁剪。
+ *
+ * 输入都是引擎原始响应（`/core/read`、`/scenario/ls`、`/atomic/query`）。
+ */
+export function composeBrief(input = {}, opts = {}) {
+  const budget = Number(opts.maxChars) || 6000
+  const binding = input.binding || null
+  const personaText = input.persona?.content || ''
+  const scenes = trimScenes(input.scenes?.entries || [], 30)
+  const tasks = openWorkTasks(input.tasks?.items || []).slice(0, 12)
+  const facts = (input.facts?.items || []).filter((f) => f && f.type !== 'work_task').slice(0, 12)
+
+  const openTasks = tasks.map((t) => ({
+    id: t.id,
+    content: cap(t.content, 400),
+    deadline: t.meta.deadline || undefined,
+    priority: t.priority,
+    status: t.meta.status || undefined,
+  }))
+  const recentFacts = facts.map((f) => ({
+    id: f.id,
+    type: f.type,
+    content: cap(f.content, 300),
+    updated_at: f.updated_at,
+  }))
+
+  const brief = {
+    task: binding ? { task_id: binding.task_id, title: binding.title, bound_at: binding.bound_at } : null,
+    persona_digest: digestPersona(personaText, 1400),
+    open_tasks: openTasks,
+    scenes,
+    recent_facts: recentFacts,
+  }
+
+  // 预算裁剪顺序：先砍最近事实内容 → 再砍场景条数 → 再砍任务条数 → 最后砍画像摘要。
+  const sizeOf = () => JSON.stringify(brief).length
+  const shrink = (arr, keep) => arr.slice(0, keep)
+  while (sizeOf() > budget && brief.recent_facts.length > 0) brief.recent_facts.pop()
+  while (sizeOf() > budget && brief.scenes.length > 0) brief.scenes.pop()
+  while (sizeOf() > budget && brief.open_tasks.length > 0) brief.open_tasks.pop()
+  if (sizeOf() > budget && brief.persona_digest) brief.persona_digest = cap(brief.persona_digest, Math.max(200, budget - sizeOf() + brief.persona_digest.length - 200))
+  brief._size_chars = sizeOf()
+  brief._budget_chars = budget
+  return brief
 }
 
 // ─────────────────────── 代码图谱：MemoryKnowledge v3 ───────────────────────
@@ -497,7 +847,7 @@ export function createCaptureEngine(config, options = {}) {
             { role: 'assistant', content: truncate(buf.assistantText) },
           ],
           sessionKey,
-          cwd,
+          { cwd, sessionId },
         )
         if (typeof turn === 'number') {
           state[sessionId] = turn

@@ -27,7 +27,12 @@ import {
   createCaptureEngine,
   createCodeGraphClient,
   createMemoryClient,
+  createMetaClient,
+  createTaskBindingStore,
   defaultStatePath,
+  defaultTaskBindingPath,
+  composeBrief,
+  digestPersona,
   jsonText,
 } from './lib.js'
 
@@ -73,6 +78,12 @@ export const Config = z.object({
   capture: z.boolean(),
   /** 入库去重游标文件（与 autostore 守护共用同一份，默认 %DSH_HOME%/.dsh-memory-autostore-state.json） */
   statePath: z.string(),
+  /** 允许 task_create / task_close（serve agent 开 true；worker 保持 false，只能 bind/get/list） */
+  taskAdmin: z.boolean(),
+  /** 会话级 task 绑定文件（默认 %DSH_HOME%/.dsh-memory-task-bindings.json） */
+  taskBindingPath: z.string(),
+  /** memory_brief 字符预算（默认 6000 ≈ 2K token） */
+  briefBudgetChars: z.natural(),
 })
 
 const textOutput = {
@@ -119,7 +130,12 @@ export function apply(ctx, config) {
 
   let memory
   let codeGraph
+  let meta
   let capture
+  const bindingStore = createTaskBindingStore({
+    path: config.taskBindingPath || defaultTaskBindingPath(),
+    warn,
+  })
   let readyPromise = null
   const warmupTimers = []
   /**
@@ -135,8 +151,9 @@ export function apply(ctx, config) {
     const resolvedKnowledgeKey = await resolveSecret(config.knowledgeApiKeyRef, config.knowledgeApiKey)
     const knowledgeApiKey = resolvedKnowledgeKey || apiKey
     const effective = { ...config, apiKey, userKey, knowledgeApiKey }
-    memory = createMemoryClient(effective)
+    memory = createMemoryClient(effective, { bindingStore })
     codeGraph = createCodeGraphClient(effective)
+    meta = createMetaClient(effective)
     capture = createCaptureEngine(effective, { log, warn, memoryClient: memory })
     log(
       `clients ready: secrets=${effective.apiKey ? 'apiKey✓' : 'apiKey✗'}${effective.userKey ? ' userKey✓' : ''} `
@@ -188,33 +205,54 @@ export function apply(ctx, config) {
     )
 
   const cwdOf = (exec) => exec?.session?.header?.cwd
+  const sessionIdOf = (exec) => exec?.session?.id
+  /** 统一的隔离上下文：读写都要带 sessionId，绑定才生效。 */
+  const ctxOf = (exec) => ({ cwd: cwdOf(exec), sessionId: sessionIdOf(exec) })
+  const echoOf = (ctx) => contextEcho(config, ctx.cwd, undefined, ctx.sessionId, bindingStore)
 
   // ── 主记忆 ────────────────────────────────────────────────────────────
 
   register({
     name: 'recall_memory',
     description:
-      'Recall relevant memories for the CURRENT task (project): L1 atomic facts (project-scoped by task_id), optionally L3 persona and the L2 scene index. '
-      + 'Identity (team_id/agent_id/user_id) and task_id come from the plugin config — never pass or guess them. '
-      + 'agent_id is the platform identity (agt-*), task_id is the project label; they differ and must not be mixed.',
+      'Recall relevant memories for the CURRENT task (project): L1 atomic facts, filtered by task_id (session binding, config, or cwd). '
+      + 'L3 persona is OFF by default (it can be tens of KB) — opt in with include_persona; L2 scenes returns an INDEX only (path/updated_at), '
+      + 'use scenario_read to fetch a scene body. Identity (team_id/agent_id/user_id) and task_id are fixed by the plugin — never pass them. '
+      + 'Prefer memory_brief at the start of work, then recall for specific questions.',
     parameters: {
       query: { type: 'string', required: true, description: 'Search query for relevant memories' },
-      limit: { type: 'number', description: 'Max L1 facts to return (default 5)' },
-      include_persona: { type: 'boolean', description: 'Include L3 persona (default true)' },
-      include_scenes: { type: 'boolean', description: 'Include L2 scene index (default false)' },
+      limit: { type: 'number', description: 'Max L1 facts to return (default 5, max 100)' },
+      type: { type: 'string', description: 'Filter by L1 type: work_fact / work_method / work_task / work_artifact / episodic / persona / instruction' },
+      time_start: { type: 'string', description: 'ISO8601 lower bound (updated_at)' },
+      time_end: { type: 'string', description: 'ISO8601 upper bound (updated_at)' },
+      include_persona: { type: 'boolean', description: 'Include a DIGESTED L3 persona (default false; full persona is ~36KB)' },
+      include_scenes: { type: 'boolean', description: 'Include the L2 scene index (path/updated_at only, default false)' },
     },
     async execute(args, exec) {
       await ensureReady()
-      const cwd = cwdOf(exec)
+      const ctx = ctxOf(exec)
       const [facts, persona, scenes] = await Promise.all([
-        memory.searchAtomic(args.query, { limit: args.limit }, cwd),
-        args.include_persona === false ? Promise.resolve(null) : memory.readCore(cwd),
-        args.include_scenes === true ? memory.listScenarios(cwd) : Promise.resolve(null),
+        memory.searchAtomic(args.query, {
+          limit: args.limit,
+          type: args.type,
+          time_start: args.time_start,
+          time_end: args.time_end,
+        }, ctx),
+        args.include_persona === true ? memory.readCore(ctx) : Promise.resolve(null),
+        args.include_scenes === true ? memory.listScenarios(ctx) : Promise.resolve(null),
       ])
       const result = { facts: facts?.items ?? [] }
-      if (args.include_persona !== false && persona?.content) result.persona = persona.content
-      if (args.include_scenes === true && scenes?.entries?.length) result.scenes = scenes.entries
-      result._context = contextEcho(config, cwd)
+      if (args.include_persona === true && persona?.content) {
+        result.persona_digest = digestPersona(persona.content, 2000)
+      }
+      if (args.include_scenes === true && scenes?.entries?.length) {
+        result.scenes = scenes.entries.slice(0, 30).map((e) => ({
+          path: e.path,
+          updated_at: e.updated_at,
+          ...(e.summary ? { has_summary: true } : {}),
+        }))
+      }
+      result._context = echoOf(ctx)
       return { text: jsonText(result) }
     },
   })
@@ -231,17 +269,17 @@ export function apply(ctx, config) {
     },
     async execute(args, exec) {
       await ensureReady()
-      const cwd = cwdOf(exec)
-      const sessionId = args.session_key || config.sessionKey || exec?.session?.id
+      const ctx = ctxOf(exec)
+      const sessionId = args.session_key || config.sessionKey || ctx.sessionId
       const data = await memory.addConversation(
         [
           { role: 'user', content: args.user_content },
           { role: 'assistant', content: args.assistant_content },
         ],
         sessionId,
-        cwd,
+        { ...ctx, sessionId: ctx.sessionId ?? sessionId },
       )
-      return { text: jsonText({ ...data, _context: contextEcho(config, cwd) }) }
+      return { text: jsonText({ ...data, _context: echoOf(ctx) }) }
     },
   })
 
@@ -253,12 +291,172 @@ export function apply(ctx, config) {
       query: { type: 'string', required: true, description: 'Search query' },
       limit: { type: 'number', description: 'Maximum number of results' },
       type: { type: 'string', description: 'Filter by memory type' },
+      time_start: { type: 'string', description: 'ISO8601 lower bound (updated_at)' },
+      time_end: { type: 'string', description: 'ISO8601 upper bound (updated_at)' },
     },
     async execute(args, exec) {
       await ensureReady()
-      const cwd = cwdOf(exec)
-      const data = await memory.searchAtomic(args.query, { limit: args.limit, type: args.type }, cwd)
-      return { text: jsonText({ items: data?.items ?? [], _context: contextEcho(config, cwd) }) }
+      const ctx = ctxOf(exec)
+      const data = await memory.searchAtomic(args.query, {
+        limit: args.limit,
+        type: args.type,
+        time_start: args.time_start,
+        time_end: args.time_end,
+      }, ctx)
+      return { text: jsonText({ items: data?.items ?? [], _context: echoOf(ctx) }) }
+    },
+  })
+
+  // ── 任务协议（P1–P4）：serve agent 发号，worker 绑定 ────────────────────
+  //
+  // 约定：
+  //   - 只有配置了 `taskAdmin: true` 的 agent（serve agent）能 task_create / task_close；
+  //   - 任何会话都能 task_bind / task_get / task_list；
+  //   - 绑定是**会话级**的：绑定后该会话所有读写（含自动入库）都用这个 task_id；
+  //   - 绑定值来自服务端 task 实体（meta_tasks），worker 不允许自造字符串。
+
+  const requireMeta = () => {
+    if (!meta?.configured()) {
+      throw new Error(
+        'meta 通道不可用：/v3/meta/task/* 需要 userKey（AGENT_MEMORY_USER_KEY）——Bearer 不够。'
+        + '请配置 userKeyRef 后重启。',
+      )
+    }
+  }
+
+  register({
+    name: 'memory_brief',
+    description:
+      'Session brief for the CURRENT task: bound task info, digested L3 persona, L2 scene index, OPEN work_tasks (status != done, sorted by deadline), '
+      + 'and recent work_facts — all capped to a token budget (default ~6000 chars / 2K tokens). '
+      + 'Call this at the start of a task instead of recall_memory; use recall_memory for specific questions.',
+    parameters: {
+      max_chars: { type: 'number', description: 'Budget in characters (default config briefBudgetChars, else 6000)' },
+    },
+    async execute(args, exec) {
+      await ensureReady()
+      const ctx = ctxOf(exec)
+      const [persona, scenes, tasks, facts] = await Promise.all([
+        memory.readCore(ctx),
+        memory.listScenarios(ctx),
+        memory.atomicQuery({ type: 'work_task', limit: 100 }, ctx),
+        memory.atomicQuery({ type: 'work_fact', limit: 20 }, ctx),
+      ])
+      const brief = composeBrief(
+        { binding: bindingStore.get(ctx.sessionId), persona, scenes, tasks, facts },
+        { maxChars: args.max_chars ?? config.briefBudgetChars ?? 6000 },
+      )
+      return { text: jsonText({ ...brief, _context: echoOf(ctx) }) }
+    },
+  })
+
+  register({
+    name: 'task_create',
+    description:
+      'Create a TASK ENTITY (meta_tasks) — serve-agent only (config taskAdmin: true). The server mints an immutable task_id (task-xxxx); '
+      + 'creator is fixed to the configured user, and the creating session is bound to it immediately. '
+      + 'Never invent a task_id string: workers must receive it from this tool or from task_list.',
+    parameters: {
+      title: { type: 'string', required: true, description: 'Short task title' },
+      description: { type: 'string', description: 'What needs to be done' },
+      status: { type: 'string', description: 'running (default) | completed' },
+      agent_ids: { type: 'array', items: { type: 'string' }, description: 'Linked agent ids (default: this agent)' },
+    },
+    async execute(args, exec) {
+      await ensureReady()
+      if (config.taskAdmin !== true) {
+        throw new Error('task_create 未授权：只有 serve agent（config taskAdmin: true）可以创建任务；worker 请用 task_list + task_bind。')
+      }
+      requireMeta()
+      const ctx = ctxOf(exec)
+      const title = String(args.title || '').trim()
+      if (!title) throw new Error('task_create 需要 title')
+      const agentIds = Array.isArray(args.agent_ids) && args.agent_ids.length ? args.agent_ids : [config.agentId]
+      const task = await meta.createTask({
+        title,
+        description: args.description,
+        status: args.status || 'running',
+        linked_agents: agentIds.map((id) => ({ agent_id: id, role_in_task: 'owner' })),
+      })
+      bindingStore.set(ctx.sessionId, { task_id: task.task_id, title: task.title })
+      return { text: jsonText({ task, bound: bindingStore.get(ctx.sessionId), _context: echoOf(ctx) }) }
+    },
+  })
+
+  register({
+    name: 'task_bind',
+    description:
+      'Bind the CURRENT SESSION to an existing task (meta_tasks). After binding, every memory read/write in this session (including automatic L0 capture) '
+      + 'uses that task_id. Verifies the task exists, belongs to this team, and is running. Idempotent.',
+    parameters: {
+      task_id: { type: 'string', required: true, description: 'task-xxxx id from task_create / task_list' },
+    },
+    async execute(args, exec) {
+      await ensureReady()
+      requireMeta()
+      const ctx = ctxOf(exec)
+      const taskId = String(args.task_id || '').trim()
+      if (!taskId) throw new Error('task_bind 需要 task_id')
+      const task = await meta.getTask(taskId)
+      if (!task?.task_id) throw new Error(`任务不存在：${taskId}（用 task_list 查看）`)
+      if (task.team_id !== config.teamId) throw new Error(`任务 ${taskId} 不属于当前 team`)
+      if (task.status !== 'running') throw new Error(`任务 ${taskId} 状态为 ${task.status}，只允许绑定 running 任务`)
+      bindingStore.set(ctx.sessionId, { task_id: task.task_id, title: task.title })
+      return { text: jsonText({ bound: bindingStore.get(ctx.sessionId), task, _context: echoOf(ctx) }) }
+    },
+  })
+
+  register({
+    name: 'task_get',
+    description: 'Read one task entity (meta_tasks) and its linked agents. Read-only.',
+    parameters: {
+      task_id: { type: 'string', required: true, description: 'task-xxxx id' },
+    },
+    async execute(args) {
+      await ensureReady()
+      requireMeta()
+      const task = await meta.getTask(args.task_id)
+      if (!task?.task_id) throw new Error(`任务不存在：${args.task_id}`)
+      let agents = null
+      try { agents = await meta.listAgents(args.task_id) } catch { /* 关联 agent 查询失败不影响任务本体 */ }
+      return { text: jsonText({ task, agents }) }
+    },
+  })
+
+  register({
+    name: 'task_list',
+    description: 'List task entities of this team (meta_tasks). Read-only. Use it to discover the task_id to bind.',
+    parameters: {
+      status: { type: 'string', description: 'running | completed' },
+      limit: { type: 'number', description: 'Max tasks (default 50)' },
+    },
+    async execute(args) {
+      await ensureReady()
+      requireMeta()
+      const data = await meta.listTasks({ status: args.status, limit: args.limit ?? 50 })
+      return { text: jsonText({ items: data?.items ?? [], total: data?.total }) }
+    },
+  })
+
+  register({
+    name: 'task_close',
+    description:
+      'Mark a task completed (serve-agent only, config taskAdmin: true). Only the task creator can close it. '
+      + 'Closing does NOT delete memories: the task bucket becomes read-only by convention; promote reusable lessons to L2/L3 first.',
+    parameters: {
+      task_id: { type: 'string', required: true, description: 'task-xxxx id' },
+    },
+    async execute(args, exec) {
+      await ensureReady()
+      if (config.taskAdmin !== true) {
+        throw new Error('task_close 未授权：只有 serve agent（config taskAdmin: true）可以关闭任务')
+      }
+      requireMeta()
+      const ctx = ctxOf(exec)
+      const task = await meta.updateTask(args.task_id, { status: 'completed' })
+      const bound = bindingStore.get(ctx.sessionId)
+      if (bound?.task_id === args.task_id) bindingStore.clear(ctx.sessionId)
+      return { text: jsonText({ task, unbound: bound?.task_id === args.task_id, _context: echoOf(ctx) }) }
     },
   })
 
@@ -330,10 +528,11 @@ export function apply(ctx, config) {
   // 订阅在 ready 里完成（见上）：先把凭证 ref 解析成客户端，再挂 global 事件监听。
 
   log(
-    `ready v${version}: tools=${3 + CODE_QUERY_ACTIONS.size + 1} capture=${config.capture !== false ? 'on' : 'off'} `
+    `ready v${version}: tools=${3 + CODE_QUERY_ACTIONS.size + 1 + 6} capture=${config.capture !== false ? 'on' : 'off'} `
     + `memory=${config.memoryEndpoint || '(unset)'} knowledge=${config.knowledgeEndpoint || '(unset)'} `
     + `team=${config.teamId || '(unset)'} `
     + `secrets=${config.apiKeyRef || config.userKeyRef || config.knowledgeApiKeyRef ? 'ref(' + [config.apiKeyRef, config.userKeyRef, config.knowledgeApiKeyRef].filter(Boolean).join(',') + ')' : 'inline'} `
-    + `state=${config.capture !== false ? config.statePath || defaultStatePath() : '-'}`,
+    + `state=${config.capture !== false ? config.statePath || defaultStatePath() : '-'} `
+    + `taskAdmin=${config.taskAdmin === true ? 'on' : 'off'} bindings=${bindingStore.path}`,
   )
 }

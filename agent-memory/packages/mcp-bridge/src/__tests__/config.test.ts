@@ -70,7 +70,7 @@ describe('loadConfig', () => {
   })
 
   it('rejects a user key (sk-mem-*) as TASK_ID', () => {
-    process.env.TASK_ID = 'sk-mem-9hOykh5a1okxrVDRWsN3l_5jWNrK4hN6'
+    process.env.TASK_ID = 'sk-mem-fixture'
     expect(() => loadConfig()).toThrow(/must NOT be an identity id/)
   })
 

@@ -29,10 +29,10 @@ stateBackend: "local"
 server:
   port: 8422
   host: "127.0.0.1"
-  apiKey: "93da0eaff498c76c53670fb69c4e898f59df5ffb5f65d857"   # 2026-08-12 设置，公网暴露后必须启用
+  apiKey: "${TDAI_GATEWAY_API_KEY}"   # 必填：部署时从环境注入客户端 Bearer；真值严禁入库（历史提交曾泄漏，见 README 安全提示）
 
 data:
-  baseDir: "~/.openclaw/memory-tdai"
+  baseDir: "/data/tdai-memory"   # 部署时改成你的数据目录（示例；本机部署为 /home/<user>/memory-tdai）
 
 # ── LLM (必填) ──
 # provider 默认 "openai" 即直连；若要走 context_proxy（统一鉴权/账务/观测），

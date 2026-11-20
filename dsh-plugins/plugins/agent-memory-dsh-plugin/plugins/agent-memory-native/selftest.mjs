@@ -21,6 +21,10 @@ import {
   resolveSecretValue,
   createCodeGraphClient,
   createMemoryClient,
+  createMetaClient,
+  createTaskBindingStore,
+  composeBrief,
+  digestPersona,
   explainCodeGraphFailure,
   resolveTaskId,
   textOf,
@@ -74,6 +78,19 @@ function startMock() {
       switch (req.url) {
         case '/v3/atomic/search':
           return send({ items: [{ id: 'm1', content: 'fact about stock plugin' }] })
+        case '/v3/atomic/query':
+          return send({ items: [
+            { id: 't1', type: 'work_task', content: 'open A', priority: 80, metadata_json: '{"status":"todo","deadline":"2026-11-21T00:00:00Z"}' },
+            { id: 'f1', type: 'work_fact', content: 'fact A', priority: 90, metadata_json: '{}' },
+          ], total: 2 })
+        case '/v3/meta/task/create':
+          return send({ task_id: 'task-mock01', team_id: body.team_id, creator_user_id: body.creator_user_id, title: body.title, status: body.status || 'running' })
+        case '/v3/meta/task/get':
+          return send({ task_id: body.task_id, team_id: 'team-test', title: 'T', status: 'running' })
+        case '/v3/meta/task/list':
+          return send({ items: [{ task_id: 'task-mock01', title: 'T', status: 'running' }], total: 1 })
+        case '/v3/meta/task/update':
+          return send({ ...body, status: body.status || 'running' })
         case '/v3/core/read':
           return send({ path: 'core/persona.md', content: 'persona text' })
         case '/v3/scenario/ls':
@@ -280,6 +297,62 @@ async function mockTests() {
   try { resolveTaskId({ taskId: 'agt-abc' }, '/x') } catch (e) { tid = e }
   ok(tid && /身份 id/.test(tid.message), '5-2 拒绝身份前缀当 task_id')
   ok(textOf([{ type: 'text', text: 'a' }, { type: 'tool_use' }]) === 'a', '5-3 textOf 只取文本块')
+
+  console.log('5b. 会话级 task 绑定（P2）')
+  const bdir = mkdtempSync(join(tmpdir(), 'am-bind-'))
+  const bpath = join(bdir, 'bindings.json')
+  const store = createTaskBindingStore({ path: bpath })
+  ok(resolveTaskId({ taskId: 'dsh-ecosystem' }, '/a/b/normal-manager', 's1', store) === 'dsh-ecosystem', '5b-1 未绑定时用显式配置')
+  store.set('s1', { task_id: 'task-abc', title: 'T' })
+  ok(resolveTaskId({ taskId: 'dsh-ecosystem' }, '/a/b/normal-manager', 's1', store) === 'task-abc', '5b-2 绑定优先于配置')
+  ok(resolveTaskId({ taskId: 'dsh-ecosystem' }, '/a/b/normal-manager', 's2', store) === 'dsh-ecosystem', '5b-3 绑定只影响当前会话')
+  const store2 = createTaskBindingStore({ path: bpath })
+  ok(store2.get('s1')?.task_id === 'task-abc', '5b-4 绑定落盘可重载（重启不丢）')
+  const boundClient = createMemoryClient({ ...config, taskId: 'dsh-ecosystem' }, { bindingStore: store })
+  await boundClient.readCore({ cwd: '/a/b/normal-manager', sessionId: 's1' })
+  ok(last().body.task_id === 'task-abc', '5b-5 绑定后读写都用绑定 task_id')
+  await boundClient.readCore({ cwd: '/a/b/normal-manager', sessionId: 's2' })
+  ok(last().body.task_id === 'dsh-ecosystem', '5b-6 其他会话不受影响')
+  store.clear('s1')
+  ok(!store.get('s1'), '5b-7 clear 解绑')
+  rmSync(bdir, { recursive: true, force: true })
+
+  console.log('5c. 任务注册表（meta，需 user-key）')
+  const metaClient = createMetaClient({ ...config, userKey: 'uky-test' })
+  const created = await metaClient.createTask({ title: '记忆任务协议' })
+  ok(created.task_id === 'task-mock01', '5c-1 create 返回服务端 task_id')
+  ok(last().headers['x-tdai-user-key'] === 'uky-test', '5c-2 meta 请求带 x-tdai-user-key')
+  ok(last().body.creator_user_id === 'usr-test' && last().body.team_id === 'team-test', '5c-3 creator=caller、team 正确')
+  ok(Array.isArray(last().body.linked_agents) && last().body.linked_agents[0].agent_id === 'agt-test', '5c-4 默认关联本 agent')
+  const got = await metaClient.getTask('task-mock01')
+  ok(got.task_id === 'task-mock01', '5c-5 get 可用')
+  const listed = await metaClient.listTasks({})
+  ok(listed.items?.length === 1, '5c-6 list 可用')
+  const closed = await metaClient.updateTask('task-mock01', { status: 'completed' })
+  ok(closed.status === 'completed', '5c-7 close 走 update')
+  let merr = null
+  try { createMetaClient({ ...config, userKey: '' }).getTask('x') } catch (e) { merr = e }
+  ok(merr && /userKey/.test(merr.message), '5c-8 无 userKey 明确报错（不静默 401）')
+
+  console.log('5d. brief 预算与裁剪')
+  const personaText = '# Team\n> **Operating Thesis**: 证据优先\n## Core Principles\n- a\n- b\n## SOPs\n- c'
+  const digest = digestPersona(personaText, 200)
+  ok(digest.includes('Operating Thesis') && digest.length <= 200, '5d-1 画像摘要含 thesis 且受预算')
+  const brief = composeBrief({
+    binding: { task_id: 'task-mock01', title: 'T', bound_at: 'now' },
+    persona: { content: personaText },
+    scenes: { entries: Array.from({ length: 40 }, (_, i) => ({ path: `s${i}.md`, summary: 'x'.repeat(1000), updated_at: '2026-11-20' })) },
+    tasks: { items: [
+      { id: 't1', type: 'work_task', content: 'A', priority: 80, metadata_json: '{"status":"todo","deadline":"2026-11-21T00:00:00Z"}' },
+      { id: 't2', type: 'work_task', content: 'B', priority: 90, metadata_json: '{"status":"done"}' },
+      { id: 't3', type: 'work_task', content: 'C', priority: 95, metadata_json: '{"status":"todo"}' },
+    ] },
+    facts: { items: [{ id: 'f1', type: 'work_fact', content: 'F', updated_at: '2026-11-20' }] },
+  }, { maxChars: 2500 })
+  ok(brief._size_chars <= 2500, '5d-2 brief 不超预算')
+  ok(brief.open_tasks.length === 2 && brief.open_tasks[0].id === 't1', '5d-3 排除 done 且按 deadline 排序')
+  ok(brief.scenes.every((x) => !x.summary && x.path), '5d-4 场景只留索引（丢 summary）')
+  ok(brief.task?.task_id === 'task-mock01', '5d-5 带绑定任务信息')
 
   mock.server.close()
 }

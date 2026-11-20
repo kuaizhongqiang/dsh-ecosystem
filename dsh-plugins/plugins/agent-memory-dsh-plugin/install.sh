@@ -172,11 +172,20 @@ if [ "$MODE" = native ]; then
         userId: '<USER_ID>'
         userKeyRef: AGENT_MEMORY_USER_KEY
         taskId: '<project label task_id>'
+        # 任务绑定协议（TBP）：只给 serve agent 开 taskAdmin；worker 保持 false（只能 bind/get/list）。
+        # task_create 需要 userKeyRef（/v3/meta/* 只认 x-tdai-user-key，Bearer 不够）。
+        taskAdmin: false
+        # 会话级 task 绑定文件（默认 %DSH_HOME%/.dsh-memory-task-bindings.json）
+        # taskBindingPath: '/absolute/path/task-bindings.json'
+        # memory_brief 字符预算（默认 6000 ≈ 2K token）
+        briefBudgetChars: 6000
         capture: true
         timeoutMs: 15000
 EOF
 )"
-    info "记得把 config 里的 <...> 占位符（teamId/agentId/userId/taskId）换成真实值"
+    info "记得把 config 里的 <...> 占位符（teamId/agentId/userId/taskId）换成真实值；"
+    info "  要给某个 agent 建任务（task_create/task_close）把 taskAdmin 改成 true（仅 serve agent）；"
+    info "  任务绑定是会话级的：worker 收到 task_id 后调 task_bind，只会影响当前会话"
     info "code-graph 需要本机可达的 MemoryKnowledge（默认 :8421）；引擎不在本机时把 knowledgeEndpoint"
     info "  指向可达的 Knowledge 地址（如 https://knowledge.<域名>）—— memory.<域名> 只网关到 MemoryCore，会 404"
     info "两个密钥走**引用式**：存进受管凭证库即可 —— 会话里 credentials_set AGENT_MEMORY_API_KEY / AGENT_MEMORY_USER_KEY，"
