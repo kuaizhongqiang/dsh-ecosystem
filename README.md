@@ -27,6 +27,9 @@
 - serve 建任务由**部署方白名单**控制：native 用 `taskAdmin`，MCP 用 `TASK_ADMIN_AGENT_IDS`（默认空 = 全部拒绝）。
 - 只隔离 L0/L1；L2/L3 仍是 `(team, agent)` 级（任务结束、方法论留下）。
 - 旧调用与旧桶**行为不变**；31 个历史 `task_id` 只读保留，不迁移。
+- 新增运维控制台 **agent-memory-admin**（8 工具：`memory_overview` / `memory_list` / `memory_search` /
+  `memory_get` / `memory_edit` / `memory_prompts` / `memory_tasks` / `memory_health`）：团队级盘点、
+  检索、编辑与任务管理，维护记忆不必再翻库；团队级作用域需部署方 `TDAI_ADMIN_KEY`。
 - 协议全文：[`docs/task-binding-protocol.md`](dsh-plugins/plugins/agent-memory-dsh-plugin/docs/task-binding-protocol.md)；
   升级记录：[`docs/WORKLOG.md`](docs/WORKLOG.md)（2026-11-20）。
 

@@ -64,6 +64,28 @@ L1（语义事实）与 code-graph（确定性代码检索）**不复用同一 n
 部署侧要么在网关上**单独暴露 MemoryKnowledge**（如 `https://knowledge.<域名>`）并把它写进
 `knowledgeEndpoint`，要么给客户端一个内网/隧道可达的 `:8421` 地址。
 
+## 运维控制台（agent-memory-admin，v0.1.0）
+
+`dsh-plugins/plugins/agent-memory-admin/` 是独立的 native 插件（8 工具），给**维护者**用：
+
+| 工具 | 作用 |
+|---|---|
+| `memory_overview` | 引擎健康 + L0/L1/L2/L3 计数 + 按类型 + Top 任务/Agent + task 实体 + 绑定 + 游标 + DB 大小 |
+| `memory_health` | 健康 + 计数 + 绑定 + capture |
+| `memory_list` | 团队级 L1 分页（task/agent/user/type/时间窗） |
+| `memory_search` | 团队级检索（不限当前 task） |
+| `memory_get` | 读 L2 路径 / L3 画像 / task 实体 |
+| `memory_edit` | 改/删 L1、写/删 L2、写 L3（删除需 confirm） |
+| `memory_prompts` | 查看生效提示词与 settings（只读） |
+| `memory_tasks` | task list/get/create（支持自定义 id）/close |
+
+**团队级作用域**：数据面默认把缺失的身份填成 `default`，所以只传 `team_id` 查不到真实数据。
+控制台通过 `x-tdai-admin-key` + body `scope:"team"` 获得团队级视图；网关只在
+`TDAI_ADMIN_KEY` 匹配时才跳过默认桶填充，否则忽略 `scope=team`（不放宽隔离）。
+密钥放 `~/.config/memory-gateway/admin_key.txt`（600）与凭证库 `AGENT_MEMORY_ADMIN_KEY`。
+
+详见 [agent-memory-admin/README.md](../../dsh-plugins/plugins/agent-memory-admin/README.md)。
+
 ## 自动入库（建议即沉淀）
 
 `agent-memory/scripts/dsh-memory-autostore.mjs` 监听 `%DSH_HOME%/sessions`，每个 `turn/end` 把该轮

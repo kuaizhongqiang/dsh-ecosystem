@@ -80,6 +80,22 @@ userId/sessionId/taskId)。`meta_tasks` = **0 条** → task 只是 L0/L1 上的
 - 支持矩阵收敛为：DSH native（17 工具，一等）、MCP 桥（Claude Code / CodeBuddy，9 memory 工具）、
   OpenClaw（❌ 不支持）。
 
+### 七、记忆运维控制台 agent-memory-admin（8 工具）
+
+- 位置 `dsh-plugins/plugins/agent-memory-admin/`（独立 native 插件，v0.1.0，selftest 15 ok）。
+- 工具：`memory_overview` / `memory_health` / `memory_list` / `memory_search` /
+  `memory_get` / `memory_edit` / `memory_prompts` / `memory_tasks`。
+- **团队级作用域**：数据面默认把缺失的 user/agent/session 填成 `default`，只传 `team_id` 查不到真实数据；
+  新增 `scope:"team"` + `x-tdai-admin-key`（匹配网关 `TDAI_ADMIN_KEY`）才跳过默认桶填充，
+  且**保留显式过滤**（task/agent/user）。密钥：`~/.config/memory-gateway/admin_key.txt`(600) +
+  凭证库 `AGENT_MEMORY_ADMIN_KEY`；未匹配时 `scope=team` 被忽略，不放宽隔离。
+- 引擎配套：`CreateTaskInput.task_id` 在 HTTP schema 放开（3–64、`^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$`，
+  service 层拒绝身份前缀），serve 可创建可读 id；`AtomicDetail` 增加可选 `priority/metadata_json`。
+- 实测：`memory_overview` 返回 L0 6755 / L1 8183（work_fact 3893、work_method 2409、work_task 1047、
+  work_artifact 834）/ L2 56 / L3 4 / 4 个 task 实体 / 1 条会话绑定 / 233 个 capture 会话；
+  `memory_list(task_id=MechanicalDesignManufacturingAutomationVirtualMuseum)` 仅返回该桶记录。
+- 已部署到 `~/.dsh/profiles/web/plugins/agent-memory-admin/` 并加 cordis 条目（refs 引用，无内联 key）。
+
 ### 四、验证与遗留
 
 - `selftest.mjs` 离线 **67 ok / 0 FAIL**(新增 5b 绑定、5c meta、5d brief 预算);
