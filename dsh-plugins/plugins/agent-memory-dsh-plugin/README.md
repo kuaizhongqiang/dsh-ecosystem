@@ -24,7 +24,7 @@
 
 | 工具 | 作用 |
 |---|---|
-| `memory_brief` | **会话简报**：绑定任务 + 未结 `work_task` + L3 画像摘要 + L2 场景索引 + 最近事实，压进 ~2K token 预算 |
+| `memory_brief` | **会话简报**：绑定任务 + 未结 `work_task` + L3 画像摘要 + L2 场景索引 + 最近事实，压进 ~2.7K token 预算 |
 | `recall_memory` | 召回当前 task 的 L1 事实；`include_persona` 默认 **false**，`include_scenes` 只返索引；支持 `type` / 时间窗 |
 | `store_memory` | 显式把一轮对话写进 L0 |
 | `search_memories` | L1 原子记忆语义检索（可按 type / 时间窗过滤） |
@@ -135,7 +135,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 | `taskId` | 未绑定会话的默认 task 标签（**不是** agent_id） | 自定（如 `normal-manager`）；不配则取会话 cwd 目录名 |
 | `taskAdmin` | 是否允许 `task_create` / `task_close`（serve agent 开 `true`；worker 保持 `false`） | 布尔，默认 `false` |
 | `taskBindingPath` | 会话级绑定文件 | 默认 `%DSH_HOME%/.dsh-memory-task-bindings.json` |
-| `briefBudgetChars` | `memory_brief` 字符预算 | 默认 `6000`（≈2K token） |
+| `briefBudgetChars` | `memory_brief` 字符预算 | 默认 `8000`（≈2.7K token） |
 | `memoryEndpoint` / `knowledgeEndpoint` | MemoryCore / MemoryKnowledge 地址 | 本机端口或**远端可达地址**（见「远端部署」） |
 | 引擎 LLM key | 记忆提炼 | 600 权限文件，见上 |
 

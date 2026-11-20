@@ -177,8 +177,8 @@ if [ "$MODE" = native ]; then
         taskAdmin: false
         # 会话级 task 绑定文件（默认 %DSH_HOME%/.dsh-memory-task-bindings.json）
         # taskBindingPath: '/absolute/path/task-bindings.json'
-        # memory_brief 字符预算（默认 6000 ≈ 2K token）
-        briefBudgetChars: 6000
+        # memory_brief 字符预算（默认 8000 ≈ 2.7K token）
+        briefBudgetChars: 8000
         capture: true
         timeoutMs: 15000
 EOF

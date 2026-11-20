@@ -344,7 +344,7 @@ export function apply(ctx, config) {
       ])
       const brief = composeBrief(
         { binding: bindingStore.get(ctx.sessionId), persona, scenes, tasks, facts },
-        { maxChars: args.max_chars ?? config.briefBudgetChars ?? 6000 },
+        { maxChars: args.max_chars ?? config.briefBudgetChars ?? 8000 },
       )
       return { text: jsonText({ ...brief, _context: echoOf(ctx) }) }
     },

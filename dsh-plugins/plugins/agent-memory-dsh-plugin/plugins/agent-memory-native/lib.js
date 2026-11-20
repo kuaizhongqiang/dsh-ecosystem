@@ -510,16 +510,16 @@ export function digestPersona(text, maxChars = 1200) {
  * 输入都是引擎原始响应（`/core/read`、`/scenario/ls`、`/atomic/query`）。
  */
 export function composeBrief(input = {}, opts = {}) {
-  const budget = Number(opts.maxChars) || 6000
+  const budget = Number(opts.maxChars) || 8000
   const binding = input.binding || null
   const personaText = input.persona?.content || ''
-  const scenes = trimScenes(input.scenes?.entries || [], 30)
-  const tasks = openWorkTasks(input.tasks?.items || []).slice(0, 12)
-  const facts = (input.facts?.items || []).filter((f) => f && f.type !== 'work_task').slice(0, 12)
+  const scenes = trimScenes(input.scenes?.entries || [], 20)
+  const tasks = openWorkTasks(input.tasks?.items || []).slice(0, 8)
+  const facts = (input.facts?.items || []).filter((f) => f && f.type !== 'work_task').slice(0, 8)
 
   const openTasks = tasks.map((t) => ({
     id: t.id,
-    content: cap(t.content, 400),
+    content: cap(t.content, 300),
     deadline: t.meta.deadline || undefined,
     priority: t.priority,
     status: t.meta.status || undefined,
@@ -527,7 +527,7 @@ export function composeBrief(input = {}, opts = {}) {
   const recentFacts = facts.map((f) => ({
     id: f.id,
     type: f.type,
-    content: cap(f.content, 300),
+    content: cap(f.content, 200),
     updated_at: f.updated_at,
   }))
 
@@ -539,11 +539,11 @@ export function composeBrief(input = {}, opts = {}) {
     recent_facts: recentFacts,
   }
 
-  // 预算裁剪顺序：先砍最近事实内容 → 再砍场景条数 → 再砍任务条数 → 最后砍画像摘要。
+  // 预算裁剪顺序：场景索引（可再取）→ 最近事实 → 未结任务 → 画像摘要。
+  // 任务与画像优先保留（它们回答「在做什么/怎么干」），场景只是导航入口。
   const sizeOf = () => JSON.stringify(brief).length
-  const shrink = (arr, keep) => arr.slice(0, keep)
-  while (sizeOf() > budget && brief.recent_facts.length > 0) brief.recent_facts.pop()
   while (sizeOf() > budget && brief.scenes.length > 0) brief.scenes.pop()
+  while (sizeOf() > budget && brief.recent_facts.length > 0) brief.recent_facts.pop()
   while (sizeOf() > budget && brief.open_tasks.length > 0) brief.open_tasks.pop()
   if (sizeOf() > budget && brief.persona_digest) brief.persona_digest = cap(brief.persona_digest, Math.max(200, budget - sizeOf() + brief.persona_digest.length - 200))
   brief._size_chars = sizeOf()
