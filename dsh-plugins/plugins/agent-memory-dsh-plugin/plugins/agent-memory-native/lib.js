@@ -499,6 +499,10 @@ export function digestPersona(text, maxChars = 1200) {
       picked.push(line)
       continue
     }
+    // Scene Navigation 是 L2 索引的副本，brief 已单独给 scenes，不要再塞进画像摘要。
+    if (/^#{1,3}\s.*Scene Navigation/i.test(line)) break
+    if (/^###\s+Path:/.test(line)) continue
+    if (/^\*\*热度\*\*/.test(line)) continue
     if (/^#{1,3}\s/.test(line)) {
       picked.push(line)
       sinceHeading = 0
