@@ -1,5 +1,54 @@
 # dsh-launcher 生态计划 —— 工作日志
 
+## 2026-11-27 记忆引擎 atomic/update 基线行缺陷修复 + admin 0.1.2（Windows 侧验收）
+
+**用户诉求**：「记忆系统这轮修好了 4 件事，你只需做 3 步操作」→ Windows 侧按 3 步落地并回传验收证据；
+「直接修改 dsh eco 之后提 pr」→ 结论回写伞仓文档。
+
+### 一、修了什么（维护方口径，本机按效果复核）
+
+1. **`/v3/atomic/update` 取错基线行**：SQLite 后端的"按 id 取行"是空实现，直接落到全表
+   `updated_time ASC` 取 `rows[0]`（全库最老一条 `default` 桶记录）做归属比对与字段抄袭 ——
+   归属校验比错人（403），侥幸通过时把老行的 team/user/agent/task/type/场景抄到目标行上，
+   记忆被"改"出原来的桶，`query`/`search` 自然查不到。已修：按主键精确取行、取不到返回 404、
+   归属与类型只认库中那行。**受影响行已修复**（`m_1795784265137_9acbd21e`：归属/任务/类型/场景复原，
+   内容保留人工修正版）。
+2. **bridge-server 不透传头**：`/v3/*` 透明代理只转发 `authorization` / `x-tdai-service-id` /
+   `content-type` / `accept`，身份头与 `x-tdai-admin-key` 都被丢 → 团队级 `scope=team` 被网关忽略、
+   按 `default` 桶静默返回 0。已改为按 `x-tdai-*` 前缀全转发并重启，`:3000` 与公网结果一致。
+3. **人工修订被自动去重覆盖**：以前 merge/update 会删掉目标行再写新行、无保护。现在人工改过的行带
+   `manual_edited_at` / `manual_edit_count` 标记，去重遇到它不删不覆盖，改为另写一条新记忆。
+4. **admin 插件静默 0**：团队级计数为 0 且本机 `vectors.db` 有 L1 时改为抛诊断（列三种原因），
+   README/selftest 同步 —— `da3aac0`，插件 **0.1.2**。
+
+### 二、Windows 侧落地（本机 desktop profile）
+
+- 伞仓拉到 `da3aac0`；`agent-memory-admin` 0.1.2 同步到 `profiles/{desktop,web}/plugins/agent-memory-admin`
+  （`lib.js` sha256 与仓一致，selftest **20 ok / 0 FAIL**）；旧载荷留存 `.bak-20261127-admin012`。
+- `profiles/web` 的 `tool-agent-memory.taskId` 改为 `RehabilitationProject_TK_2027`，与 desktop 口径一致。
+- 计划任务 `dsh-memory-autostore` **已 Disabled**：它与 native 进程内 capture 共用同一游标
+  （`%DSH_HOME%/.dsh-memory-autostore-state.json`），双跑只增加竞态风险、收益为零。
+  停用需管理员权限 —— 非提权会话下 `Disable-ScheduledTask` 与 `schtasks /Change /DISABLE` 均报拒绝访问。
+
+### 三、验收（2026-11-27 21:2x 实测数字）
+
+- 团队计数：`:3000` 与公网同 key 同 body 结果一致；**带 `team_id` 9530（= `memory_health` 的 L1），
+  不带 `team_id` 9928（跨团队聚合）** —— 验收 curl 必须带 `team_id` 才和 `memory_health` 对得上。
+- `memory_edit` 改 `m_1795784265137_9acbd21e` → 返回 `version: v3`、无 403；紧跟 `memory_search`
+  用新措辞命中；`atomic/query` 仍含该 id；metadata 出现 `manual_edited_at` / `manual_edit_count=3` /
+  `repaired_note`。
+- 过一轮自动入库后回查：仍是 v3、归属/场景/类型不变、无第二条同内容行 → 去重保护生效。
+- 静默 0 回归：故意用错误 `adminKey` 调 `atomicCount` → 抛「团队级计数返回 0…」三条原因诊断（0.1.2 生效）。
+
+### 四、遗留（待引擎/运维侧闭合）
+
+- **`l1_vec` 的 `updated_at` 不随 update 刷新**：`l1_records.updated_time = 2026-11-27T13:22:25.752Z`，
+  但走向量索引的 `memory_search` 返回 `updated_at: 2026-06-12T14:51:36.995Z`（正是修复前那次
+  "最老基线行"抄错的时间戳）。内容已同步、可检索，但按时间排序/衰减的召回会把它当旧记忆误排。
+- **公网端点从本机不稳**：当日两次 `UND_ERR_CONNECT_TIMEOUT`（Cloudflare 直连超时），尾网 `:3000`
+  每次都通；建议插件 `memoryEndpoint` 优先指尾网。
+- admin 插件版本不随工具输出回显（只在 ready 日志里打），进程内版本要重启才能 100% 确认。
+
 ## 2026-11-20(四)引擎升 v2.0.4 + 记忆任务绑定协议(TBP v1)落地
 
 **用户诉求**:「TencentDB-Agent-Memory 有 github 更新,拉取并更新;现在记忆功能用得非常原始,需要有所区别,
