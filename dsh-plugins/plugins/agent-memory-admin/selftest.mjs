@@ -8,7 +8,9 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  countLocalL1Rows,
   createAdminClient,
+  diagnoseEmptyTeamCount,
   parseMetadata,
   readBindings,
   readCaptureState,
@@ -133,6 +135,14 @@ async function main() {
   if (oldHome === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = oldHome
   rmSync(dir, { recursive: true, force: true })
+
+  console.log('6. 端点不透传 x-tdai-admin-key 的诊断（静默 0）')
+  const diag = diagnoseEmptyTeamCount({ total: 0, localRows: 398, endpoint: 'http://127.0.0.1:3000' })
+  ok(typeof diag === 'string' && diag.includes('x-tdai-admin-key') && diag.includes('398'), '6-1 团队级 0 + 本机有行 → 报透传诊断')
+  ok(diagnoseEmptyTeamCount({ total: 5, localRows: 398 }) === undefined, '6-2 有数不报警')
+  ok(diagnoseEmptyTeamCount({ total: 0, localRows: 398, filters: { task_id: 'task-1' } }) === undefined, '6-3 带收窄条件的 0 不误报')
+  ok(diagnoseEmptyTeamCount({ total: 0, localRows: 0 }) === undefined, '6-4 空引擎不误报')
+  ok(countLocalL1Rows('/nonexistent-memory-dir') === null, '6-5 读不到本地库时返回 null（不阻塞）')
 
   mock.server.close()
   console.log(`\n结果：${passed} ok / ${failed} FAIL`)

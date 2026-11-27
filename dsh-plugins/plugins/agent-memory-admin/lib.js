@@ -10,8 +10,11 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+
+const require = createRequire(import.meta.url)
 
 export const DEFAULT_TIMEOUT_MS = 15_000
 export const L1_TYPES = [
@@ -30,6 +33,57 @@ export function dshHome() {
 
 export function jsonText(value) {
   return JSON.stringify(value, null, 2)
+}
+
+/**
+ * 本机引擎库里还有多少 L1 行（只用来诊断"接口 0 ≠ 没记忆"），读不到返回 null。
+ * 走 node:sqlite（Node 22+ 内置），插件保持零依赖、只读、失败不影响主流程。
+ */
+export function countLocalL1Rows(dataDir) {
+  if (!dataDir) return null
+  const dbPath = join(dataDir, 'vectors.db')
+  if (!existsSync(dbPath)) return null
+  try {
+    const { DatabaseSync } = require('node:sqlite')
+    const db = new DatabaseSync(dbPath, { readOnly: true })
+    try {
+      const row = db.prepare('SELECT COUNT(*) AS cnt FROM l1_records').get()
+      return Number(row?.cnt ?? 0)
+    } finally {
+      db.close()
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 团队级计数为 0 时的显式诊断。
+ *
+ * `adminKey` 只是必要条件：端点还必须把 `x-tdai-admin-key` 透传到网关。
+ * 早期 bridge-server 的 FORWARDED_HEADERS 不含它 → 网关静默忽略 scope=team，
+ * 按 default 桶返回 0，看起来像"key 配错了"或"没有记忆"。
+ *
+ * 返回诊断文案；不需要诊断时返回 undefined。
+ */
+export function diagnoseEmptyTeamCount({ total, filters = {}, localRows = null, endpoint = '' } = {}) {
+  if (total !== 0) return undefined
+  // 只有"纯团队级"计数才是透传问题；带了收窄条件时 0 可能是正常的。
+  if (filters.agent_id || filters.user_id || filters.task_id || filters.type || filters.time_start || filters.time_end) {
+    return undefined
+  }
+  if (localRows !== null && localRows <= 0) return undefined
+  const where = endpoint ? `（endpoint=${endpoint}）` : ''
+  const rows = localRows === null ? '未知' : String(localRows)
+  return [
+    `团队级计数返回 0${where}，但本机 vectors.db 仍有 L1 行（${rows}）。这几乎不是"没有记忆"。`,
+    '按概率排查：',
+    '1) 端点没有透传 x-tdai-admin-key（如 bridge-server 白名单缺它）→ 网关忽略 scope="team"，按 default 桶查询；',
+    '2) x-tdai-admin-key 与网关 TDAI_ADMIN_KEY 不一致（读错文件 / 网关改 key 后未重启）；',
+    '3) teamId 配错。',
+    '自检：curl -s -X POST <endpoint>/v3/atomic/count -H "x-tdai-service-id: default" ' +
+      '-H "Authorization: Bearer $API_KEY" -H "x-tdai-admin-key: $ADMIN_KEY" -d \'{"scope":"team"}\'',
+  ].join('\n')
 }
 
 export async function resolveSecretValue({ ref, inline, service, brand = (n) => n, env = process.env, warn = () => {} } = {}) {
@@ -134,8 +188,16 @@ export function createAdminClient(config) {
       requireBase()
       return httpRequest(base, '/health', { method: 'GET', headers: dataHeaders(), timeoutMs })
     },
-    atomicCount(filters) {
-      return post('/v3/atomic/count', filterBody(filters))
+    async atomicCount(filters) {
+      const data = await post('/v3/atomic/count', filterBody(filters))
+      const diagnosis = diagnoseEmptyTeamCount({
+        total: data?.total,
+        filters: filters ?? {},
+        localRows: countLocalL1Rows(config.dataDir),
+        endpoint: base,
+      })
+      if (diagnosis) throw new Error(diagnosis)
+      return data
     },
     atomicQuery(filters = {}) {
       const body = filterBody(filters)

@@ -26,7 +26,19 @@
 - 插件请求带 `x-tdai-admin-key` + body `scope: "team"`；
 - 网关只在密钥匹配时跳过默认桶填充，**否则 `scope=team` 被忽略**（不会放宽隔离）。
 
-因此本插件必须配置 `adminKeyRef`，否则所有查询会返回 0（会显式报错）。
+因此本插件必须配置 `adminKeyRef`，**而且端点必须把 `x-tdai-admin-key` 原样透传到网关**。
+
+> ⚠️ `adminKey` 配了 ≠ 生效。网关只看"到达它的那个头"：如果中间还有一层 HTTP 桥
+> （`bridge-server` 的 `/v3/*` 透明转发）而它的白名单没带 `x-tdai-admin-key`，
+> 网关会**静默忽略** `scope=team`，按 `default` 桶返回 **0 且不报错**。
+> 实测（2026-11-27）：`bridge-server` 早期 `FORWARDED_HEADERS` 只有
+> `authorization / x-tdai-service-id / content-type / accept`，
+> 尾网 `:3000` 上 `atomic/count {scope:team}` 返回 0，同一条请求直连 `:8422` 返回 9909。
+> 排查口诀：**同一个 key、同一条 curl，直连网关有数、过桥为 0 ⇒ 端点不透传头**，
+> 不是 key 配错、也不是"没记忆"。0.1.2 起 `atomicCount` 在"团队级计数为 0 但本机
+> `vectors.db` 有 L1"时直接抛诊断错误，不再让 0 冒充结果。
+
+因此本插件必须配置 `adminKeyRef`，否则所有查询会返回 0（会显式报错）；端点不透传时同样会显式报错。
 
 ## 配置（`cordis.patch.yml` 条目）
 
