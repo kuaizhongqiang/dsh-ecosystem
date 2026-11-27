@@ -27,6 +27,7 @@
 - 网关只在密钥匹配时跳过默认桶填充，**否则 `scope=team` 被忽略**（不会放宽隔离）。
 
 因此本插件必须配置 `adminKeyRef`，**而且端点必须把 `x-tdai-admin-key` 原样透传到网关**。
+端点不透传时 0.1.2 起会显式报错，不再把 0 当结果返回。
 
 > ⚠️ `adminKey` 配了 ≠ 生效。网关只看"到达它的那个头"：如果中间还有一层 HTTP 桥
 > （`bridge-server` 的 `/v3/*` 透明转发）而它的白名单没带 `x-tdai-admin-key`，
@@ -38,7 +39,17 @@
 > 不是 key 配错、也不是"没记忆"。0.1.2 起 `atomicCount` 在"团队级计数为 0 但本机
 > `vectors.db` 有 L1"时直接抛诊断错误，不再让 0 冒充结果。
 
-因此本插件必须配置 `adminKeyRef`，否则所有查询会返回 0（会显式报错）；端点不透传时同样会显式报错。
+## 计数口径与端点选择
+
+- **团队计数必须带 `team_id`**：`/v3/atomic/count` 只带 `scope:"team"` 时返回的是**跨团队聚合**
+  （实测 2026-11-27：不带 `team_id` → 9928，带 `team_id=team-w7eai9w6kc` → **9530**）。
+  9530 才等于 `memory_health` 的 L1；两者对不上时先查这个，不要怀疑记忆丢失。
+- **端点优先尾网/直连**：公网若经 Cloudflare，个别网络下会偶发 `UND_ERR_CONNECT_TIMEOUT`（当日两次），
+  尾网 `bridge-server :3000` 稳定；只要该桥已按 `x-tdai-*` 前缀全转发，读写与团队级计数都能通。
+- **已知残留（已修数据，非索引缺陷）**：`atomic/update` 曾把错基线行的事件时间戳抄到目标行，
+  导致 `memory_search` 返回的 `created_at/updated_at`（取自 `timestamp_start/end`）是 2026-06；
+  `l1_vec.updated_time` 本身是刷新的。存量 243 条已按行回填，见
+  [docs/modules/agent-memory.md](../../../docs/modules/agent-memory.md) 的「已知限制」。
 
 ## 配置（`cordis.patch.yml` 条目）
 
@@ -69,10 +80,10 @@
 cp -r plugins/agent-memory-admin ~/.dsh/profiles/web/plugins/
 # 在 cordis.patch.yml 追加上面的条目，然后：
 systemctl --user restart dsh
-journalctl --user -u dsh | grep agent-memory-admin   # ready v0.1.0: tools=8
+journalctl --user -u dsh | grep agent-memory-admin   # ready v0.1.2: tools=8
 ```
 
-离线自检：`node selftest.mjs`（15 ok）。
+离线自检：`node selftest.mjs`（**20 ok / 0 FAIL**，含 0.1.2 的"静默 0 → 抛诊断"5 条断言）。
 
 ## 安全
 

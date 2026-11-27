@@ -64,7 +64,7 @@ L1（语义事实）与 code-graph（确定性代码检索）**不复用同一 n
 部署侧要么在网关上**单独暴露 MemoryKnowledge**（如 `https://knowledge.<域名>`）并把它写进
 `knowledgeEndpoint`，要么给客户端一个内网/隧道可达的 `:8421` 地址。
 
-## 运维控制台（agent-memory-admin，v0.1.0）
+## 运维控制台（agent-memory-admin，v0.1.2）
 
 `dsh-plugins/plugins/agent-memory-admin/` 是独立的 native 插件（8 工具），给**维护者**用：
 
@@ -83,6 +83,16 @@ L1（语义事实）与 code-graph（确定性代码检索）**不复用同一 n
 控制台通过 `x-tdai-admin-key` + body `scope:"team"` 获得团队级视图；网关只在
 `TDAI_ADMIN_KEY` 匹配时才跳过默认桶填充，否则忽略 `scope=team`（不放宽隔离）。
 密钥放 `~/.config/memory-gateway/admin_key.txt`（600）与凭证库 `AGENT_MEMORY_ADMIN_KEY`。
+
+**端点必须把 `x-tdai-admin-key` 原样透传**：`bridge-server` 早期 `/v3/*` 白名单只有
+`authorization` / `x-tdai-service-id` / `content-type` / `accept`，过桥的身份头与管理头透传不完整 →
+`scope=team` 被忽略、按 `default` 桶静默返回 0（看起来像 key 配错或"没有记忆"）。
+2026-11-27 起 `bridge-server` 改为按 `x-tdai-*` 前缀全转发；插件 0.1.2 起在"团队级计数为 0 但本机
+`vectors.db` 有 L1"时直接抛诊断，不再让 0 冒充结果。
+
+**计数口径（验收必看）**：`/v3/atomic/count` 只带 `scope:"team"` 返回的是**跨团队**聚合；
+带 `team_id` 才是本团队计数。2026-11-27 实测同一端点两次请求：不带 `team_id` → 9928，
+带 `team_id=team-w7eai9w6kc` → **9530**（= `memory_health` 的 L1）。验收 curl 必须带 `team_id`。
 
 详见 [agent-memory-admin/README.md](../../dsh-plugins/plugins/agent-memory-admin/README.md)。
 
@@ -139,6 +149,14 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 - **构建类安装别在 `NODE_ENV=production` 下跑 npm**：会静默 omit devDependencies（`MemoryPanel/web`
   的 `tsc` 就报 `react-dom/client` 缺类型）；用 `NODE_ENV=development npm install --include=dev`，
   且**别用 `cmd | tail` 取退出码**（管道会把失败吞成 0）。
+- **`atomic/update` 会抄走基线行的事件时间戳**（2026-11-27 实测并已修数据）：这是第 2 项"取错基线行"
+  缺陷的另一面 —— 它同时把最老行的 `timestamp_str/start/end` 抄到目标行，而 `memory_search` 的
+  `created_at/updated_at` 取自 `timestamp_start/timestamp_end`，于是出现"`l1_records.updated_time` 是新的、
+  `memory_search` 返回 2026-06-12"的错觉。**`l1_vec.updated_time` 实际会随 update 刷新**（vec0 直查与
+  `l1_records.updated_time` 一致），不是向量索引没同步。同一缺陷也污染了 L1 去重写入：
+  `queryL1Records({recordIds})` 返回全表 → `targetTimestamps` 并入了全表时间戳 → 合并出的记忆继承
+  `2026-06-12T14:51:36.995Z`（实测 243 条 11 月记录带此哨兵值）。引擎侧的 `recordIds` 修复已阻断新增污染；
+  存量数据需按行修 `timestamp_*`（目标行用同批事件时间，其余按 `created_time` 近似）。
 - Windows 下引擎侧需 WSL2/docker；native 插件与 autostore 计划任务可用。
 
 ## 相关文档
