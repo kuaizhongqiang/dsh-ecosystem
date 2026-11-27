@@ -46,8 +46,9 @@
   9530 才等于 `memory_health` 的 L1；两者对不上时先查这个，不要怀疑记忆丢失。
 - **端点优先尾网/直连**：公网若经 Cloudflare，个别网络下会偶发 `UND_ERR_CONNECT_TIMEOUT`（当日两次），
   尾网 `bridge-server :3000` 稳定；只要该桥已按 `x-tdai-*` 前缀全转发，读写与团队级计数都能通。
-- **已知残留**：`atomic/update` 不刷新 `l1_vec` 的 `updated_at` —— 内容与检索同步，但
-  `memory_search` 返回的时间戳可能仍是旧值（影响按时间排序/衰减），见
+- **已知残留（已修数据，非索引缺陷）**：`atomic/update` 曾把错基线行的事件时间戳抄到目标行，
+  导致 `memory_search` 返回的 `created_at/updated_at`（取自 `timestamp_start/end`）是 2026-06；
+  `l1_vec.updated_time` 本身是刷新的。存量 243 条已按行回填，见
   [docs/modules/agent-memory.md](../../../docs/modules/agent-memory.md) 的「已知限制」。
 
 ## 配置（`cordis.patch.yml` 条目）

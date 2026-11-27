@@ -149,10 +149,14 @@ user + assistant 文本提交进 MemoryCore（默认提交、按需取回，不�
 - **构建类安装别在 `NODE_ENV=production` 下跑 npm**：会静默 omit devDependencies（`MemoryPanel/web`
   的 `tsc` 就报 `react-dom/client` 缺类型）；用 `NODE_ENV=development npm install --include=dev`，
   且**别用 `cmd | tail` 取退出码**（管道会把失败吞成 0）。
-- **`atomic/update` 不刷新 `l1_vec` 的 `updated_at`**（2026-11-27 实测）：内容与检索侧已同步（新措辞能命中），
-  但向量索引里的时间戳仍是旧值 —— 同一条记录 `l1_records.updated_time = 2026-11-27T13:22:25.752Z`，
-  而 `memory_search` 返回 `updated_at: 2026-06-12T14:51:36.995Z`（正是修复前"最老基线行"抄错的时间）。
-  按时间排序/衰减的召回会把它误判成旧记忆，待引擎侧补刷向量 metadata。
+- **`atomic/update` 会抄走基线行的事件时间戳**（2026-11-27 实测并已修数据）：这是第 2 项"取错基线行"
+  缺陷的另一面 —— 它同时把最老行的 `timestamp_str/start/end` 抄到目标行，而 `memory_search` 的
+  `created_at/updated_at` 取自 `timestamp_start/timestamp_end`，于是出现"`l1_records.updated_time` 是新的、
+  `memory_search` 返回 2026-06-12"的错觉。**`l1_vec.updated_time` 实际会随 update 刷新**（vec0 直查与
+  `l1_records.updated_time` 一致），不是向量索引没同步。同一缺陷也污染了 L1 去重写入：
+  `queryL1Records({recordIds})` 返回全表 → `targetTimestamps` 并入了全表时间戳 → 合并出的记忆继承
+  `2026-06-12T14:51:36.995Z`（实测 243 条 11 月记录带此哨兵值）。引擎侧的 `recordIds` 修复已阻断新增污染；
+  存量数据需按行修 `timestamp_*`（目标行用同批事件时间，其余按 `created_time` 近似）。
 - Windows 下引擎侧需 WSL2/docker；native 插件与 autostore 计划任务可用。
 
 ## 相关文档

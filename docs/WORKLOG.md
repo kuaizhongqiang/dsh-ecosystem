@@ -16,9 +16,11 @@
 2. **bridge-server 头透传不完整**：`/v3/*` 透明代理的 `FORWARDED_HEADERS` 只有 `authorization` /
    `x-tdai-service-id` / `content-type` / `accept` → 身份头与 `x-tdai-admin-key` 的透传都不完整，
    团队级 `scope=team` 被网关忽略、按 `default` 桶静默返回 0。
-   两侧观测口径差（留档备查）：维护方实测「身份头与 admin key 都丢」；Windows 侧对早期部署实测
-   「带 `x-tdai-user/agent/task-id` 的 `atomic/update` 能过 200，而 `scope=team` 计数为 0（admin key 丢）」。
-   差异应来自部署版本，**以部署版本为准**。已改为按 `x-tdai-*` 前缀全转发并重启，`:3000` 与公网结果一致。
+   两侧观测口径差（已闭环）：维护方在部署机复核，`100.87.60.42:3000` 与 Windows 侧访问的是**同一份部署**，
+   维护方实测「身份头与 admin key 都丢」；Windows 侧那次"带身份头 `atomic/update` 能过 200"并不代表透传成功
+   —— 桥把身份头丢了、`iso` 落到 `default`，恰好与"取错基线行"的归属校验互相抵消（`memory_audit` 里该次
+   写操作记录为 `team/user/agent = default`），所以 200 反而是数据被改坏的那一次。已改为按 `x-tdai-*`
+   前缀全转发并重启，`:3000` 与公网结果一致。
 3. **人工修订被自动去重覆盖**：以前 merge/update 会删掉目标行再写新行、无保护。现在人工改过的行带
    `manual_edited_at` / `manual_edit_count` 标记，去重遇到它不删不覆盖，改为另写一条新记忆。
 4. **admin 插件静默 0**：团队级计数为 0 且本机 `vectors.db` 有 L1 时改为抛诊断（列三种原因），
@@ -45,9 +47,15 @@
 
 ### 四、遗留（待引擎/运维侧闭合）
 
-- **`l1_vec` 的 `updated_at` 不随 update 刷新**：`l1_records.updated_time = 2026-11-27T13:22:25.752Z`，
-  但走向量索引的 `memory_search` 返回 `updated_at: 2026-06-12T14:51:36.995Z`（正是修复前那次
-  "最老基线行"抄错的时间戳）。内容已同步、可检索，但按时间排序/衰减的召回会把它当旧记忆误排。
+- **事件时间戳被同一个基线行缺陷抄错（已修数据；`l1_vec` 本身是刷新的）**：`atomic/update` 抄错基线行时
+  把最老行的 `timestamp_str/start/end` 一并抄到目标行，而 `memory_search` 的 `created_at/updated_at`
+  取自 `timestamp_start/timestamp_end`，于是出现"`l1_records.updated_time` 是新的、`memory_search`
+  返回 `2026-06-12`"的错觉。**vec0 直查确认 `l1_vec.updated_time` = `l1_records.updated_time`（13:22:25），
+  向量索引没有漏刷**。同一缺陷还污染了 L1 去重写入：`queryL1Records({recordIds})` 返回全表 →
+  `targetTimestamps` 并了全表 → 合并记忆继承 `2026-06-12T14:51:36.995Z`（实测 243 条 11 月记录带此哨兵值）。
+  已修：目标行恢复为同批事件时间 `2026-11-27T12:57:05.474Z`；其余 **242 条**按 `created_time` 近似回填
+  （真实事件时间不可考），`l1_records` + `l1_fts` 同步；`memory_search` 返回的 `created_at/updated_at` 已正常。
+  备份：引擎主机 `~/memory-tdai/.backup/vectors-pre-ts-repair-20261127.db`。引擎侧 `recordIds` 修复已阻断新增污染。
 - **公网端点从本机不稳**：当日两次 `UND_ERR_CONNECT_TIMEOUT`（Cloudflare 直连超时），尾网 `:3000`
   每次都通；建议插件 `memoryEndpoint` 优先指尾网。
 - admin 插件版本不随工具输出回显（只在 ready 日志里打），进程内版本要重启才能 100% 确认。
