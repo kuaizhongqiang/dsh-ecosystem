@@ -85,7 +85,7 @@ L1（语义事实）与 code-graph（确定性代码检索）**不复用同一 n
 密钥放 `~/.config/memory-gateway/admin_key.txt`（600）与凭证库 `AGENT_MEMORY_ADMIN_KEY`。
 
 **端点必须把 `x-tdai-admin-key` 原样透传**：`bridge-server` 早期 `/v3/*` 白名单只有
-`authorization` / `x-tdai-service-id` / `content-type` / `accept`，过桥的身份头与管理头都被丢弃 →
+`authorization` / `x-tdai-service-id` / `content-type` / `accept`，过桥的身份头与管理头透传不完整 →
 `scope=team` 被忽略、按 `default` 桶静默返回 0（看起来像 key 配错或"没有记忆"）。
 2026-11-27 起 `bridge-server` 改为按 `x-tdai-*` 前缀全转发；插件 0.1.2 起在"团队级计数为 0 但本机
 `vectors.db` 有 L1"时直接抛诊断，不再让 0 冒充结果。

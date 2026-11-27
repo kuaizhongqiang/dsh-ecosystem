@@ -13,9 +13,12 @@
    记忆被"改"出原来的桶，`query`/`search` 自然查不到。已修：按主键精确取行、取不到返回 404、
    归属与类型只认库中那行。**受影响行已修复**（`m_1795784265137_9acbd21e`：归属/任务/类型/场景复原，
    内容保留人工修正版）。
-2. **bridge-server 不透传头**：`/v3/*` 透明代理只转发 `authorization` / `x-tdai-service-id` /
-   `content-type` / `accept`，身份头与 `x-tdai-admin-key` 都被丢 → 团队级 `scope=team` 被网关忽略、
-   按 `default` 桶静默返回 0。已改为按 `x-tdai-*` 前缀全转发并重启，`:3000` 与公网结果一致。
+2. **bridge-server 头透传不完整**：`/v3/*` 透明代理的 `FORWARDED_HEADERS` 只有 `authorization` /
+   `x-tdai-service-id` / `content-type` / `accept` → 身份头与 `x-tdai-admin-key` 的透传都不完整，
+   团队级 `scope=team` 被网关忽略、按 `default` 桶静默返回 0。
+   两侧观测口径差（留档备查）：维护方实测「身份头与 admin key 都丢」；Windows 侧对早期部署实测
+   「带 `x-tdai-user/agent/task-id` 的 `atomic/update` 能过 200，而 `scope=team` 计数为 0（admin key 丢）」。
+   差异应来自部署版本，**以部署版本为准**。已改为按 `x-tdai-*` 前缀全转发并重启，`:3000` 与公网结果一致。
 3. **人工修订被自动去重覆盖**：以前 merge/update 会删掉目标行再写新行、无保护。现在人工改过的行带
    `manual_edited_at` / `manual_edit_count` 标记，去重遇到它不删不覆盖，改为另写一条新记忆。
 4. **admin 插件静默 0**：团队级计数为 0 且本机 `vectors.db` 有 L1 时改为抛诊断（列三种原因），
